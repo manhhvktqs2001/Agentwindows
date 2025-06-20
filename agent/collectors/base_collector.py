@@ -71,13 +71,14 @@ class BaseCollector(ABC):
             self.is_running = True
             self.start_time = datetime.now()
             
-            self.logger.info(f"🚀 Starting {self.collector_name}...")
+            self.logger.info(f"🚀 Starting collector: {self.collector_name}")
             
-            # Start collection loop
-            if self.real_time_monitoring:
-                asyncio.create_task(self._collection_loop())
+            # Start polling loop for all polling-based collectors
+            # This check was incorrect, polling collectors must always poll.
+            # Real-time collectors like FileCollector override this start() method.
+            asyncio.create_task(self._polling_loop())
             
-            self.logger.info(f"✅ {self.collector_name} started")
+            self.logger.info(f"✅ Collector started: {self.collector_name}")
             
         except Exception as e:
             self.logger.error(f"❌ {self.collector_name} start failed: {e}")
@@ -105,7 +106,11 @@ class BaseCollector(ABC):
                 collection_start = time.time()
                 
                 # Collect data
-                await self._collect_data()
+                result = await self._collect_data()
+                # Nếu collector trả về list event, gửi từng event vào queue
+                if isinstance(result, list):
+                    for event in result:
+                        await self.add_event(event)
                 
                 # Update statistics
                 self.last_collection_time = datetime.now()

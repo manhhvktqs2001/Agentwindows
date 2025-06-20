@@ -141,6 +141,11 @@ class AgentManager:
             # Start heartbeat task
             asyncio.create_task(self._heartbeat_loop())
             
+            self.logger.info(f"[START] Using AgentID: {self.agent_id}")
+            if self.event_processor:
+                self.event_processor.set_agent_id(self.agent_id)
+                self.logger.info(f"[EVENT_PROCESSOR] Set AgentID: {self.agent_id}")
+            
             self.logger.info("✅ Agent started successfully")
             
         except Exception as e:
@@ -201,6 +206,8 @@ class AgentManager:
                 # Update configuration with server settings
                 if 'heartbeat_interval' in response:
                     self.config['agent']['heartbeat_interval'] = response['heartbeat_interval']
+                
+                self.logger.info(f"[REGISTER] Hostname: {system_info['hostname']} | AgentID: {self.agent_id}")
                 
             else:
                 raise Exception("Registration failed")

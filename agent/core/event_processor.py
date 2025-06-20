@@ -218,6 +218,7 @@ class EventProcessor:
         """Send batch of events to server"""
         try:
             if not self.event_queue or not self.agent_id:
+                self.logger.warning(f"[SEND_BATCH] Missing agent_id or empty queue. AgentID: {self.agent_id}")
                 return
             
             # Extract events for batch
@@ -231,7 +232,7 @@ class EventProcessor:
             if not batch_events:
                 return
             
-            self.logger.info(f"📤 Sending batch: {len(batch_events)} events")
+            self.logger.info(f"[SEND_BATCH] Sending batch: {len(batch_events)} events | AgentID: {self.agent_id}")
             
             # Send to server
             response = await self.communication.submit_event_batch(self.agent_id, batch_events)
