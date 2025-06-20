@@ -1,7 +1,8 @@
-# main.py - EDR Agent Main Entry Point
+# main.py - EDR Windows Agent Main Entry Point (PRODUCTION READY)
 """
-EDR Security Agent
-Windows endpoint security monitoring agent
+EDR Security Agent for Windows
+Complete Windows endpoint security monitoring agent compatible with EDR Server
+Features: Process monitoring, File system monitoring, Network monitoring, Registry monitoring
 """
 
 import sys
@@ -10,9 +11,9 @@ import asyncio
 import logging
 import signal
 import time
+import ctypes
 from pathlib import Path
 from typing import Optional
-import ctypes
 
 # Add agent directory to path
 agent_dir = Path(__file__).resolve().parent
@@ -23,7 +24,7 @@ from agent.core.config_manager import ConfigManager
 from agent.utils.logging_utils import setup_logging
 
 class EDRAgent:
-    """Main EDR Agent class"""
+    """Main EDR Agent class for Windows"""
     
     def __init__(self):
         self.agent_manager: Optional[AgentManager] = None
@@ -37,7 +38,7 @@ class EDRAgent:
         try:
             # Setup logging first
             self.logger = setup_logging()
-            self.logger.info("🛡️ EDR Agent starting...")
+            self.logger.info("🛡️ EDR Windows Agent starting...")
             
             # Initialize configuration
             self.config_manager = ConfigManager()
@@ -52,7 +53,7 @@ class EDRAgent:
             # Setup signal handlers
             self._setup_signal_handlers()
             
-            self.logger.info("✅ EDR Agent initialized successfully")
+            self.logger.info("✅ EDR Windows Agent initialized successfully")
             return True
             
         except Exception as e:
@@ -69,11 +70,14 @@ class EDRAgent:
                 raise Exception("Agent not initialized")
             
             self.is_running = True
-            self.logger.info("🚀 Starting EDR Agent...")
+            self.logger.info("🚀 Starting EDR Windows Agent...")
             
             # Start agent manager
             await self.agent_manager.start()
-            self.logger.info("✅ EDR Agent started successfully")
+            self.logger.info("✅ EDR Windows Agent started successfully")
+            
+            # Print status
+            self._print_agent_status()
             
             # Main event loop
             await self._main_loop()
@@ -110,7 +114,7 @@ class EDRAgent:
     async def stop(self):
         """Stop the agent gracefully"""
         if hasattr(self, 'logger') and self.logger:
-            self.logger.info("🛑 Stopping EDR Agent...")
+            self.logger.info("🛑 Stopping EDR Windows Agent...")
         self.is_running = False
         self.shutdown_event.set()
         
@@ -118,7 +122,7 @@ class EDRAgent:
             await self.agent_manager.stop()
         
         if hasattr(self, 'logger') and self.logger:
-            self.logger.info("✅ EDR Agent stopped")
+            self.logger.info("✅ EDR Windows Agent stopped")
     
     def _setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown"""
@@ -126,28 +130,112 @@ class EDRAgent:
             self.logger.info(f"📡 Received signal {signum}")
             asyncio.create_task(self.stop())
         
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
+        try:
+            signal.signal(signal.SIGINT, signal_handler)
+            signal.signal(signal.SIGTERM, signal_handler)
+        except Exception as e:
+            self.logger.warning(f"⚠️ Signal handler setup failed: {e}")
+    
+    def _print_agent_status(self):
+        """Print agent status information"""
+        try:
+            config = self.config_manager.get_config()
+            server_config = config.get('server', {})
+            agent_config = config.get('agent', {})
+            
+            print(f"""
+════════════════════════════════════════════════════════════════
+🛡️  EDR WINDOWS AGENT - {agent_config.get('version', '1.0.0')}
+════════════════════════════════════════════════════════════════
+📊 Status: RUNNING
+🌐 Server: {server_config.get('host', 'localhost')}:{server_config.get('port', 5000)}
+💓 Heartbeat: {agent_config.get('heartbeat_interval', 30)}s
+📦 Batch Size: {agent_config.get('event_batch_size', 100)} events
+🔧 Monitoring: {'✅ ENABLED' if config.get('collection', {}).get('enabled', True) else '❌ DISABLED'}
+
+📡 Collectors Active:
+   • Process Monitor: {'✅' if config.get('collection', {}).get('collect_processes', True) else '❌'}
+   • File Monitor: {'✅' if config.get('collection', {}).get('collect_files', True) else '❌'}
+   • Network Monitor: {'✅' if config.get('collection', {}).get('collect_network', True) else '❌'}
+   • Registry Monitor: {'✅' if config.get('collection', {}).get('collect_registry', True) else '❌'}
+   • Authentication Monitor: {'✅' if config.get('collection', {}).get('collect_authentication', True) else '❌'}
+
+🔐 Security: {'✅ ACTIVE' if config.get('security', {}).get('anti_tamper_enabled', True) else '❌ DISABLED'}
+════════════════════════════════════════════════════════════════
+Press Ctrl+C to stop the agent
+""")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Status print failed: {e}")
 
 def is_admin():
+    """Check if running with administrator privileges"""
     try:
         return ctypes.windll.shell32.IsUserAnAdmin()
     except:
         return False
 
+def check_python_version():
+    """Check Python version compatibility"""
+    if sys.version_info < (3, 8):
+        print("❌ Python 3.8 or higher is required")
+        print(f"   Current version: {sys.version}")
+        return False
+    return True
+
+def check_windows_version():
+    """Check Windows version compatibility"""
+    try:
+        import platform
+        version = platform.release()
+        if version in ['7', '8', '8.1', '10', '11']:
+            return True
+        else:
+            print(f"⚠️ Untested Windows version: {version}")
+            return True
+    except:
+        return True
+
 async def main():
     """Main entry point"""
+    # Set console title
+    try:
+        os.system('title EDR Windows Security Agent')
+    except:
+        pass
+    
+    # Check prerequisites
+    if not check_python_version():
+        sys.exit(1)
+    
+    if not check_windows_version():
+        print("⚠️ Continuing on unsupported Windows version...")
+    
+    # Check administrator privileges
+    if not is_admin():
+        print("⚠️ Administrator privileges recommended for full functionality")
+        print("   Some monitoring features may be limited")
+        
+        # Try to relaunch as admin
+        try:
+            print("🔄 Attempting to restart as administrator...")
+            ctypes.windll.shell32.ShellExecuteW(
+                None, "runas", sys.executable, 
+                ' '.join(sys.argv), None, 1
+            )
+            sys.exit(0)
+        except:
+            print("❌ Failed to restart as administrator")
+            print("   Continuing with limited privileges...")
+            time.sleep(2)
+    
+    # Create and run agent
     agent = EDRAgent()
     
     try:
-        if os.name == 'nt' and not is_admin():
-            print("[!] Agent requires Administrator privileges. Relaunching as admin...")
-            ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, ' '.join(sys.argv), None, 1)
-            sys.exit(0)
-            return
-        
         # Initialize agent
         if not await agent.initialize():
+            print("❌ Agent initialization failed")
             sys.exit(1)
         
         # Start agent
@@ -157,17 +245,30 @@ async def main():
         print("\n🛑 Shutdown requested by user")
     except Exception as e:
         print(f"❌ Agent failed: {e}")
+        if hasattr(agent, 'logger') and agent.logger:
+            agent.logger.error(f"💥 Critical failure: {e}")
         sys.exit(1)
     finally:
-        await agent.stop()
+        try:
+            await agent.stop()
+        except:
+            pass
+        print("👋 EDR Windows Agent stopped")
 
 if __name__ == "__main__":
-    # Set console title
+    # Handle Windows event loop policy
     if sys.platform.startswith('win'):
         try:
-            os.system('title EDR Security Agent')
+            # Use ProactorEventLoop for better Windows compatibility
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
         except:
             pass
     
     # Run agent
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n🛑 Agent interrupted")
+    except Exception as e:
+        print(f"❌ Fatal error: {e}")
+        sys.exit(1)
