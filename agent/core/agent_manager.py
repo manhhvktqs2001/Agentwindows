@@ -11,6 +11,7 @@ import platform
 import psutil
 from datetime import datetime
 from typing import Optional, Dict, List, Any
+from pathlib import Path
 
 from .communication import ServerCommunication
 from .config_manager import ConfigManager
