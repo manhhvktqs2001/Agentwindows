@@ -1,0 +1,155 @@
+# config/agent_config.yaml
+# EDR Agent Configuration File
+
+# Agent Information
+agent:
+  name: "EDR-Agent"
+  version: "1.0.0"
+  heartbeat_interval: 30          # seconds
+  event_batch_size: 100           # events per batch
+  event_queue_size: 1000          # maximum events in queue
+  max_memory_usage: 512           # MB
+  debug_mode: false
+
+# Server Connection
+server:
+  host: "192.168.20.85"
+  port: 5000
+  auth_token: "edr_agent_auth_2024"
+  timeout: 30                     # seconds
+  max_retries: 3
+  retry_delay: 5                  # seconds
+  ssl_enabled: false
+  ssl_verify: true
+
+# Data Collection Settings
+collection:
+  enabled: true
+  
+  # Event Types
+  collect_processes: true
+  collect_files: true
+  collect_network: true
+  collect_registry: true
+  collect_authentication: true
+  collect_system_events: true
+  
+  # Collection Behavior
+  real_time_monitoring: true
+  polling_interval: 5             # seconds
+  max_events_per_interval: 1000
+  
+  # File Monitoring Paths
+  monitor_paths:
+    - "C:\\Users"
+    - "C:\\Program Files"
+    - "C:\\Program Files (x86)"
+    - "C:\\ProgramData"
+    - "C:\\Windows\\Temp"
+    - "C:\\Temp"
+
+# Detection Settings
+detection:
+  enabled: true
+  local_rules_enabled: true
+  behavior_analysis: true
+  threat_cache_enabled: true
+  cache_size: 10000
+  suspicious_threshold: 70
+
+# Logging Configuration
+logging:
+  level: "INFO"                   # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  file_enabled: true
+  console_enabled: true
+  max_file_size: "10MB"
+  backup_count: 5
+  log_directory: "logs"
+
+# Security Settings
+security:
+  anti_tamper_enabled: true
+  integrity_check_enabled: true
+  encryption_enabled: false
+  secure_communication: true
+
+# Performance Limits
+performance:
+  max_cpu_usage: 20               # percent
+  max_memory_usage: 512           # MB
+  monitoring_enabled: true
+  auto_throttle: true
+  batch_processing: true
+
+# Event Filters
+filters:
+  # System Process Filtering
+  exclude_system_processes: true
+  
+  # Directory Exclusions
+  exclude_windows_directories:
+    - "C:\\Windows\\System32"
+    - "C:\\Windows\\SysWOW64"
+    - "C:\\Windows\\WinSxS"
+    - "C:\\Windows\\servicing"
+    - "C:\\Windows\\Logs"
+  
+  # File Extension Exclusions
+  exclude_file_extensions:
+    - ".tmp"
+    - ".log"
+    - ".bak"
+    - ".swp"
+    - ".lock"
+    - ".cache"
+  
+  # File Size Limits
+  max_file_size_mb: 100
+  
+  # Process Filtering
+  include_only_executables: false
+  
+  # Network Filtering
+  exclude_loopback: true
+  exclude_multicast: true
+
+# Advanced Settings
+advanced:
+  # Hash Calculation
+  calculate_file_hashes: true
+  hash_algorithm: "sha256"        # md5, sha1, sha256
+  hash_size_limit_mb: 10
+  
+  # Command Line Collection
+  collect_command_lines: true
+  
+  # Process Monitoring
+  monitor_process_creation: true
+  monitor_process_termination: true
+  monitor_process_modification: false
+  
+  # File Monitoring
+  monitor_file_creation: true
+  monitor_file_modification: true
+  monitor_file_deletion: true
+  monitor_file_moves: true
+  
+  # Network Monitoring
+  monitor_network_connections: true
+  monitor_dns_queries: false
+  
+  # Registry Monitoring (Windows only)
+  monitor_registry_changes: true
+  
+  # Authentication Monitoring
+  monitor_login_events: true
+  monitor_privilege_escalation: true
+  
+  # Event Deduplication
+  deduplication_enabled: true
+  deduplication_window_seconds: 5
+  
+  # Cache Settings
+  process_cache_size: 5000
+  file_cache_size: 10000
+  network_cache_size: 2000
