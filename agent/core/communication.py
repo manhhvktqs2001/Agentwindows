@@ -14,7 +14,6 @@ from .config_manager import ConfigManager
 from ..schemas.agent_data import AgentRegistrationData, AgentHeartbeatData
 from ..schemas.events import EventData
 from ..schemas.server_responses import ServerResponse
-from ..exceptions.communication_errors import CommunicationError, ServerError
 
 class ServerCommunication:
     """Handle communication with EDR server"""
@@ -65,7 +64,7 @@ class ServerCommunication:
             
         except Exception as e:
             self.logger.error(f"❌ Communication initialization failed: {e}")
-            raise CommunicationError(f"Initialization failed: {e}")
+            raise
     
     async def close(self):
         """Close communication session"""
@@ -98,11 +97,11 @@ class ServerCommunication:
                 self.logger.info("✅ Agent registration successful")
                 return response
             else:
-                raise ServerError("Registration failed - no response")
+                raise Exception("Registration failed - no response")
                 
         except Exception as e:
             self.logger.error(f"❌ Agent registration failed: {e}")
-            raise CommunicationError(f"Registration failed: {e}")
+            raise
     
     async def send_heartbeat(self, heartbeat_data: AgentHeartbeatData) -> Optional[Dict]:
         """Send heartbeat to server"""
@@ -279,7 +278,7 @@ class ServerCommunication:
     async def _make_request(self, method: str, url: str, payload: Optional[Dict] = None) -> Optional[Dict]:
         """Make HTTP request with retry logic"""
         if not self.session:
-            raise CommunicationError("Session not initialized")
+            raise Exception("Session not initialized")
         
         for attempt in range(self.max_retries):
             try:
@@ -293,7 +292,7 @@ class ServerCommunication:
                     async with self.session.put(url, json=payload) as response:
                         return await self._handle_response(response)
                 else:
-                    raise CommunicationError(f"Unsupported HTTP method: {method}")
+                    raise Exception(f"Unsupported HTTP method: {method}")
                     
             except aiohttp.ClientError as e:
                 self.logger.warning(f"⚠️ Request failed (attempt {attempt + 1}/{self.max_retries}): {e}")
@@ -301,11 +300,11 @@ class ServerCommunication:
                 if attempt < self.max_retries - 1:
                     await asyncio.sleep(self.retry_delay)
                 else:
-                    raise CommunicationError(f"Request failed after {self.max_retries} attempts: {e}")
+                    raise Exception(f"Request failed after {self.max_retries} attempts: {e}")
                     
             except Exception as e:
                 self.logger.error(f"❌ Unexpected request error: {e}")
-                raise CommunicationError(f"Request error: {e}")
+                raise
         
         return None
     
@@ -323,18 +322,18 @@ class ServerCommunication:
                     return None
                     
             elif response.status == 401:
-                raise ServerError("Authentication failed - invalid token")
+                raise Exception("Authentication failed - invalid token")
             elif response.status == 403:
-                raise ServerError("Access denied - check network permissions")
+                raise Exception("Access denied - check network permissions")
             elif response.status == 404:
-                raise ServerError("Server endpoint not found")
+                raise Exception("Server endpoint not found")
             elif response.status == 429:
                 self.logger.warning("⚠️ Rate limit exceeded")
                 await asyncio.sleep(self.retry_delay)
                 return None
             elif response.status >= 500:
                 text = await response.text()
-                raise ServerError(f"Server error {response.status}: {text}")
+                raise Exception(f"Server error {response.status}: {text}")
             else:
                 text = await response.text()
                 self.logger.warning(f"⚠️ Unexpected response {response.status}: {text}")

@@ -1,12 +1,13 @@
+from .base_collector import BaseCollector
+from ..schemas.events import EventData
 import psutil
 import hashlib
-from ..schemas.events import EventData
 from datetime import datetime
 
-class ProcessCollector:
+class ProcessCollector(BaseCollector):
     """Thu thập sự kiện tiến trình (process) cho agent Windows"""
-    def __init__(self):
-        pass
+    def __init__(self, config_manager):
+        super().__init__(config_manager, "ProcessCollector")
 
     def collect(self):
         """Thu thập tất cả process hiện tại trên hệ thống"""
@@ -41,3 +42,7 @@ class ProcessCollector:
                 return hashlib.sha256(data).hexdigest()
         except Exception:
             return None
+
+    def _collect_data(self):
+        """Thu thập dữ liệu process thực tế từ Windows"""
+        return self.collect()

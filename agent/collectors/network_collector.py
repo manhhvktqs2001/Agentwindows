@@ -1,11 +1,12 @@
-import psutil
+from .base_collector import BaseCollector
 from ..schemas.events import EventData
+import psutil
 from datetime import datetime
 
-class NetworkCollector:
+class NetworkCollector(BaseCollector):
     """Thu thập sự kiện mạng cho agent Windows"""
-    def __init__(self):
-        pass
+    def __init__(self, config_manager):
+        super().__init__(config_manager, "NetworkCollector")
 
     def collect(self):
         events = []
@@ -26,3 +27,7 @@ class NetworkCollector:
             except Exception:
                 continue
         return events
+
+    def _collect_data(self):
+        """Thu thập dữ liệu network thực tế từ Windows"""
+        return self.collect()

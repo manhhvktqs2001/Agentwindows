@@ -12,7 +12,6 @@ from typing import Optional, Dict, Any
 
 from ..core.config_manager import ConfigManager
 from ..schemas.events import EventData
-from ..exceptions.collection_errors import CollectorError
 
 class BaseCollector(ABC):
     """Abstract base class for data collectors"""
@@ -61,7 +60,7 @@ class BaseCollector(ABC):
             
         except Exception as e:
             self.logger.error(f"❌ {self.collector_name} initialization failed: {e}")
-            raise CollectorError(f"Initialization failed: {e}")
+            raise Exception(f"Initialization failed: {e}")
     
     async def start(self):
         """Start the collector"""
@@ -83,7 +82,7 @@ class BaseCollector(ABC):
         except Exception as e:
             self.logger.error(f"❌ {self.collector_name} start failed: {e}")
             self.is_running = False
-            raise CollectorError(f"Start failed: {e}")
+            raise Exception(f"Start failed: {e}")
     
     async def stop(self):
         """Stop the collector"""

@@ -20,7 +20,6 @@ sys.path.insert(0, str(agent_dir))
 from agent.core.agent_manager import AgentManager
 from agent.core.config_manager import ConfigManager
 from agent.utils.logging_utils import setup_logging
-from agent.exceptions.service_errors import AgentServiceError
 
 class EDRAgent:
     """Main EDR Agent class"""
@@ -66,7 +65,7 @@ class EDRAgent:
         """Start the agent"""
         try:
             if not self.agent_manager:
-                raise AgentServiceError("Agent not initialized")
+                raise Exception("Agent not initialized")
             
             self.is_running = True
             self.logger.info("🚀 Starting EDR Agent...")

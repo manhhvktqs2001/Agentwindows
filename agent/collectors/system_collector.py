@@ -1,11 +1,12 @@
-import psutil
+from .base_collector import BaseCollector
 from ..schemas.events import EventData
+import psutil
 from datetime import datetime
 
-class SystemCollector:
+class SystemCollector(BaseCollector):
     """Thu thập sự kiện hệ thống cho agent Windows"""
-    def __init__(self):
-        pass
+    def __init__(self, config_manager):
+        super().__init__(config_manager, "SystemCollector")
 
     def collect(self):
         events = []
@@ -22,3 +23,7 @@ class SystemCollector:
         )
         events.append(event)
         return events
+
+    def _collect_data(self):
+        """Thu thập dữ liệu hệ thống thực tế từ Windows"""
+        return self.collect()

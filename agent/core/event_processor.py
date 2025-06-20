@@ -14,7 +14,6 @@ from dataclasses import dataclass
 from .config_manager import ConfigManager
 from .communication import ServerCommunication
 from ..schemas.events import EventData
-from ..exceptions.collection_errors import EventProcessingError
 
 @dataclass
 class EventStats:

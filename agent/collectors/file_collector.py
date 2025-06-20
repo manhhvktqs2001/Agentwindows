@@ -15,7 +15,6 @@ from watchdog.events import FileSystemEventHandler, FileSystemEvent
 
 from .base_collector import BaseCollector
 from ..schemas.events import EventData
-from ..exceptions.collection_errors import CollectorError
 
 class FileEventHandler(FileSystemEventHandler):
     """Handle file system events"""
@@ -165,7 +164,7 @@ class FileCollector(BaseCollector):
             
         except Exception as e:
             self.logger.error(f"❌ File collector initialization failed: {e}")
-            raise CollectorError(f"Initialization failed: {e}")
+            raise Exception(f"Initialization failed: {e}")
     
     async def start(self):
         """Start file monitoring"""

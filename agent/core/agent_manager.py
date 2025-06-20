@@ -15,7 +15,6 @@ from typing import Optional, Dict, List, Any
 from .communication import ServerCommunication
 from .config_manager import ConfigManager
 from .event_processor import EventProcessor
-from .health_monitor import HealthMonitor
 from ..collectors.process_collector import ProcessCollector
 from ..collectors.file_collector import FileCollector
 from ..collectors.network_collector import NetworkCollector
@@ -23,7 +22,6 @@ from ..collectors.registry_collector import RegistryCollector
 from ..collectors.authentication_collector import AuthenticationCollector
 from ..collectors.system_collector import SystemCollector
 from ..schemas.agent_data import AgentRegistrationData, AgentHeartbeatData
-from ..exceptions.service_errors import AgentServiceError
 
 class AgentManager:
     """Main agent management class"""
@@ -35,7 +33,6 @@ class AgentManager:
         # Core components
         self.communication: Optional[ServerCommunication] = None
         self.event_processor: Optional[EventProcessor] = None
-        self.health_monitor: Optional[HealthMonitor] = None
         
         # Data collectors
         self.collectors: Dict[str, Any] = {}
@@ -62,9 +59,6 @@ class AgentManager:
             # Initialize event processor
             self.event_processor = EventProcessor(self.config_manager, self.communication)
             
-            # Initialize health monitor
-            self.health_monitor = HealthMonitor(self.config_manager)
-            
             # Initialize collectors
             await self._initialize_collectors()
             
@@ -72,7 +66,7 @@ class AgentManager:
             
         except Exception as e:
             self.logger.error(f"❌ Agent manager initialization failed: {e}")
-            raise AgentServiceError(f"Initialization failed: {e}")
+            raise Exception(f"Initialization failed: {e}")
     
     async def _initialize_collectors(self):
         """Initialize data collectors"""
@@ -142,9 +136,6 @@ class AgentManager:
             # Start heartbeat task
             asyncio.create_task(self._heartbeat_loop())
             
-            # Start health monitoring
-            asyncio.create_task(self._health_monitoring_loop())
-            
             self.logger.info("✅ Agent started successfully")
             
         except Exception as e:
@@ -207,7 +198,7 @@ class AgentManager:
                     self.config['agent']['heartbeat_interval'] = response['heartbeat_interval']
                 
             else:
-                raise AgentServiceError("Registration failed")
+                raise Exception("Registration failed")
                 
         except Exception as e:
             self.logger.error(f"❌ Registration failed: {e}")
@@ -378,22 +369,6 @@ class AgentManager:
                 'disk_usage': 0.0,
                 'network_latency': 0
             }
-    
-    async def _health_monitoring_loop(self):
-        """Health monitoring loop"""
-        while self.is_monitoring:
-            try:
-                if self.health_monitor:
-                    health_status = await self.health_monitor.check_health()
-                    
-                    if not health_status.get('healthy', True):
-                        self.logger.warning(f"⚠️ Health issues detected: {health_status}")
-                
-                await asyncio.sleep(60)  # Check every minute
-                
-            except Exception as e:
-                self.logger.error(f"❌ Health monitoring error: {e}")
-                await asyncio.sleep(60)
     
     async def health_check(self):
         """Perform health check"""

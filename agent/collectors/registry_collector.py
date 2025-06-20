@@ -1,24 +1,39 @@
+from .base_collector import BaseCollector
 from ..schemas.events import EventData
 from datetime import datetime
+import winreg
 
-class RegistryCollector:
+class RegistryCollector(BaseCollector):
     """Thu thập sự kiện registry cho agent Windows (khung cơ bản)"""
-    def __init__(self):
-        pass
+    def __init__(self, config_manager):
+        super().__init__(config_manager, "RegistryCollector")
 
     def collect(self):
-        # TODO: Cần hook hoặc polling registry để lấy event thực tế
-        # Trả về list EventData (giả lập mẫu)
         events = []
-        # Ví dụ event mẫu
-        # event = EventData(
-        #     event_type='Registry',
-        #     event_action='Create',
-        #     event_timestamp=datetime.utcnow(),
-        #     registry_key='HKEY_LOCAL_MACHINE\\Software\\Test',
-        #     registry_value_name='TestValue',
-        #     registry_value_data='123',
-        #     registry_operation='Create'
-        # )
-        # events.append(event)
+        # Thu thập các key phổ biến (ví dụ: Run key)
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run") as key:
+                i = 0
+                while True:
+                    try:
+                        value_name, value_data, _ = winreg.EnumValue(key, i)
+                        event = EventData(
+                            event_type='Registry',
+                            event_action='Read',
+                            event_timestamp=datetime.utcnow(),
+                            registry_key=r"HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+                            registry_value_name=value_name,
+                            registry_value_data=value_data,
+                            registry_operation='Read'
+                        )
+                        events.append(event)
+                        i += 1
+                    except OSError:
+                        break
+        except Exception:
+            pass
         return events
+
+    def _collect_data(self):
+        """Thu thập dữ liệu registry thực tế từ Windows"""
+        return self.collect()
