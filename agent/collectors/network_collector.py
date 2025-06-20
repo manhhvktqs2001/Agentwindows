@@ -2,6 +2,7 @@ from .base_collector import BaseCollector
 from ..schemas.events import EventData
 import psutil
 from datetime import datetime
+import asyncio
 
 class NetworkCollector(BaseCollector):
     """Thu thập sự kiện mạng cho agent Windows"""
@@ -28,6 +29,6 @@ class NetworkCollector(BaseCollector):
                 continue
         return events
 
-    def _collect_data(self):
-        """Thu thập dữ liệu network thực tế từ Windows"""
-        return self.collect()
+    async def _collect_data(self):
+        """Thu thập dữ liệu network thực tế từ Windows (async)"""
+        return await asyncio.to_thread(self.collect)

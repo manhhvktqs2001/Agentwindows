@@ -3,6 +3,7 @@ from ..schemas.events import EventData
 from datetime import datetime
 import getpass
 import platform
+import asyncio
 
 class AuthenticationCollector(BaseCollector):
     """Thu thập sự kiện đăng nhập cho agent Windows (khung cơ bản)"""
@@ -27,6 +28,6 @@ class AuthenticationCollector(BaseCollector):
             pass
         return events
 
-    def _collect_data(self):
-        """Thu thập dữ liệu đăng nhập thực tế từ Windows"""
-        return self.collect()
+    async def _collect_data(self):
+        """Thu thập dữ liệu đăng nhập thực tế từ Windows (async)"""
+        return await asyncio.to_thread(self.collect)

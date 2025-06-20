@@ -2,6 +2,7 @@ from .base_collector import BaseCollector
 from ..schemas.events import EventData
 import psutil
 from datetime import datetime
+import asyncio
 
 class SystemCollector(BaseCollector):
     """Thu thập sự kiện hệ thống cho agent Windows"""
@@ -24,6 +25,6 @@ class SystemCollector(BaseCollector):
         events.append(event)
         return events
 
-    def _collect_data(self):
-        """Thu thập dữ liệu hệ thống thực tế từ Windows"""
-        return self.collect()
+    async def _collect_data(self):
+        """Thu thập dữ liệu hệ thống thực tế từ Windows (async)"""
+        return await asyncio.to_thread(self.collect)

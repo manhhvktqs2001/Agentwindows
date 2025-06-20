@@ -12,6 +12,7 @@ import signal
 import time
 from pathlib import Path
 from typing import Optional
+import ctypes
 
 # Add agent directory to path
 agent_dir = Path(__file__).resolve().parent
@@ -108,14 +109,16 @@ class EDRAgent:
     
     async def stop(self):
         """Stop the agent gracefully"""
-        self.logger.info("🛑 Stopping EDR Agent...")
+        if hasattr(self, 'logger') and self.logger:
+            self.logger.info("🛑 Stopping EDR Agent...")
         self.is_running = False
         self.shutdown_event.set()
         
         if self.agent_manager:
             await self.agent_manager.stop()
         
-        self.logger.info("✅ EDR Agent stopped")
+        if hasattr(self, 'logger') and self.logger:
+            self.logger.info("✅ EDR Agent stopped")
     
     def _setup_signal_handlers(self):
         """Setup signal handlers for graceful shutdown"""
@@ -126,11 +129,23 @@ class EDRAgent:
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
 async def main():
     """Main entry point"""
     agent = EDRAgent()
     
     try:
+        if os.name == 'nt' and not is_admin():
+            print("[!] Agent requires Administrator privileges. Relaunching as admin...")
+            ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, ' '.join(sys.argv), None, 1)
+            sys.exit(0)
+            return
+        
         # Initialize agent
         if not await agent.initialize():
             sys.exit(1)

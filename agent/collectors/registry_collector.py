@@ -2,6 +2,7 @@ from .base_collector import BaseCollector
 from ..schemas.events import EventData
 from datetime import datetime
 import winreg
+import asyncio
 
 class RegistryCollector(BaseCollector):
     """Thu thập sự kiện registry cho agent Windows (khung cơ bản)"""
@@ -34,6 +35,6 @@ class RegistryCollector(BaseCollector):
             pass
         return events
 
-    def _collect_data(self):
-        """Thu thập dữ liệu registry thực tế từ Windows"""
-        return self.collect()
+    async def _collect_data(self):
+        """Thu thập dữ liệu registry thực tế từ Windows (async)"""
+        return await asyncio.to_thread(self.collect)

@@ -22,35 +22,45 @@ class FileEventHandler(FileSystemEventHandler):
     def __init__(self, file_collector):
         self.file_collector = file_collector
         self.logger = logging.getLogger(__name__)
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = asyncio.get_event_loop()
     
     def on_created(self, event: FileSystemEvent):
         """Handle file creation"""
         if not event.is_directory:
-            asyncio.create_task(self.file_collector._handle_file_event(
-                event.src_path, 'Create', event
-            ))
+            asyncio.run_coroutine_threadsafe(
+                self.file_collector._handle_file_event(event.src_path, 'Create', event),
+                self.loop
+            )
     
     def on_modified(self, event: FileSystemEvent):
         """Handle file modification"""
         if not event.is_directory:
-            asyncio.create_task(self.file_collector._handle_file_event(
-                event.src_path, 'Modify', event
-            ))
+            asyncio.run_coroutine_threadsafe(
+                self.file_collector._handle_file_event(event.src_path, 'Modify', event),
+                self.loop
+            )
     
     def on_deleted(self, event: FileSystemEvent):
         """Handle file deletion"""
         if not event.is_directory:
-            asyncio.create_task(self.file_collector._handle_file_event(
-                event.src_path, 'Delete', event
-            ))
+            asyncio.run_coroutine_threadsafe(
+                self.file_collector._handle_file_event(event.src_path, 'Delete', event),
+                self.loop
+            )
     
     def on_moved(self, event: FileSystemEvent):
         """Handle file move/rename"""
         if not event.is_directory:
-            asyncio.create_task(self.file_collector._handle_file_event(
-                event.dest_path if hasattr(event, 'dest_path') else event.src_path, 
-                'Move', event
-            ))
+            asyncio.run_coroutine_threadsafe(
+                self.file_collector._handle_file_event(
+                    event.dest_path if hasattr(event, 'dest_path') else event.src_path, 
+                    'Move', event
+                ),
+                self.loop
+            )
 
 class FileCollector(BaseCollector):
     """Collect file system events"""
@@ -221,8 +231,6 @@ class FileCollector(BaseCollector):
                 event_type='File',
                 event_action=action,
                 event_timestamp=datetime.now(),
-                severity=self._determine_severity(file_info),
-                
                 # File details
                 file_path=file_info['path'],
                 file_name=file_info['name'],

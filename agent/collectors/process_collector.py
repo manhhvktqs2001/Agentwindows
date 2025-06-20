@@ -3,6 +3,7 @@ from ..schemas.events import EventData
 import psutil
 import hashlib
 from datetime import datetime
+import asyncio
 
 class ProcessCollector(BaseCollector):
     """Thu thập sự kiện tiến trình (process) cho agent Windows"""
@@ -43,6 +44,6 @@ class ProcessCollector(BaseCollector):
         except Exception:
             return None
 
-    def _collect_data(self):
-        """Thu thập dữ liệu process thực tế từ Windows"""
-        return self.collect()
+    async def _collect_data(self):
+        """Thu thập dữ liệu process thực tế từ Windows (async)"""
+        return await asyncio.to_thread(self.collect)

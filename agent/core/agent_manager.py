@@ -128,6 +128,10 @@ class AgentManager:
             # Start event processor
             await self.event_processor.start()
             
+            # Gán event_processor cho từng collector trước khi start
+            for collector in self.collectors.values():
+                collector.set_event_processor(self.event_processor)
+            
             # Start collectors
             await self._start_collectors()
             
@@ -210,41 +214,42 @@ class AgentManager:
         try:
             import socket
             import getpass
-            
-            # Get hostname
+            import platform
+            import uuid
+            import os
+
+            # Get hostname (tên máy thật)
             hostname = socket.gethostname()
-            
-            # Get IP address
+
+            # Get IP address (ưu tiên IP thật, fallback 127.0.0.1)
             try:
-                # Connect to server to get local IP
-                server_config = self.config.get('server', {})
-                server_host = server_config.get('host', '192.168.20.85')
-                
+                server_host = self.config.get('server', {}).get('host', '8.8.8.8')
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 s.connect((server_host, 80))
                 ip_address = s.getsockname()[0]
                 s.close()
             except:
                 ip_address = '127.0.0.1'
-            
+
             # Get MAC address
-            mac_address = None
             try:
-                import uuid
                 mac = uuid.UUID(int=uuid.getnode()).hex[-12:]
                 mac_address = ':'.join([mac[i:i+2] for i in range(0, 12, 2)])
             except:
-                pass
-            
-            # Get domain
-            domain = None
+                mac_address = None
+
+            # Get domain (Windows)
             try:
-                if platform.system().lower() == 'windows':
-                    import os
-                    domain = os.environ.get('USERDOMAIN')
+                domain = os.environ.get('USERDOMAIN') if platform.system().lower() == 'windows' else None
             except:
-                pass
-            
+                domain = None
+
+            # Get username
+            try:
+                username = getpass.getuser()
+            except:
+                username = None
+
             return {
                 'hostname': hostname,
                 'ip_address': ip_address,
@@ -253,9 +258,8 @@ class AgentManager:
                 'architecture': platform.machine(),
                 'mac_address': mac_address,
                 'domain': domain,
-                'username': getpass.getuser()
+                'username': username
             }
-            
         except Exception as e:
             self.logger.error(f"Error getting system info: {e}")
             return {
