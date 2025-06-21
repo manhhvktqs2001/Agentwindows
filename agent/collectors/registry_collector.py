@@ -28,6 +28,9 @@ try:
     WIN32_AVAILABLE = True
 except ImportError:
     WIN32_AVAILABLE = False
+    win32api = None
+    win32con = None
+    win32event = None
 
 try:
     import wmi

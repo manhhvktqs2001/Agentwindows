@@ -1,6 +1,7 @@
-# agent/core/event_processor.py
+# agent/core/event_processor.py - Updated with Security Notifications
 """
-Event Processor - Handle event collection, queuing, and transmission
+Event Processor với Security Alert Notification System
+Hiển thị cảnh báo bảo mật khi server phát hiện threats qua detection rules
 """
 
 import asyncio
@@ -14,6 +15,7 @@ from dataclasses import dataclass
 from .config_manager import ConfigManager
 from .communication import ServerCommunication
 from ..schemas.events import EventData
+from ..utils.security_notifications import SecurityAlertNotifier
 
 @dataclass
 class EventStats:
@@ -22,11 +24,13 @@ class EventStats:
     events_sent: int = 0
     events_failed: int = 0
     events_queued: int = 0
+    alerts_received: int = 0
+    security_notifications_sent: int = 0
     last_batch_sent: Optional[datetime] = None
     batch_count: int = 0
 
 class EventProcessor:
-    """Process and manage event collection and transmission"""
+    """Event Processor with Security Alert Notifications"""
     
     def __init__(self, config_manager: ConfigManager, communication: ServerCommunication):
         self.config_manager = config_manager
@@ -56,11 +60,16 @@ class EventProcessor:
         # Event filtering
         self.filters = self.config.get('filters', {})
         
+        # Security Alert Notification System
+        self.security_notifier = SecurityAlertNotifier(config_manager)
+        
+        self.logger.info("🔒 Event Processor with Security Notifications initialized")
+    
     async def start(self):
         """Start event processor"""
         try:
             self.is_running = True
-            self.logger.info("🚀 Event processor started")
+            self.logger.info("🚀 Event processor started with security notifications")
             
             # Start batch processing task
             asyncio.create_task(self._batch_processing_loop())
@@ -69,12 +78,7 @@ class EventProcessor:
             asyncio.create_task(self._stats_logging_loop())
             
         except Exception as e:
-            self.logger.error(f"❌ Queue flush error: {e}")
-    
-    def clear_stats(self):
-        """Clear processing statistics"""
-        self.stats = EventStats()
-        self.logger.info("📊 Event statistics cleared")
+            self.logger.error(f"❌ Event processor start error: {e}")
     
     async def stop(self):
         """Stop event processor"""
@@ -127,6 +131,143 @@ class EventProcessor:
         except Exception as e:
             self.logger.error(f"❌ Failed to add event: {e}")
             self.stats.events_failed += 1
+    
+    async def _send_batch(self):
+        """Send batch of events to server and handle security alerts"""
+        try:
+            if not self.event_queue or not self.agent_id:
+                self.logger.warning(f"[SEND_BATCH] Missing agent_id or empty queue. AgentID: {self.agent_id}")
+                return
+            
+            # Extract events for batch
+            batch_events = []
+            batch_size = min(len(self.event_queue), self.batch_size)
+            
+            for _ in range(batch_size):
+                if self.event_queue:
+                    batch_events.append(self.event_queue.popleft())
+            
+            if not batch_events:
+                return
+            
+            self.logger.info(f"[SEND_BATCH] Sending batch: {len(batch_events)} events | AgentID: {self.agent_id}")
+            
+            # Send to server
+            response = await self.communication.submit_event_batch(self.agent_id, batch_events)
+            
+            if response and response.get('success'):
+                self.stats.events_sent += len(batch_events)
+                self.stats.last_batch_sent = datetime.now()
+                self.stats.batch_count += 1
+                self.logger.info(f"✅ Batch sent successfully: {len(batch_events)} events")
+                
+                # *** XỬ LÝ SECURITY ALERTS TỪ SERVER ***
+                await self._handle_security_alerts_from_server(response, batch_events)
+                    
+            else:
+                # Return events to queue on failure
+                for event in reversed(batch_events):
+                    self.event_queue.appendleft(event)
+                
+                self.stats.events_failed += len(batch_events)
+                self.logger.error(f"❌ Batch send failed: {len(batch_events)} events returned to queue")
+            
+            self.last_batch_time = time.time()
+            self.stats.events_queued = len(self.event_queue)
+            
+        except Exception as e:
+            self.logger.error(f"❌ Batch send error: {e}")
+            # Return events to queue on error
+            for event in batch_events:
+                self.event_queue.appendleft(event)
+    
+    async def _handle_security_alerts_from_server(self, server_response: Dict[str, Any], batch_events: List[EventData]):
+        """Xử lý security alerts từ server response"""
+        try:
+            # Kiểm tra các trường có thể chứa alerts
+            alerts_found = False
+            
+            # Check for alerts_generated field (thường dùng)
+            if 'alerts_generated' in server_response and server_response['alerts_generated']:
+                alerts_found = True
+                self.stats.alerts_received += len(server_response['alerts_generated'])
+                
+                self.logger.warning(
+                    f"🚨 SECURITY ALERTS: {len(server_response['alerts_generated'])} threats detected by server!"
+                )
+                
+                # Gửi đến security notifier để hiển thị popup
+                self.security_notifier.process_server_alerts(server_response, batch_events)
+            
+            # Check for threat_detected field
+            elif server_response.get('threat_detected', False):
+                alerts_found = True
+                self.stats.alerts_received += 1
+                
+                # Create alert data from response
+                alert_data = {
+                    'alert_id': f"alert_{int(time.time())}",
+                    'rule_name': 'Server Detection',
+                    'alert_type': 'Security Alert',
+                    'title': 'Threat Detected by Server',
+                    'description': server_response.get('message', 'Suspicious activity detected'),
+                    'severity': 'HIGH' if server_response.get('risk_score', 0) >= 70 else 'MEDIUM',
+                    'risk_score': server_response.get('risk_score', 50),
+                    'detection_method': 'Server Analysis',
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+                self.logger.warning(f"🚨 SERVER THREAT DETECTED: Risk Score {alert_data['risk_score']}")
+                
+                # Send to security notifier
+                self.security_notifier.process_server_alerts(
+                    {'alerts_generated': [alert_data]}, 
+                    batch_events
+                )
+            
+            # Check for individual alert fields
+            elif any(key.startswith('alert_') for key in server_response.keys()):
+                alerts_found = True
+                self.stats.alerts_received += 1
+                
+                # Extract alert information from response
+                alert_data = {
+                    'alert_id': server_response.get('alert_id', f"alert_{int(time.time())}"),
+                    'rule_name': server_response.get('rule_name', 'Unknown Rule'),
+                    'alert_type': server_response.get('alert_type', 'Security Alert'),
+                    'title': server_response.get('title', 'Security Threat Detected'),
+                    'description': server_response.get('description', 'Suspicious activity detected'),
+                    'severity': server_response.get('severity', 'MEDIUM'),
+                    'risk_score': server_response.get('risk_score', 50),
+                    'detection_method': server_response.get('detection_method', 'Server Analysis'),
+                    'timestamp': server_response.get('timestamp', datetime.now().isoformat())
+                }
+                
+                self.logger.warning(f"🚨 ALERT FROM SERVER: {alert_data['rule_name']} - {alert_data['severity']}")
+                
+                # Send to security notifier
+                self.security_notifier.process_server_alerts(
+                    {'alerts_generated': [alert_data]}, 
+                    batch_events
+                )
+            
+            if alerts_found:
+                self.logger.critical(
+                    f"🚨 SECURITY ALERT SUMMARY:"
+                    f"\n   Events in batch: {len(batch_events)}"
+                    f"\n   Alerts generated: {self.stats.alerts_received}"
+                    f"\n   Risk score: {server_response.get('risk_score', 'N/A')}"
+                    f"\n   Threat level: {server_response.get('threat_level', 'N/A')}"
+                )
+                
+                # Update statistics
+                self.stats.security_notifications_sent += 1
+                
+            else:
+                self.logger.debug("✅ No security alerts in server response")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error handling security alerts from server: {e}")
     
     def _should_process_event(self, event_data: EventData) -> bool:
         """Apply filters to determine if event should be processed"""
@@ -214,57 +355,6 @@ class EventProcessor:
                 self.logger.error(f"❌ Batch processing error: {e}")
                 await asyncio.sleep(5)
     
-    async def _send_batch(self):
-        """Send batch of events to server"""
-        try:
-            if not self.event_queue or not self.agent_id:
-                self.logger.warning(f"[SEND_BATCH] Missing agent_id or empty queue. AgentID: {self.agent_id}")
-                return
-            
-            # Extract events for batch
-            batch_events = []
-            batch_size = min(len(self.event_queue), self.batch_size)
-            
-            for _ in range(batch_size):
-                if self.event_queue:
-                    batch_events.append(self.event_queue.popleft())
-            
-            if not batch_events:
-                return
-            
-            self.logger.info(f"[SEND_BATCH] Sending batch: {len(batch_events)} events | AgentID: {self.agent_id}")
-            
-            # Send to server
-            response = await self.communication.submit_event_batch(self.agent_id, batch_events)
-            
-            if response and response.get('success'):
-                self.stats.events_sent += len(batch_events)
-                self.stats.last_batch_sent = datetime.now()
-                self.stats.batch_count += 1
-                self.logger.info(f"✅ Batch sent successfully: {len(batch_events)} events")
-                
-                # Handle alerts if any were generated
-                alerts = response.get('alerts_generated', [])
-                if alerts:
-                    self.logger.warning(f"🚨 {len(alerts)} alerts generated from batch")
-                    
-            else:
-                # Return events to queue on failure
-                for event in reversed(batch_events):
-                    self.event_queue.appendleft(event)
-                
-                self.stats.events_failed += len(batch_events)
-                self.logger.error(f"❌ Batch send failed: {len(batch_events)} events returned to queue")
-            
-            self.last_batch_time = time.time()
-            self.stats.events_queued = len(self.event_queue)
-            
-        except Exception as e:
-            self.logger.error(f"❌ Batch send error: {e}")
-            # Return events to queue on error
-            for event in batch_events:
-                self.event_queue.appendleft(event)
-    
     async def _send_remaining_events(self):
         """Send all remaining events in queue"""
         try:
@@ -289,7 +379,10 @@ class EventProcessor:
                     self.logger.info(
                         f"📊 Event Stats: Collected={self.stats.events_collected}, "
                         f"Sent={self.stats.events_sent}, Failed={self.stats.events_failed}, "
-                        f"Queued={self.stats.events_queued}, Success Rate={success_rate:.1f}%"
+                        f"Queued={self.stats.events_queued}, "
+                        f"Alerts={self.stats.alerts_received}, "
+                        f"Security Notifications={self.stats.security_notifications_sent}, "
+                        f"Success Rate={success_rate:.1f}%"
                     )
                 
             except Exception as e:
@@ -297,11 +390,13 @@ class EventProcessor:
     
     def get_stats(self) -> Dict[str, Any]:
         """Get current processing statistics"""
-        return {
+        base_stats = {
             'events_collected': self.stats.events_collected,
             'events_sent': self.stats.events_sent,
             'events_failed': self.stats.events_failed,
             'events_queued': self.stats.events_queued,
+            'alerts_received': self.stats.alerts_received,
+            'security_notifications_sent': self.stats.security_notifications_sent,
             'batch_count': self.stats.batch_count,
             'last_batch_sent': self.stats.last_batch_sent.isoformat() if self.stats.last_batch_sent else None,
             'queue_size': len(self.event_queue),
@@ -309,6 +404,12 @@ class EventProcessor:
             'batch_size': self.batch_size,
             'success_rate': (self.stats.events_sent / max(self.stats.events_collected, 1)) * 100
         }
+        
+        # Add security notification stats
+        if self.security_notifier:
+            base_stats['security_notifier_stats'] = self.security_notifier.get_security_stats()
+        
+        return base_stats
     
     def get_queue_status(self) -> Dict[str, Any]:
         """Get current queue status"""
@@ -331,3 +432,73 @@ class EventProcessor:
                 self.logger.info("✅ Event queue is empty")
         except Exception as e:
             self.logger.error(f"❌ Error while flushing event queue: {e}")
+    
+    def clear_stats(self):
+        """Clear processing statistics"""
+        self.stats = EventStats()
+        self.logger.info("📊 Event statistics cleared")
+    
+    def test_security_notification_system(self):
+        """Test the security notification system"""
+        try:
+            if self.security_notifier:
+                self.security_notifier.test_security_alert()
+                self.logger.info("✅ Security notification test completed")
+            else:
+                self.logger.warning("⚠️ Security notifier not available")
+        except Exception as e:
+            self.logger.error(f"❌ Security notification test failed: {e}")
+    
+    def configure_security_notifications(self, **kwargs):
+        """Configure security notification settings"""
+        try:
+            if self.security_notifier:
+                self.security_notifier.configure_security_notifications(**kwargs)
+                self.logger.info(f"🔧 Security notification settings updated: {kwargs}")
+            else:
+                self.logger.warning("⚠️ Security notifier not available")
+        except Exception as e:
+            self.logger.error(f"❌ Security notification configuration failed: {e}")
+    
+    def get_recent_security_alerts(self) -> List[Dict[str, Any]]:
+        """Get recent security alerts"""
+        try:
+            if self.security_notifier:
+                stats = self.security_notifier.get_security_stats()
+                return stats.get('recent_alerts', [])
+            else:
+                return []
+        except Exception as e:
+            self.logger.error(f"❌ Failed to get recent security alerts: {e}")
+            return []
+    
+    def simulate_security_alert(self, rule_name: str = "Test Rule", severity: str = "HIGH"):
+        """Simulate a security alert for testing"""
+        try:
+            # Create mock server response with alert
+            mock_response = {
+                'success': True,
+                'alerts_generated': [{
+                    'id': f'sim_{int(time.time())}',
+                    'rule_name': rule_name,
+                    'title': f'Simulated {severity} Alert',
+                    'description': f'This is a simulated {severity} security alert for testing',
+                    'severity': severity,
+                    'risk_score': 85 if severity == 'HIGH' else 95 if severity == 'CRITICAL' else 60,
+                    'detection_method': 'Simulation',
+                    'alert_type': 'Test Alert',
+                    'timestamp': datetime.now().isoformat()
+                }]
+            }
+            
+            # Process the simulated alert
+            if self.security_notifier:
+                self.security_notifier.process_server_alerts(mock_response, [])
+                self.logger.info(f"✅ Simulated {severity} security alert: {rule_name}")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Failed to simulate security alert: {e}")
+
+
+# For backward compatibility
+EnhancedEventProcessor = EventProcessor

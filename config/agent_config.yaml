@@ -474,3 +474,131 @@ advanced:
   cloud_backup: false                   # backup data to cloud
   cloud_analysis: false                # send samples for cloud analysis
   cloud_threat_feeds: false            # use cloud threat intelligence
+  # ============================================================================
+# ============================================================================
+# SECURITY NOTIFICATION CONFIGURATION  
+# ============================================================================
+security_notifications:
+  enabled: true                          # Enable/disable security notifications
+  
+  # Display Settings
+  show_on_screen: true                   # Show popup notifications
+  position: "bottom-right"               # Notification position
+  
+  # Alert Filtering
+  show_low_alerts: false                 # Show LOW severity alerts
+  show_medium_alerts: true               # Show MEDIUM severity alerts  
+  show_high_alerts: true                 # Show HIGH severity alerts
+  show_critical_alerts: true            # Show CRITICAL severity alerts
+  
+  # Notification Behavior
+  auto_dismiss_timeout: 30               # Seconds before auto-dismiss
+  play_sound: true                       # Play sound for critical alerts
+  persistent_critical: true             # Keep critical alerts longer
+  click_action: "focus_agent"            # Action when notification clicked
+  
+  # Rate Limiting
+  max_security_alerts_per_minute: 10     # Prevent notification spam
+  duplicate_suppression_window: 300      # Seconds to suppress duplicate alerts
+  
+  # Priority-based Timeouts
+  critical_alert_timeout: 60             # Critical alerts (1 minute)
+  high_alert_timeout: 30                 # High alerts (30 seconds)
+  medium_alert_timeout: 15               # Medium alerts (15 seconds)
+  low_alert_timeout: 10                  # Low alerts (10 seconds)
+  
+  # Content Settings
+  include_rule_name: true                # Show detection rule name
+  include_mitre_info: true               # Show MITRE ATT&CK info
+  include_risk_score: true               # Show risk score
+  include_event_details: true            # Show related event details
+  max_description_length: 200            # Truncate long descriptions
+  
+  # Advanced Features
+  group_similar_alerts: true             # Group similar alerts together
+  escalation_enabled: false              # Escalate repeated critical alerts
+  integration_mode: "standalone"         # standalone, siem_integrated, custom
+  
+  # Fallback Options
+  use_messagebox_fallback: false         # Use MessageBox if toast fails
+  log_all_alerts: true                   # Always log alerts to file
+  send_to_syslog: false                  # Send alerts to Windows Event Log
+
+# ============================================================================
+# DETECTION RULE PRIORITIES (cho Security Notifications)
+# ============================================================================  
+rule_priorities:
+  # Critical Rules (always show, longest timeout)
+  critical_rules:
+    - "Mimikatz Credential Dumping"
+    - "Mass File Encryption Detection" 
+    - "Ransomware Activity"
+    - "Kernel Driver Loading"
+    - "System File Modification"
+    
+  # High Priority Rules  
+  high_priority_rules:
+    - "Suspicious PowerShell Encoded"
+    - "Linux Reverse Shell Detection"
+    - "Code Injection Detected"
+    - "Privilege Escalation"
+    - "Remote Admin Tools"
+    
+  # Medium Priority Rules
+  medium_priority_rules:
+    - "Registry Run Key Persistence"
+    - "Suspicious Download Activity"
+    - "Unusual Network Connection"
+    - "File Hash Mismatch"
+    
+  # Low Priority Rules (optional notifications)
+  low_priority_rules:
+    - "Policy Violation"
+    - "Unusual File Access"
+    - "Non-standard Port Usage"
+
+# ============================================================================
+# MITRE ATT&CK INTEGRATION
+# ============================================================================
+mitre_integration:
+  enabled: true                          # Show MITRE ATT&CK info in notifications
+  show_tactic: true                      # Show tactic (e.g., "Defense Evasion")
+  show_technique: true                   # Show technique (e.g., "T1055")
+  show_description: false                # Show technique description (verbose)
+  
+  # Priority by MITRE Tactic
+  high_priority_tactics:
+    - "Initial Access"
+    - "Execution" 
+    - "Privilege Escalation"
+    - "Defense Evasion"
+    - "Credential Access"
+    - "Lateral Movement"
+    - "Impact"
+    
+  medium_priority_tactics:
+    - "Persistence"
+    - "Discovery"
+    - "Collection"
+    - "Command and Control"
+    - "Exfiltration"
+
+# ============================================================================
+# THREAT INTELLIGENCE INTEGRATION
+# ============================================================================
+threat_intel_notifications:
+  enabled: true                          # Show threat intel matches
+  show_ioc_matches: true                 # Show IoC matches (hash, IP, domain)
+  show_threat_actor: false               # Show attributed threat actor
+  confidence_threshold: 0.7              # Minimum confidence for notification
+  
+  # IoC Type Priorities
+  critical_ioc_types:
+    - "known_malware_hash"
+    - "c2_server_ip"
+    - "ransomware_extension"
+    
+  high_ioc_types:
+    - "suspicious_domain"
+    - "malicious_ip" 
+    - "exploit_signature"

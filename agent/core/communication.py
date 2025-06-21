@@ -285,18 +285,29 @@ class ServerCommunication:
         """Get agent configuration from server"""
         try:
             url = f"{self.base_url}/api/v1/agents/{agent_id}/config"
-            
+            response = await self._make_request('GET', url)
+            return response
+        except Exception as e:
+            self.logger.error(f"❌ Get agent config failed: {e}")
+            return None
+
+    async def get_pending_alerts(self, agent_id: str) -> Optional[Dict]:
+        """Get pending alert notifications from server - NEW"""
+        try:
+            url = f"{self.base_url}/api/v1/agents/{agent_id}/pending-alerts"
             response = await self._make_request('GET', url)
             
-            if response:
-                self.logger.info("✅ Agent configuration retrieved")
+            if response and response.get('success'):
+                alert_count = response.get('alert_count', 0)
+                if alert_count > 0:
+                    self.logger.warning(f"🚨 Received {alert_count} pending alerts from server")
                 return response
             else:
-                self.logger.warning("⚠️ Failed to get agent configuration")
+                self.logger.debug("No pending alerts from server")
                 return None
                 
         except Exception as e:
-            self.logger.error(f"❌ Get config error: {e}")
+            self.logger.error(f"❌ Get pending alerts failed: {e}")
             return None
     
     async def check_server_health(self) -> bool:

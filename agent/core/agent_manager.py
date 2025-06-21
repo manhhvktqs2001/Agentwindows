@@ -299,17 +299,51 @@ class AgentManager:
             self.logger.error(f"❌ Failed to stop collectors: {e}")
     
     async def _heartbeat_loop(self):
-        """Heartbeat loop to maintain connection with server"""
-        heartbeat_interval = self.config.get('agent', {}).get('heartbeat_interval', 30)
-        
-        while self.is_monitoring:
+        """Heartbeat loop with alert checking"""
+        while self.is_monitoring and self.is_registered:
             try:
+                # Send heartbeat
                 await self._send_heartbeat()
-                await asyncio.sleep(heartbeat_interval)
+                
+                # Check for pending alerts
+                await self._check_pending_alerts()
+                
+                # Wait for next heartbeat
+                await asyncio.sleep(self.config.get('agent', {}).get('heartbeat_interval', 30))
                 
             except Exception as e:
-                self.logger.error(f"❌ Heartbeat error: {e}")
-                await asyncio.sleep(heartbeat_interval)
+                self.logger.error(f"❌ Heartbeat loop error: {e}")
+                await asyncio.sleep(10)  # Wait before retry
+
+    async def _check_pending_alerts(self):
+        """Check for pending alerts from server - NEW"""
+        try:
+            if not self.agent_id or not self.communication:
+                return
+            
+            # Get pending alerts
+            response = await self.communication.get_pending_alerts(self.agent_id)
+            
+            if response and response.get('pending_alerts'):
+                alerts = response['pending_alerts']
+                self.logger.warning(f"🚨 Processing {len(alerts)} pending alerts from server")
+                
+                # Process each alert
+                for alert_data in alerts:
+                    try:
+                        notification_data = alert_data.get('notification_data', {})
+                        if notification_data:
+                            # Send to security notifier for display
+                            if hasattr(self, 'event_processor') and self.event_processor:
+                                self.event_processor.security_notifier.process_server_alerts(
+                                    {'alerts_generated': [notification_data]}, 
+                                    []
+                                )
+                    except Exception as e:
+                        self.logger.error(f"Failed to process alert: {e}")
+                        
+        except Exception as e:
+            self.logger.error(f"❌ Alert check failed: {e}")
     
     async def _send_heartbeat(self, status: str = 'Active'):
         """Send heartbeat to server"""

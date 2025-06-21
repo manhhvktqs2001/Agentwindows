@@ -216,18 +216,25 @@ async def main():
         print("⚠️ Administrator privileges recommended for full functionality")
         print("   Some monitoring features may be limited")
         
-        # Try to relaunch as admin
+        # Provide better guidance
+        print("\n💡 To run with administrator privileges:")
+        print("1. Use the admin script: python run_as_admin.py")
+        print("2. Or manually: Right-click PowerShell → 'Run as administrator'")
+        print("3. Then run: python main.py")
+        print()
+        
+        # Ask user if they want to continue
         try:
-            print("🔄 Attempting to restart as administrator...")
-            ctypes.windll.shell32.ShellExecuteW(
-                None, "runas", sys.executable, 
-                ' '.join(sys.argv), None, 1
-            )
+            response = input("Continue with limited privileges? (y/N): ").strip().lower()
+            if response not in ['y', 'yes']:
+                print("🛑 Exiting...")
+                sys.exit(0)
+        except KeyboardInterrupt:
+            print("\n🛑 Exiting...")
             sys.exit(0)
-        except:
-            print("❌ Failed to restart as administrator")
-            print("   Continuing with limited privileges...")
-            time.sleep(2)
+        
+        print("   Continuing with limited privileges...")
+        time.sleep(2)
     
     # Create and run agent
     agent = EDRAgent()

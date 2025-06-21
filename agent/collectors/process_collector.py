@@ -10,7 +10,12 @@ import hashlib
 import os
 import platform
 import psutil
-import wmi
+try:
+    import wmi
+    WMI_AVAILABLE = True
+except ImportError:
+    WMI_AVAILABLE = False
+    wmi = None
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set
 from pathlib import Path
@@ -65,11 +70,16 @@ class ProcessMonitor:
     def start_monitoring(self):
         """Start WMI process monitoring"""
         try:
+            if not WMI_AVAILABLE:
+                self.logger.warning("⚠️ WMI not available, using polling-based monitoring")
+                return
+                
             self.wmi_connection = wmi.WMI()
             self.monitoring = True
             self.logger.info("🔍 Process monitoring started")
         except Exception as e:
             self.logger.error(f"❌ Failed to start process monitoring: {e}")
+            self.logger.info("🔄 Falling back to polling-based monitoring")
             
     def stop_monitoring(self):
         """Stop process monitoring"""
@@ -79,7 +89,7 @@ class ProcessMonitor:
     def _monitor_processes(self):
         """Monitor process creation events"""
         try:
-            if not self.monitoring:
+            if not self.monitoring or not WMI_AVAILABLE:
                 return
                 
             # Monitor process creation events
@@ -107,7 +117,7 @@ class ProcessCollector(BaseCollector):
     
     def __init__(self, config_manager):
         """Initialize process collector"""
-        super().__init__(config_manager, collector_type="Process")
+        super().__init__(config_manager, collector_name="Process")
         
         # Process tracking
         self.known_processes = set()  # Use set instead of dict
