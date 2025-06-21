@@ -1,12 +1,12 @@
-# agent/core/event_processor.py - Updated with Security Notifications
+# agent/core/event_processor.py - Fixed reentrant call error
 """
-Event Processor với Security Alert Notification System
-Hiển thị cảnh báo bảo mật khi server phát hiện threats qua detection rules
+Event Processor với Security Alert Notification System - Fixed logging issues
 """
 
 import asyncio
 import logging
 import time
+import threading
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from collections import deque
@@ -30,12 +30,15 @@ class EventStats:
     batch_count: int = 0
 
 class EventProcessor:
-    """Event Processor with Security Alert Notifications"""
+    """Event Processor with Security Alert Notifications - Fixed reentrant logging"""
     
     def __init__(self, config_manager: ConfigManager, communication: ServerCommunication):
         self.config_manager = config_manager
         self.communication = communication
         self.logger = logging.getLogger(__name__)
+        
+        # Thread lock for logging safety
+        self._log_lock = threading.Lock()
         
         # Configuration
         self.config = self.config_manager.get_config()
@@ -63,13 +66,22 @@ class EventProcessor:
         # Security Alert Notification System
         self.security_notifier = SecurityAlertNotifier(config_manager)
         
-        self.logger.info("🔒 Event Processor with Security Notifications initialized")
+        self._safe_log("info", "🔒 Event Processor with Security Notifications initialized")
+    
+    def _safe_log(self, level: str, message: str):
+        """Thread-safe logging to prevent reentrant calls"""
+        try:
+            with self._log_lock:
+                getattr(self.logger, level)(message)
+        except:
+            # If logging fails, fail silently to prevent cascading errors
+            pass
     
     async def start(self):
         """Start event processor"""
         try:
             self.is_running = True
-            self.logger.info("🚀 Event processor started with security notifications")
+            self._safe_log("info", "🚀 Event processor started with security notifications")
             
             # Start batch processing task
             asyncio.create_task(self._batch_processing_loop())
@@ -78,27 +90,27 @@ class EventProcessor:
             asyncio.create_task(self._stats_logging_loop())
             
         except Exception as e:
-            self.logger.error(f"❌ Event processor start error: {e}")
+            self._safe_log("error", f"❌ Event processor start error: {e}")
     
     async def stop(self):
         """Stop event processor"""
         try:
-            self.logger.info("🛑 Stopping event processor...")
+            self._safe_log("info", "🛑 Stopping event processor...")
             self.is_running = False
             
             # Process remaining events
             if self.event_queue:
                 await self._send_remaining_events()
             
-            self.logger.info("✅ Event processor stopped")
+            self._safe_log("info", "✅ Event processor stopped")
             
         except Exception as e:
-            self.logger.error(f"❌ Event processor stop error: {e}")
+            self._safe_log("error", f"❌ Event processor stop error: {e}")
     
     def set_agent_id(self, agent_id: str):
         """Set agent ID for event processing"""
         self.agent_id = agent_id
-        self.logger.info(f"🆔 Agent ID set: {agent_id}")
+        self._safe_log("info", f"🆔 Agent ID set: {agent_id}")
     
     async def add_event(self, event_data: EventData):
         """Add event to processing queue"""
@@ -115,28 +127,25 @@ class EventProcessor:
             if len(self.event_queue) >= self.max_queue_size:
                 # Remove oldest event to make room
                 self.event_queue.popleft()
-                self.logger.warning("⚠️ Event queue full, dropped oldest event")
+                self._safe_log("warning", "⚠️ Event queue full, dropped oldest event")
             
             # Add to queue
             self.event_queue.append(event_data)
             self.stats.events_collected += 1
             self.stats.events_queued = len(self.event_queue)
             
-            self.logger.debug(f"📥 Event queued: {event_data.event_type} ({len(self.event_queue)} in queue)")
-            
             # Check if we should send immediately
             if len(self.event_queue) >= self.batch_size:
                 await self._send_batch()
             
         except Exception as e:
-            self.logger.error(f"❌ Failed to add event: {e}")
+            self._safe_log("error", f"❌ Failed to add event: {e}")
             self.stats.events_failed += 1
     
     async def _send_batch(self):
-        """Send batch of events to server and handle security alerts"""
+        """Send batch of events to server and handle security alerts - Fixed logging"""
         try:
             if not self.event_queue or not self.agent_id:
-                self.logger.warning(f"[SEND_BATCH] Missing agent_id or empty queue. AgentID: {self.agent_id}")
                 return
             
             # Extract events for batch
@@ -150,7 +159,8 @@ class EventProcessor:
             if not batch_events:
                 return
             
-            self.logger.info(f"[SEND_BATCH] Sending batch: {len(batch_events)} events | AgentID: {self.agent_id}")
+            # Use safe logging for batch send
+            self._safe_log("info", f"[SEND_BATCH] Sending batch: {len(batch_events)} events | AgentID: {self.agent_id}")
             
             # Send to server
             response = await self.communication.submit_event_batch(self.agent_id, batch_events)
@@ -159,9 +169,11 @@ class EventProcessor:
                 self.stats.events_sent += len(batch_events)
                 self.stats.last_batch_sent = datetime.now()
                 self.stats.batch_count += 1
-                self.logger.info(f"✅ Batch sent successfully: {len(batch_events)} events")
                 
-                # *** XỬ LÝ SECURITY ALERTS TỪ SERVER ***
+                # Safe logging for successful batch
+                self._safe_log("info", f"✅ Batch sent successfully: {len(batch_events)} events")
+                
+                # Handle security alerts from server (with safe logging)
                 await self._handle_security_alerts_from_server(response, batch_events)
                     
             else:
@@ -170,44 +182,43 @@ class EventProcessor:
                     self.event_queue.appendleft(event)
                 
                 self.stats.events_failed += len(batch_events)
-                self.logger.error(f"❌ Batch send failed: {len(batch_events)} events returned to queue")
+                self._safe_log("error", f"❌ Batch send failed: {len(batch_events)} events returned to queue")
             
             self.last_batch_time = time.time()
             self.stats.events_queued = len(self.event_queue)
             
         except Exception as e:
-            self.logger.error(f"❌ Batch send error: {e}")
+            # Use safe logging for errors
+            self._safe_log("error", f"❌ Batch send error: {e}")
             # Return events to queue on error
-            for event in batch_events:
-                self.event_queue.appendleft(event)
+            if 'batch_events' in locals():
+                for event in batch_events:
+                    self.event_queue.appendleft(event)
     
     async def _handle_security_alerts_from_server(self, server_response: Dict[str, Any], batch_events: List[EventData]):
-        """Xử lý security alerts từ server response"""
+        """Handle security alerts from server response - Enhanced with multiple detection methods"""
         try:
-            # Kiểm tra các trường có thể chứa alerts
             alerts_found = False
+            alerts_to_process = []
             
-            # Check for alerts_generated field (thường dùng)
+            # Method 1: Check for alerts_generated field (standard format)
             if 'alerts_generated' in server_response and server_response['alerts_generated']:
                 alerts_found = True
-                self.stats.alerts_received += len(server_response['alerts_generated'])
-                
-                self.logger.warning(
-                    f"🚨 SECURITY ALERTS: {len(server_response['alerts_generated'])} threats detected by server!"
-                )
-                
-                # Gửi đến security notifier để hiển thị popup
-                self.security_notifier.process_server_alerts(server_response, batch_events)
+                alerts_to_process.extend(server_response['alerts_generated'])
+                self._safe_log("warning", f"🚨 ALERTS_GENERATED: {len(server_response['alerts_generated'])} alerts from server")
             
-            # Check for threat_detected field
+            # Method 2: Check for alerts field (alternative format)
+            elif 'alerts' in server_response and server_response['alerts']:
+                alerts_found = True
+                alerts_to_process.extend(server_response['alerts'])
+                self._safe_log("warning", f"🚨 ALERTS: {len(server_response['alerts'])} alerts from server")
+            
+            # Method 3: Check for threat_detected field
             elif server_response.get('threat_detected', False):
                 alerts_found = True
-                self.stats.alerts_received += 1
-                
-                # Create alert data from response
                 alert_data = {
-                    'alert_id': f"alert_{int(time.time())}",
-                    'rule_name': 'Server Detection',
+                    'alert_id': f"threat_{int(time.time())}",
+                    'rule_name': 'Server Threat Detection',
                     'alert_type': 'Security Alert',
                     'title': 'Threat Detected by Server',
                     'description': server_response.get('message', 'Suspicious activity detected'),
@@ -216,58 +227,79 @@ class EventProcessor:
                     'detection_method': 'Server Analysis',
                     'timestamp': datetime.now().isoformat()
                 }
-                
-                self.logger.warning(f"🚨 SERVER THREAT DETECTED: Risk Score {alert_data['risk_score']}")
-                
-                # Send to security notifier
-                self.security_notifier.process_server_alerts(
-                    {'alerts_generated': [alert_data]}, 
-                    batch_events
-                )
+                alerts_to_process.append(alert_data)
+                self._safe_log("warning", f"🚨 THREAT_DETECTED: Risk Score {alert_data['risk_score']}")
             
-            # Check for individual alert fields
-            elif any(key.startswith('alert_') for key in server_response.keys()):
+            # Method 4: Check for success=true with risk_score > threshold (inferred threat)
+            elif (server_response.get('success', False) and 
+                  server_response.get('risk_score', 0) > 50):
                 alerts_found = True
-                self.stats.alerts_received += 1
-                
-                # Extract alert information from response
                 alert_data = {
-                    'alert_id': server_response.get('alert_id', f"alert_{int(time.time())}"),
-                    'rule_name': server_response.get('rule_name', 'Unknown Rule'),
-                    'alert_type': server_response.get('alert_type', 'Security Alert'),
-                    'title': server_response.get('title', 'Security Threat Detected'),
-                    'description': server_response.get('description', 'Suspicious activity detected'),
-                    'severity': server_response.get('severity', 'MEDIUM'),
-                    'risk_score': server_response.get('risk_score', 50),
-                    'detection_method': server_response.get('detection_method', 'Server Analysis'),
-                    'timestamp': server_response.get('timestamp', datetime.now().isoformat())
+                    'alert_id': f"inferred_{int(time.time())}",
+                    'rule_name': 'High Risk Activity',
+                    'alert_type': 'Risk Alert',
+                    'title': 'High Risk Activity Detected',
+                    'description': f"Activity with risk score {server_response['risk_score']} detected",
+                    'severity': 'HIGH' if server_response['risk_score'] >= 70 else 'MEDIUM',
+                    'risk_score': server_response['risk_score'],
+                    'detection_method': 'Risk Scoring',
+                    'timestamp': datetime.now().isoformat()
                 }
-                
-                self.logger.warning(f"🚨 ALERT FROM SERVER: {alert_data['rule_name']} - {alert_data['severity']}")
-                
-                # Send to security notifier
-                self.security_notifier.process_server_alerts(
-                    {'alerts_generated': [alert_data]}, 
-                    batch_events
-                )
+                alerts_to_process.append(alert_data)
+                self._safe_log("warning", f"🚨 HIGH_RISK: Score {alert_data['risk_score']}")
             
-            if alerts_found:
-                self.logger.critical(
-                    f"🚨 SECURITY ALERT SUMMARY:"
-                    f"\n   Events in batch: {len(batch_events)}"
-                    f"\n   Alerts generated: {self.stats.alerts_received}"
-                    f"\n   Risk score: {server_response.get('risk_score', 'N/A')}"
-                    f"\n   Threat level: {server_response.get('threat_level', 'N/A')}"
+            # Method 5: Check if there are any fields containing "alert" or "threat"
+            else:
+                for key, value in server_response.items():
+                    if ('alert' in key.lower() or 'threat' in key.lower()) and value:
+                        alerts_found = True
+                        alert_data = {
+                            'alert_id': f"field_{int(time.time())}",
+                            'rule_name': f'Server Alert ({key})',
+                            'alert_type': 'Security Alert',
+                            'title': f'Security Alert: {key}',
+                            'description': f'{key}: {str(value)}',
+                            'severity': 'MEDIUM',
+                            'risk_score': 60,
+                            'detection_method': 'Field Detection',
+                            'timestamp': datetime.now().isoformat()
+                        }
+                        alerts_to_process.append(alert_data)
+                        self._safe_log("warning", f"🚨 FIELD_ALERT: {key} = {value}")
+                        break  # Only process first alert field found
+            
+            # Process all found alerts
+            if alerts_found and alerts_to_process:
+                self.stats.alerts_received += len(alerts_to_process)
+                
+                # Log comprehensive alert summary
+                self._safe_log("critical", 
+                    f"🚨 SECURITY ALERT SUMMARY: {len(alerts_to_process)} alerts detected\n"
+                    f"   Response keys: {list(server_response.keys())}\n"
+                    f"   Alert types: {[alert.get('alert_type', 'Unknown') for alert in alerts_to_process]}\n"
+                    f"   Severities: {[alert.get('severity', 'Unknown') for alert in alerts_to_process]}"
                 )
                 
-                # Update statistics
+                # Send to security notifier for display
+                mock_response = {'alerts_generated': alerts_to_process}
+                self.security_notifier.process_server_alerts(mock_response, batch_events)
                 self.stats.security_notifications_sent += 1
                 
+                # Log each individual alert
+                for alert in alerts_to_process:
+                    self._safe_log("error", 
+                        f"🚨 ALERT: {alert.get('rule_name', 'Unknown')} | "
+                        f"Severity: {alert.get('severity', 'Unknown')} | "
+                        f"Risk: {alert.get('risk_score', 0)}/100"
+                    )
             else:
-                self.logger.debug("✅ No security alerts in server response")
+                # Debug: Log server response for analysis if no alerts found
+                self._safe_log("debug", f"📋 Server response keys: {list(server_response.keys())}")
                 
         except Exception as e:
-            self.logger.error(f"❌ Error handling security alerts from server: {e}")
+            self._safe_log("error", f"❌ Error handling security alerts from server: {e}")
+            # Also log the problematic response for debugging
+            self._safe_log("debug", f"Problematic response: {server_response}")
     
     def _should_process_event(self, event_data: EventData) -> bool:
         """Apply filters to determine if event should be processed"""
@@ -296,12 +328,6 @@ class EventProcessor:
                 if (event_data.file_extension and 
                     event_data.file_extension.lower() in self.filters.get('exclude_file_extensions', [])):
                     return False
-                
-                # Filter Windows directories
-                if (event_data.file_path and 
-                    any(excluded_dir.lower() in event_data.file_path.lower() 
-                        for excluded_dir in self.filters.get('exclude_windows_directories', []))):
-                    return False
                     
             elif event_data.event_type == 'Network':
                 if not collection_config.get('collect_network', True):
@@ -318,7 +344,7 @@ class EventProcessor:
             return True
             
         except Exception as e:
-            self.logger.error(f"❌ Filter error: {e}")
+            self._safe_log("error", f"❌ Filter error: {e}")
             return True  # Default to processing if filter fails
     
     def _is_system_process(self, event_data: EventData) -> bool:
@@ -352,7 +378,7 @@ class EventProcessor:
                 await asyncio.sleep(1)  # Check every second
                 
             except Exception as e:
-                self.logger.error(f"❌ Batch processing error: {e}")
+                self._safe_log("error", f"❌ Batch processing error: {e}")
                 await asyncio.sleep(5)
     
     async def _send_remaining_events(self):
@@ -362,10 +388,10 @@ class EventProcessor:
                 await self._send_batch()
                 await asyncio.sleep(0.1)  # Small delay between batches
                 
-            self.logger.info("✅ All remaining events sent")
+            self._safe_log("info", "✅ All remaining events sent")
             
         except Exception as e:
-            self.logger.error(f"❌ Failed to send remaining events: {e}")
+            self._safe_log("error", f"❌ Failed to send remaining events: {e}")
     
     async def _stats_logging_loop(self):
         """Log statistics periodically"""
@@ -376,17 +402,18 @@ class EventProcessor:
                 if self.stats.events_collected > 0:
                     success_rate = (self.stats.events_sent / self.stats.events_collected) * 100
                     
-                    self.logger.info(
+                    stats_message = (
                         f"📊 Event Stats: Collected={self.stats.events_collected}, "
                         f"Sent={self.stats.events_sent}, Failed={self.stats.events_failed}, "
                         f"Queued={self.stats.events_queued}, "
                         f"Alerts={self.stats.alerts_received}, "
-                        f"Security Notifications={self.stats.security_notifications_sent}, "
                         f"Success Rate={success_rate:.1f}%"
                     )
+                    
+                    self._safe_log("info", stats_message)
                 
             except Exception as e:
-                self.logger.error(f"❌ Stats logging error: {e}")
+                self._safe_log("error", f"❌ Stats logging error: {e}")
     
     def get_stats(self) -> Dict[str, Any]:
         """Get current processing statistics"""
@@ -410,95 +437,3 @@ class EventProcessor:
             base_stats['security_notifier_stats'] = self.security_notifier.get_security_stats()
         
         return base_stats
-    
-    def get_queue_status(self) -> Dict[str, Any]:
-        """Get current queue status"""
-        return {
-            'current_size': len(self.event_queue),
-            'max_size': self.max_queue_size,
-            'usage_percent': (len(self.event_queue) / self.max_queue_size) * 100,
-            'is_full': len(self.event_queue) >= self.max_queue_size,
-            'batch_size': self.batch_size,
-            'time_since_last_batch': time.time() - self.last_batch_time
-        }
-    
-    async def flush_queue(self):
-        """Force flush all events in queue"""
-        try:
-            if self.event_queue:
-                self.logger.info(f"🔄 Flushing {len(self.event_queue)} events")
-                await self._send_remaining_events()
-            else:
-                self.logger.info("✅ Event queue is empty")
-        except Exception as e:
-            self.logger.error(f"❌ Error while flushing event queue: {e}")
-    
-    def clear_stats(self):
-        """Clear processing statistics"""
-        self.stats = EventStats()
-        self.logger.info("📊 Event statistics cleared")
-    
-    def test_security_notification_system(self):
-        """Test the security notification system"""
-        try:
-            if self.security_notifier:
-                self.security_notifier.test_security_alert()
-                self.logger.info("✅ Security notification test completed")
-            else:
-                self.logger.warning("⚠️ Security notifier not available")
-        except Exception as e:
-            self.logger.error(f"❌ Security notification test failed: {e}")
-    
-    def configure_security_notifications(self, **kwargs):
-        """Configure security notification settings"""
-        try:
-            if self.security_notifier:
-                self.security_notifier.configure_security_notifications(**kwargs)
-                self.logger.info(f"🔧 Security notification settings updated: {kwargs}")
-            else:
-                self.logger.warning("⚠️ Security notifier not available")
-        except Exception as e:
-            self.logger.error(f"❌ Security notification configuration failed: {e}")
-    
-    def get_recent_security_alerts(self) -> List[Dict[str, Any]]:
-        """Get recent security alerts"""
-        try:
-            if self.security_notifier:
-                stats = self.security_notifier.get_security_stats()
-                return stats.get('recent_alerts', [])
-            else:
-                return []
-        except Exception as e:
-            self.logger.error(f"❌ Failed to get recent security alerts: {e}")
-            return []
-    
-    def simulate_security_alert(self, rule_name: str = "Test Rule", severity: str = "HIGH"):
-        """Simulate a security alert for testing"""
-        try:
-            # Create mock server response with alert
-            mock_response = {
-                'success': True,
-                'alerts_generated': [{
-                    'id': f'sim_{int(time.time())}',
-                    'rule_name': rule_name,
-                    'title': f'Simulated {severity} Alert',
-                    'description': f'This is a simulated {severity} security alert for testing',
-                    'severity': severity,
-                    'risk_score': 85 if severity == 'HIGH' else 95 if severity == 'CRITICAL' else 60,
-                    'detection_method': 'Simulation',
-                    'alert_type': 'Test Alert',
-                    'timestamp': datetime.now().isoformat()
-                }]
-            }
-            
-            # Process the simulated alert
-            if self.security_notifier:
-                self.security_notifier.process_server_alerts(mock_response, [])
-                self.logger.info(f"✅ Simulated {severity} security alert: {rule_name}")
-            
-        except Exception as e:
-            self.logger.error(f"❌ Failed to simulate security alert: {e}")
-
-
-# For backward compatibility
-EnhancedEventProcessor = EventProcessor

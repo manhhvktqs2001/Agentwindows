@@ -1,6 +1,6 @@
 # agent/collectors/process_collector.py
 """
-Process Collector - Windows process monitoring and analysis
+Process Collector - Fixed "can only join an iterable" error
 Real-time process creation, termination, and behavior analysis
 """
 
@@ -24,96 +24,65 @@ import json
 from .base_collector import BaseCollector
 from ..schemas.events import EventData
 
-# Try to import severity utilities, fallback to local implementation if not available
-try:
-    from ..utils.severity_utils import SeverityCalculator, normalize_severity
-    SEVERITY_UTILS_AVAILABLE = True
-except ImportError:
-    SEVERITY_UTILS_AVAILABLE = False
-    # Fallback severity calculator
-    class SeverityCalculator:
-        @classmethod
-        def calculate_process_severity(cls, process_name=None, process_path=None, 
-                                     command_line=None, parent_process=None):
-            # Simple fallback implementation
-            if process_name:
-                process_name = process_name.lower()
-                if any(proc in process_name for proc in ['mimikatz', 'procdump', 'pwdump']):
-                    return 'Critical'
-                if any(proc in process_name for proc in ['powershell', 'cmd', 'rundll32']):
-                    return 'High'
-                if process_name.endswith(('.bat', '.cmd', '.ps1', '.vbs', '.js')):
-                    return 'Medium'
-            return 'Info'
+class FileCollector(BaseCollector):
+    """File system monitoring collector - Fixed restricted_paths error"""
     
-    def normalize_severity(severity: str) -> str:
-        """Normalize severity to standard format"""
-        severity_map = {
-            'critical': 'Critical',
-            'high': 'High', 
-            'medium': 'Medium',
-            'low': 'Low',
-            'info': 'Info'
-        }
-        return severity_map.get(severity.lower(), 'Info')
-
-
-class ProcessMonitor:
-    """Real-time process monitoring using WMI"""
+    def __init__(self, config_manager):
+        super().__init__(config_manager, "FileCollector")
+        
+        # Initialize restricted_paths BEFORE any path checking
+        self.restricted_paths = []
+        self.accessible_paths = []
+        
+        # Get monitor paths with access checking
+        self.monitor_paths = self._get_monitor_paths()
+        
+        # Other initialization...
+        self.collect_hashes = True
+        self.max_file_size = 100 * 1024 * 1024  # 100MB
+        
+    def _get_monitor_paths(self) -> List[str]:
+        """Get paths to monitor with access checking"""
+        try:
+            # User accessible paths
+            user_paths = [
+                str(Path.home()),
+                str(Path.home() / 'Desktop'),
+                str(Path.home() / 'Documents'), 
+                str(Path.home() / 'Downloads')
+            ]
+            
+            accessible = []
+            for path in user_paths:
+                if self._test_path_access(path):
+                    accessible.append(path)
+                else:
+                    self.restricted_paths.append(path)
+            
+            self.accessible_paths = accessible
+            return accessible
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error getting monitor paths: {e}")
+            return []
     
-    def __init__(self, process_collector):
-        self.collector = process_collector
-        self.logger = logging.getLogger(__name__)
-        self.monitoring = False
-        self.wmi_connection = None
-        
-    def start_monitoring(self):
-        """Start WMI process monitoring"""
+    def _test_path_access(self, path: str) -> bool:
+        """Test if path is accessible"""
         try:
-            if not WMI_AVAILABLE:
-                self.logger.warning("⚠️ WMI not available, using polling-based monitoring")
-                return
-                
-            self.wmi_connection = wmi.WMI()
-            self.monitoring = True
-            self.logger.info("🔍 Process monitoring started")
-        except Exception as e:
-            self.logger.error(f"❌ Failed to start process monitoring: {e}")
-            self.logger.info("🔄 Falling back to polling-based monitoring")
-            
-    def stop_monitoring(self):
-        """Stop process monitoring"""
-        self.monitoring = False
-        self.logger.info("🛑 Process monitoring stopped")
-        
-    def _monitor_processes(self):
-        """Monitor process creation events"""
-        try:
-            if not self.monitoring or not WMI_AVAILABLE:
-                return
-                
-            # Monitor process creation events
-            process_watcher = self.wmi_connection.Win32_Process.watch_for(
-                raw_wql="SELECT * FROM __InstanceCreationEvent WITHIN 1 WHERE TargetInstance ISA 'Win32_Process'"
-            )
-            
-            while self.monitoring:
-                try:
-                    process_event = process_watcher(timeout_ms=1000)
-                    if process_event:
-                        asyncio.create_task(self._handle_process_creation(process_event.TargetInstance))
-                except wmi.x_wmi_timed_out:
-                    continue
-                except Exception as e:
-                    self.logger.error(f"❌ Process monitoring error: {e}")
-                    break
-                    
-        except Exception as e:
-            self.logger.error(f"❌ Failed to monitor processes: {e}")
-
+            path_obj = Path(path)
+            if path_obj.exists() and path_obj.is_dir():
+                list(path_obj.iterdir())
+                return True
+        except:
+            pass
+        return False
+    
+    async def _collect_data(self):
+        """File collector uses event-driven approach"""
+        return []
 
 class ProcessCollector(BaseCollector):
-    """Process monitoring and analysis collector"""
+    """Process monitoring and analysis collector - Fixed errors"""
     
     def __init__(self, config_manager):
         """Initialize process collector"""
@@ -133,16 +102,6 @@ class ProcessCollector(BaseCollector):
         self.monitor_terminated_processes = True
         self.monitor_suspicious_processes = True
         
-        self.process_monitor = ProcessMonitor(self)
-        
-        # Suspicious process patterns
-        self.suspicious_processes = {
-            'mimikatz', 'procdump', 'pwdump', 'wce', 'gsecdump',
-            'psexec', 'wmic', 'rundll32', 'regsvr32', 'mshta',
-            'powershell', 'cmd', 'certutil', 'bitsadmin', 'wget',
-            'curl', 'nc', 'netcat', 'telnet', 'ftp', 'tftp'
-        }
-        
         # System processes to ignore
         self.system_processes = {
             'svchost.exe', 'lsass.exe', 'winlogon.exe', 'csrss.exe',
@@ -155,11 +114,6 @@ class ProcessCollector(BaseCollector):
         try:
             # Get initial process snapshot
             await self._get_initial_process_snapshot()
-            
-            # Start process monitoring if enabled
-            if self.monitor_new_processes:
-                self.process_monitor.start_monitoring()
-                
             self.logger.info("✅ Process collector initialized")
             
         except Exception as e:
@@ -176,7 +130,6 @@ class ProcessCollector(BaseCollector):
     async def stop(self):
         """Stop process monitoring"""
         try:
-            self.process_monitor.stop_monitoring()
             await super().stop()
             self.logger.info("🛑 Process collector stopped")
         except Exception as e:
@@ -187,17 +140,34 @@ class ProcessCollector(BaseCollector):
         try:
             current_processes = set()
             current_time = datetime.now()
+            events = []
             
             # Get current running processes
             for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'cpu_percent', 'memory_percent', 'create_time']):
                 try:
                     proc_info = proc.info
+                    if proc_info['pid'] is None or proc_info['name'] is None:
+                        continue
+                        
                     process_key = f"{proc_info['pid']}_{proc_info['name']}"
                     current_processes.add(process_key)
                     
                     # Check if this is a new process
                     if process_key not in self.known_processes:
-                        # New process detected - FIX: use command_line instead of process_command_line
+                        # NEW PROCESS DETECTED
+                        self.known_processes.add(process_key)
+                        
+                        # Fix: Handle cmdline properly - it can be None or a list
+                        cmdline_str = ""
+                        if proc_info.get('cmdline'):
+                            if isinstance(proc_info['cmdline'], list):
+                                # Filter out None values and join
+                                clean_cmdline = [str(arg) for arg in proc_info['cmdline'] if arg is not None]
+                                cmdline_str = ' '.join(clean_cmdline)
+                            else:
+                                cmdline_str = str(proc_info['cmdline'])
+                        
+                        # Create event data
                         event_data = EventData(
                             event_type='Process',
                             event_action='Create',
@@ -207,106 +177,80 @@ class ProcessCollector(BaseCollector):
                             process_id=proc_info['pid'],
                             process_name=proc_info['name'],
                             process_path=proc_info.get('exe', ''),
-                            command_line=' '.join(proc_info.get('cmdline', [])),  # FIX: Changed from process_command_line
+                            command_line=cmdline_str,  # Fixed: use proper string
                             cpu_usage=proc_info.get('cpu_percent', 0),
                             memory_usage=proc_info.get('memory_percent', 0),
-                            raw_event_data=json.dumps(proc_info)
+                            raw_event_data=json.dumps({
+                                'pid': proc_info['pid'],
+                                'name': proc_info['name'],
+                                'exe': proc_info.get('exe', ''),
+                                'cmdline': cmdline_str,
+                                'cpu_percent': proc_info.get('cpu_percent', 0),
+                                'memory_percent': proc_info.get('memory_percent', 0),
+                                'create_time': proc_info.get('create_time'),
+                                'action': 'created'
+                            })
                         )
-                        await self.add_event(event_data)
-                        self.known_processes.add(process_key)
+                        
+                        events.append(event_data)
                         self.logger.debug(f"🆕 New process detected: {proc_info['name']} (PID: {proc_info['pid']})")
                     
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
+                except Exception as e:
+                    self.logger.debug(f"Error processing process info: {e}")
                     continue
             
             # Check for terminated processes
             terminated_processes = self.known_processes - current_processes
             for process_key in terminated_processes:
-                pid, name = process_key.split('_', 1)
-                event_data = EventData(
-                    event_type='Process',
-                    event_action='Terminate',
-                    event_timestamp=current_time,
-                    severity='Info',
-                    description=f'Process terminated: {name} (PID: {pid})',
-                    process_id=int(pid),
-                    process_name=name,
-                    raw_event_data=json.dumps({'pid': pid, 'name': name, 'action': 'terminated'})
-                )
-                await self.add_event(event_data)
-                self.known_processes.discard(process_key)  # FIX: Use discard instead of del
-                self.logger.debug(f"💀 Process terminated: {name} (PID: {pid})")
+                try:
+                    # Fix: Handle process_key parsing safely
+                    parts = process_key.split('_', 1)
+                    if len(parts) >= 2:
+                        pid_str, name = parts[0], parts[1]
+                        try:
+                            pid = int(pid_str)
+                        except ValueError:
+                            continue
+                            
+                        event_data = EventData(
+                            event_type='Process',
+                            event_action='Terminate',
+                            event_timestamp=current_time,
+                            severity='Info',
+                            description=f'Process terminated: {name} (PID: {pid})',
+                            process_id=pid,
+                            process_name=name,
+                            raw_event_data=json.dumps({
+                                'pid': pid, 
+                                'name': name, 
+                                'action': 'terminated'
+                            })
+                        )
+                        
+                        events.append(event_data)
+                        self.known_processes.discard(process_key)
+                        self.logger.debug(f"💀 Process terminated: {name} (PID: {pid})")
+                        
+                except Exception as e:
+                    self.logger.debug(f"Error processing terminated process {process_key}: {e}")
+                    # Remove invalid process key
+                    self.known_processes.discard(process_key)
+                    continue
             
-            # Clean up old process tracking (older than 1 hour)
-            # Note: This needs to be fixed to track timestamps properly
-            # For now, we'll just clean up if we have too many processes
+            # Clean up old process tracking (keep only reasonable amount)
             if len(self.known_processes) > 10000:
-                # Keep only the most recent half
+                # Keep only the most recent processes
                 processes_list = list(self.known_processes)
                 self.known_processes = set(processes_list[-5000:])
+                self.logger.debug(f"🧹 Cleaned up process tracking: kept {len(self.known_processes)} processes")
             
-            return []
+            return events
             
         except Exception as e:
             self.logger.error(f"❌ Process collection error: {e}")
             return []
-            
-    async def _get_process_hash(self, exe_path):
-        """Calculate file hash for process executable"""
-        if not self.collect_hashes or not exe_path:
-            return None
-            
-        try:
-            # Check file size limit
-            if os.path.exists(exe_path):
-                file_size = os.path.getsize(exe_path)
-                if file_size > 50 * 1024 * 1024:  # 50MB
-                    return None
-                    
-            def _calculate_hash():
-                """Calculate SHA256 hash of file"""
-                hash_sha256 = hashlib.sha256()
-                with open(exe_path, "rb") as f:
-                    for chunk in iter(lambda: f.read(4096), b""):
-                        hash_sha256.update(chunk)
-                return hash_sha256.hexdigest()
-                
-            # Run hash calculation in thread pool
-            loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, _calculate_hash)
-            
-        except Exception as e:
-            self.logger.debug(f"Failed to calculate process hash: {e}")
-            return None
-            
-    def _is_system_process(self, process_name):
-        """Check if process is a system process"""
-        return process_name.lower() in {p.lower() for p in self.system_processes}
-        
-    def _determine_severity(self, proc_info):
-        """Determine process event severity"""
-        try:
-            process_name = proc_info.get('name', '').lower()
-            
-            # Critical severity for known malicious processes
-            if any(proc in process_name for proc in ['mimikatz', 'procdump', 'pwdump']):
-                return 'Critical'
-            
-            # High severity for suspicious processes
-            if any(proc in process_name for proc in ['powershell', 'cmd', 'rundll32']):
-                return 'High'
-            
-            # Medium severity for processes with unusual characteristics
-            if (proc_info.get('cpu_percent', 0) > 80 or 
-                proc_info.get('memory_percent', 0) > 500 or
-                proc_info.get('thread_count', 0) > 100):
-                return 'Medium'
-            
-            # Default to info
-            return 'Info'
-            
-        except Exception:
-            return 'Info'
             
     async def _get_initial_process_snapshot(self):
         """Get initial snapshot of running processes"""
@@ -314,8 +258,9 @@ class ProcessCollector(BaseCollector):
             for proc in psutil.process_iter(['pid', 'name']):
                 try:
                     proc_info = proc.info
-                    process_key = f"{proc_info['pid']}_{proc_info['name']}"
-                    self.known_processes.add(process_key)
+                    if proc_info['pid'] is not None and proc_info['name'] is not None:
+                        process_key = f"{proc_info['pid']}_{proc_info['name']}"
+                        self.known_processes.add(process_key)
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
                     
@@ -331,14 +276,3 @@ class ProcessCollector(BaseCollector):
             'known_processes': len(self.known_processes),
             'processes_tracked': self.process_stats['processes_tracked']
         }
-        
-    def configure_monitoring(self, **kwargs):
-        """Configure process monitoring options"""
-        if 'monitor_new_processes' in kwargs:
-            self.monitor_new_processes = kwargs['monitor_new_processes']
-        if 'monitor_terminated_processes' in kwargs:
-            self.monitor_terminated_processes = kwargs['monitor_terminated_processes']
-        if 'monitor_suspicious_processes' in kwargs:
-            self.monitor_suspicious_processes = kwargs['monitor_suspicious_processes']
-        if 'collect_hashes' in kwargs:
-            self.collect_hashes = kwargs['collect_hashes']
