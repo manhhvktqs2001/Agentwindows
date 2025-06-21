@@ -154,16 +154,6 @@ class FileCollector(BaseCollector):
                     self.logger.warning(f"⚠️ Cannot access path: {path}")
                     self.restricted_paths.append(path)
             
-            # If no accessible paths, create a test directory
-            if not accessible_paths:
-                test_dir = Path.home() / 'EDR_Test_Files'
-                try:
-                    test_dir.mkdir(exist_ok=True)
-                    accessible_paths.append(str(test_dir))
-                    self.logger.info(f"📁 Created test directory: {test_dir}")
-                except Exception as e:
-                    self.logger.error(f"❌ Failed to create test directory: {e}")
-            
             self.accessible_paths = accessible_paths
             return accessible_paths
             
@@ -257,8 +247,6 @@ class FileCollector(BaseCollector):
             
             if monitored_count == 0:
                 self.logger.warning("⚠️ No accessible paths to monitor")
-                # Create a test file event every 45 seconds for testing
-                self._last_test_file_event = datetime.now()
             else:
                 self.logger.info(f"✅ Setup monitoring for {monitored_count} accessible paths")
             

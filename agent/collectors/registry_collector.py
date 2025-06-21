@@ -259,6 +259,16 @@ class RegistryCollector(BaseCollector):
         self.monitor_security_keys = True
         self.monitor_network_keys = True
         
+        # FIX: Initialize monitored_keys attribute
+        self.monitored_keys = []
+        if WINDOWS_AVAILABLE:
+            self.monitored_keys = [
+                r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+                r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows Defender\Real-Time Protection",
+                r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System",
+                r"HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services",
+            ]
+        
         # Known critical registry values (only if APIs available)
         self.critical_values = {}
         if WINDOWS_AVAILABLE:
@@ -353,7 +363,7 @@ class RegistryCollector(BaseCollector):
                             severity='Medium',
                             description=f'Registry key modified: {key_path}',
                             registry_key=key_path,
-                            registry_value=str(current_value),
+                            registry_value_data=str(current_value),
                             registry_operation='Modify',
                             raw_event_data=json.dumps({
                                 'key_path': key_path,
@@ -383,6 +393,38 @@ class RegistryCollector(BaseCollector):
         except Exception as e:
             self.logger.error(f"❌ Registry collection error: {e}")
             return []
+    
+    def _get_registry_value(self, key_path):
+        """Get registry value for a given key path"""
+        try:
+            if not WINDOWS_AVAILABLE:
+                return None
+            
+            # Parse key path
+            if key_path.startswith("HKEY_LOCAL_MACHINE\\"):
+                root_key = winreg.HKEY_LOCAL_MACHINE
+                subkey = key_path[19:]  # Remove "HKEY_LOCAL_MACHINE\\"
+            elif key_path.startswith("HKEY_CURRENT_USER\\"):
+                root_key = winreg.HKEY_CURRENT_USER
+                subkey = key_path[18:]  # Remove "HKEY_CURRENT_USER\\"
+            else:
+                # Assume HKEY_LOCAL_MACHINE for relative paths
+                root_key = winreg.HKEY_LOCAL_MACHINE
+                subkey = key_path
+            
+            # Open registry key
+            with winreg.OpenKey(root_key, subkey, 0, winreg.KEY_READ) as key:
+                # Read default value
+                try:
+                    value, _ = winreg.QueryValueEx(key, "")
+                    return str(value)
+                except FileNotFoundError:
+                    # No default value, return empty string
+                    return ""
+                    
+        except Exception as e:
+            self.logger.debug(f"Error reading registry key {key_path}: {e}")
+            return None
     
     def _read_key_values(self, key_path):
         """Read values from a registry key"""
@@ -515,30 +557,3 @@ class RegistryCollector(BaseCollector):
         
         # Default to info
         return 'Info'
-
-    async def _create_test_registry_event(self):
-        """Create a test registry event for demonstration"""
-        try:
-            event = EventData(
-                event_type='Registry',
-                event_action='Test',
-                event_timestamp=datetime.now(),
-                severity='Info',
-                description='Test registry monitoring event',
-                registry_key='HKEY_CURRENT_USER\\Software\\TestEDR',
-                registry_value_name='TestValue',
-                registry_value_data='TestData',
-                registry_operation='Test',
-                raw_event_data=json.dumps({
-                    'category': 'test',
-                    'change_type': 'Test',
-                    'test_data': 'This is a test registry event'
-                })
-            )
-            
-            self.logger.debug("🧪 Created test registry event")
-            return event
-            
-        except Exception as e:
-            self.logger.error(f"❌ Failed to create test registry event: {e}")
-            return None
