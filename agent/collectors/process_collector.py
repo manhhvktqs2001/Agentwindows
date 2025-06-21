@@ -11,7 +11,7 @@ import os
 import platform
 import psutil
 import wmi
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set
 from pathlib import Path
 import json
@@ -21,8 +21,7 @@ from ..schemas.events import EventData
 
 # Try to import severity utilities, fallback to local implementation if not available
 try:
-    from ..utils.severity_utils import SeverityCalculator
-    from ..schemas.events import normalize_severity
+    from ..utils.severity_utils import SeverityCalculator, normalize_severity
     SEVERITY_UTILS_AVAILABLE = True
 except ImportError:
     SEVERITY_UTILS_AVAILABLE = False
@@ -171,90 +170,72 @@ class ProcessCollector(BaseCollector):
             self.logger.error(f"❌ Failed to stop process collector: {e}")
             
     async def _collect_data(self):
-        """Collect process data"""
+        """Collect process information and detect new/terminated processes"""
         try:
-            start_time = datetime.now()
+            current_processes = set()
+            current_time = datetime.now()
             
-            # Get current processes
-            processes = []
-            for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'cpu_percent', 'memory_percent']):
+            # Get current running processes
+            for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'cpu_percent', 'memory_percent', 'create_time']):
                 try:
                     proc_info = proc.info
-                    proc_info['pid'] = proc.pid
-                    proc_info['ppid'] = proc.ppid()
-                    proc_info['create_time'] = datetime.fromtimestamp(proc.create_time())
-                    proc_info['status'] = proc.status()
+                    process_key = f"{proc_info['pid']}_{proc_info['name']}"
+                    current_processes.add(process_key)
                     
                     # Check if this is a new process
-                    if proc.pid not in self.known_processes:
-                        await self._create_process_event(proc_info, 'Create')
-                        self.known_processes.add(proc.pid)
-                        
-                    processes.append(proc_info)
+                    if process_key not in self.known_processes:
+                        # New process detected
+                        event_data = EventData(
+                            event_type='Process',
+                            event_action='Create',
+                            event_timestamp=current_time,
+                            severity='Info',
+                            description=f'New process started: {proc_info["name"]} (PID: {proc_info["pid"]})',
+                            process_id=proc_info['pid'],
+                            process_name=proc_info['name'],
+                            process_path=proc_info.get('exe', ''),
+                            process_command_line=' '.join(proc_info.get('cmdline', [])),
+                            process_cpu_usage=proc_info.get('cpu_percent', 0),
+                            process_memory_usage=proc_info.get('memory_percent', 0),
+                            process_creation_time=datetime.fromtimestamp(proc_info.get('create_time', 0)),
+                            raw_event_data=json.dumps(proc_info)
+                        )
+                        await self.add_event(event_data)
+                        self.known_processes[process_key] = current_time
+                        self.logger.debug(f"🆕 New process detected: {proc_info['name']} (PID: {proc_info['pid']})")
                     
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     continue
-                    
+            
             # Check for terminated processes
-            current_pids = {proc['pid'] for proc in processes}
-            terminated_pids = self.known_processes - current_pids
+            terminated_processes = self.known_processes.keys() - current_processes
+            for process_key in terminated_processes:
+                pid, name = process_key.split('_', 1)
+                event_data = EventData(
+                    event_type='Process',
+                    event_action='Terminate',
+                    event_timestamp=current_time,
+                    severity='Info',
+                    description=f'Process terminated: {name} (PID: {pid})',
+                    process_id=int(pid),
+                    process_name=name,
+                    raw_event_data=json.dumps({'pid': pid, 'name': name, 'action': 'terminated'})
+                )
+                await self.add_event(event_data)
+                del self.known_processes[process_key]
+                self.logger.debug(f"💀 Process terminated: {name} (PID: {pid})")
             
-            for pid in terminated_pids:
-                await self._create_process_event({'pid': pid}, 'Terminate')
-                self.known_processes.discard(pid)
-                
-            # Update stats
-            self.process_stats['total_events'] += len(processes)
+            # Clean up old process tracking (older than 1 hour)
+            cutoff_time = current_time - timedelta(hours=1)
+            old_processes = [key for key, time in self.known_processes.items() if time < cutoff_time]
+            for key in old_processes:
+                del self.known_processes[key]
             
-            collection_time = (datetime.now() - start_time).total_seconds()
-            if collection_time > 1.0:
-                self.logger.warning(f"⚠️ Slow collection: {collection_time:.2f}s")
-                
+            return []
+            
         except Exception as e:
-            self.logger.error(f"❌ Process data collection failed: {e}")
-            
-    async def _create_process_event(self, proc_info, action):
-        """Create process event"""
-        try:
-            # Determine severity
-            severity = self._determine_severity(proc_info)
-            
-            # Create event data
-            event_data = EventData(
-                event_type="Process",
-                event_action=action,
-                event_timestamp=datetime.now(),
-                severity=severity,
-                description=f"Process {action}: {proc_info.get('name', 'Unknown')} (PID: {proc_info.get('pid', 'N/A')})",
-                source_ip="127.0.0.1",
-                destination_ip="",
-                source_port=0,
-                destination_port=0,
-                protocol="",
-                process_name=proc_info.get('name', ''),
-                process_id=proc_info.get('pid', 0),
-                parent_pid=proc_info.get('ppid', 0),
-                command_line=' '.join(proc_info.get('cmdline', [])) if proc_info.get('cmdline') else None,
-                process_path=proc_info.get('exe', ''),
-                raw_event_data=json.dumps({
-                    'action': action,
-                    'process_info': proc_info,
-                    'cpu_usage': proc_info.get('cpu_percent', 0),
-                    'memory_usage': proc_info.get('memory_percent', 0),
-                    'status': proc_info.get('status', ''),
-                    'create_time': proc_info.get('create_time', '').isoformat() if proc_info.get('create_time') else None
-                })
-            )
-            
-            # Add event to queue
-            self.add_event(event_data)
-            
-            # Update stats
-            if severity in ['High', 'Critical']:
-                self.process_stats['high_severity_events'] += 1
-                
-        except Exception as e:
-            self.logger.error(f"❌ Failed to create process event: {e}")
+            self.logger.error(f"❌ Process collection error: {e}")
+            return []
             
     async def _get_process_hash(self, exe_path):
         """Calculate file hash for process executable"""

@@ -9,11 +9,12 @@ import logging
 import hashlib
 import os
 import platform
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
+import json
 
 from .base_collector import BaseCollector
 from ..schemas.events import EventData
@@ -103,14 +104,18 @@ class FileCollector(BaseCollector):
         try:
             # Default paths based on platform and user permissions
             if platform.system().lower() == 'windows':
-                # User-accessible paths first
+                # User-accessible paths first (high priority)
                 user_paths = [
                     str(Path.home()),  # User's home directory
                     str(Path.home() / 'Desktop'),
                     str(Path.home() / 'Documents'),
                     str(Path.home() / 'Downloads'),
+                    str(Path.home() / 'AppData' / 'Local' / 'Temp'),
+                    str(Path.home() / 'AppData' / 'Roaming'),
+                    str(Path.home() / 'AppData' / 'Local'),
                     'C:\\Users\\Public',
-                    'C:\\Temp'
+                    'C:\\Temp',
+                    'C:\\Windows\\Temp'
                 ]
                 
                 # System paths (may require admin)
@@ -119,7 +124,8 @@ class FileCollector(BaseCollector):
                     'C:\\Program Files',
                     'C:\\Program Files (x86)',
                     'C:\\ProgramData',
-                    'C:\\Windows\\Temp'
+                    'C:\\Windows\\System32\\drivers',
+                    'C:\\Windows\\System32\\Tasks'
                 ]
                 
                 default_paths = user_paths + system_paths
@@ -148,6 +154,16 @@ class FileCollector(BaseCollector):
                     self.logger.warning(f"⚠️ Cannot access path: {path}")
                     self.restricted_paths.append(path)
             
+            # If no accessible paths, create a test directory
+            if not accessible_paths:
+                test_dir = Path.home() / 'EDR_Test_Files'
+                try:
+                    test_dir.mkdir(exist_ok=True)
+                    accessible_paths.append(str(test_dir))
+                    self.logger.info(f"📁 Created test directory: {test_dir}")
+                except Exception as e:
+                    self.logger.error(f"❌ Failed to create test directory: {e}")
+            
             self.accessible_paths = accessible_paths
             return accessible_paths
             
@@ -162,6 +178,7 @@ class FileCollector(BaseCollector):
             
             # Check if path exists
             if not path_obj.exists():
+                self.logger.debug(f"❌ Path does not exist: {path}")
                 return False
             
             # Check if we can read the directory
@@ -169,16 +186,25 @@ class FileCollector(BaseCollector):
                 try:
                     # Try to list directory contents
                     list(path_obj.iterdir())
+                    self.logger.debug(f"✅ Path accessible: {path}")
                     return True
                 except PermissionError:
+                    self.logger.debug(f"❌ Permission denied: {path}")
                     return False
-                except OSError:
+                except OSError as e:
+                    self.logger.debug(f"❌ OS Error for {path}: {e}")
                     return False
             else:
                 # For files, check if readable
-                return path_obj.is_file() and os.access(str(path_obj), os.R_OK)
+                if path_obj.is_file() and os.access(str(path_obj), os.R_OK):
+                    self.logger.debug(f"✅ File accessible: {path}")
+                    return True
+                else:
+                    self.logger.debug(f"❌ File not accessible: {path}")
+                    return False
                 
-        except Exception:
+        except Exception as e:
+            self.logger.debug(f"❌ Exception testing path {path}: {e}")
             return False
     
     def _setup_filters(self):
@@ -231,6 +257,8 @@ class FileCollector(BaseCollector):
             
             if monitored_count == 0:
                 self.logger.warning("⚠️ No accessible paths to monitor")
+                # Create a test file event every 45 seconds for testing
+                self._last_test_file_event = datetime.now()
             else:
                 self.logger.info(f"✅ Setup monitoring for {monitored_count} accessible paths")
             
@@ -282,6 +310,7 @@ class FileCollector(BaseCollector):
         """File collector uses event-driven approach, no polling needed"""
         # Clean up old event tracking data
         await self._cleanup_recent_events()
+        
         return []  # Return empty list as events come through file system events
     
     async def _handle_file_event(self, file_path: str, action: str, event: FileSystemEvent):
@@ -458,19 +487,17 @@ class FileCollector(BaseCollector):
     async def _cleanup_recent_events(self):
         """Clean up old event tracking data"""
         try:
-            now = datetime.now()
-            cleanup_threshold = 300  # 5 minutes
+            current_time = datetime.now()
+            cutoff_time = current_time - timedelta(minutes=5)
             
-            events_to_remove = []
-            for event_key, event_time in self.recent_events.items():
-                if (now - event_time).total_seconds() > cleanup_threshold:
-                    events_to_remove.append(event_key)
+            # Remove old events from tracking
+            old_events = [
+                event_id for event_id, timestamp in self.recent_events.items()
+                if timestamp < cutoff_time
+            ]
             
-            for event_key in events_to_remove:
-                self.recent_events.pop(event_key, None)
-            
-            if events_to_remove:
-                self.logger.debug(f"🧹 Cleaned {len(events_to_remove)} old file event entries")
+            for event_id in old_events:
+                del self.recent_events[event_id]
                 
         except Exception as e:
             self.logger.error(f"❌ Recent events cleanup error: {e}")

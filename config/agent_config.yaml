@@ -106,41 +106,32 @@ collection:
   
   # File Monitoring
   file_monitoring:
-    # Monitor Paths (Windows)
-    monitor_paths_windows:
-      - "C:\\Users"
-      - "C:\\Program Files"
-      - "C:\\Program Files (x86)"
-      - "C:\\ProgramData"
-      - "C:\\Windows\\Temp"
-      - "C:\\Temp"
-      - "C:\\Windows\\System32\\drivers"
-      - "C:\\Windows\\System32\\Tasks"
-    
-    # Monitor Paths (Linux)
-    monitor_paths_linux:
-      - "/home"
-      - "/usr/bin"
-      - "/usr/local/bin"
-      - "/tmp"
-      - "/var/tmp"
-      - "/etc"
-      - "/var/log"
-      - "/opt"
-    
-    # File Operations
+    enabled: true
+    paths_to_monitor:
+      - "C:\\Users\\manhh\\Desktop"           # User's desktop
+      - "C:\\Users\\manhh\\Documents"        # User's documents
+      - "C:\\Users\\manhh\\Downloads"        # User's downloads
+      - "C:\\Users\\manhh\\AppData\\Local\\Temp"  # User's temp folder
+      - "C:\\Windows\\Temp"                  # System temp (if accessible)
+    file_extensions:
+      - ".exe"
+      - ".dll"
+      - ".bat"
+      - ".cmd"
+      - ".ps1"
+      - ".vbs"
+      - ".js"
+      - ".jar"
+      - ".msi"
+      - ".zip"
+      - ".rar"
+      - ".7z"
+    max_file_size: 104857600  # 100MB
+    collect_hashes: true
     monitor_creation: true
     monitor_modification: true
     monitor_deletion: true
-    monitor_moves: true
-    monitor_attribute_changes: false
-    
-    # File Analysis
-    calculate_hashes: true
-    hash_algorithm: "sha256"               # md5, sha1, sha256, sha512
-    hash_size_limit_mb: 100
-    scan_executables_only: false
-    deep_file_analysis: false             # extract metadata, signatures
+    monitor_access: false
   
   # Network Monitoring
   network_monitoring:

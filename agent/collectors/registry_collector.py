@@ -8,7 +8,7 @@ import asyncio
 import logging
 import platform
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set
 import threading
 import json
@@ -271,6 +271,10 @@ class RegistryCollector(BaseCollector):
         # Value tracking for change detection
         self.previous_values = {}
         
+        # Cache for registry changes
+        self.registry_cache = {}
+        self.registry_timestamps = {}
+        
     async def _collector_specific_init(self):
         """Initialize Windows registry collector"""
         try:
@@ -326,54 +330,58 @@ class RegistryCollector(BaseCollector):
             self.logger.error(f"❌ Registry collector stop error: {e}")
     
     async def _collect_data(self):
-        """Collect registry data (polling-based for critical keys)"""
+        """Monitor registry for changes"""
         try:
-            if not self.monitoring_available:
-                return []
+            current_time = datetime.now()
             
-            events = []
-            
-            # Check critical registry keys periodically
-            for key_path, category in self.critical_values.items():
+            # Monitor critical registry keys for changes
+            for key_path in self.monitored_keys:
                 try:
-                    current_values = self._read_key_values(key_path)
+                    current_value = self._get_registry_value(key_path)
+                    key_hash = hash(str(current_value))
                     
-                    if current_values is not None:
-                        # Check for changes
-                        if key_path in self.previous_values:
-                            changes = self._detect_changes(
-                                self.previous_values[key_path],
-                                current_values
-                            )
-                            
-                            for change in changes:
-                                event = EventData(
-                                    event_type='Registry',
-                                    event_action=change['action'],
-                                    event_timestamp=datetime.now(),
-                                    registry_key=f"HKEY_LOCAL_MACHINE\\{key_path}",
-                                    registry_value_name=change['value_name'],
-                                    registry_value_data=str(change.get('new_data', '')),
-                                    registry_operation=change['action'],
-                                    raw_event_data=json.dumps({
-                                        'category': category,
-                                        'change_type': change['action'],
-                                        'old_data': change.get('old_data'),
-                                        'new_data': change.get('new_data')
-                                    })
-                                )
-                                events.append(event)
+                    if key_path not in self.registry_cache:
+                        # First time seeing this key
+                        self.registry_cache[key_path] = key_hash
+                        self.logger.debug(f"📝 Initial registry key: {key_path}")
+                    elif self.registry_cache[key_path] != key_hash:
+                        # Registry key changed
+                        event_data = EventData(
+                            event_type='Registry',
+                            event_action='Modify',
+                            event_timestamp=current_time,
+                            severity='Medium',
+                            description=f'Registry key modified: {key_path}',
+                            registry_key=key_path,
+                            registry_value=str(current_value),
+                            registry_operation='Modify',
+                            raw_event_data=json.dumps({
+                                'key_path': key_path,
+                                'new_value': current_value,
+                                'action': 'modified'
+                            })
+                        )
+                        await self.add_event(event_data)
+                        self.registry_cache[key_path] = key_hash
+                        self.logger.debug(f"🔧 Registry key changed: {key_path}")
                         
-                        # Update previous values
-                        self.previous_values[key_path] = current_values
-                
                 except Exception as e:
-                    self.logger.debug(f"Failed to check registry key {key_path}: {e}")
+                    self.logger.debug(f"⚠️ Cannot monitor registry key {key_path}: {e}")
+                    continue
             
-            return events
+            # Clean up old cache entries (older than 1 hour)
+            cutoff_time = current_time - timedelta(hours=1)
+            old_keys = [key for key, time in self.registry_timestamps.items() if time < cutoff_time]
+            for key in old_keys:
+                if key in self.registry_cache:
+                    del self.registry_cache[key]
+                if key in self.registry_timestamps:
+                    del self.registry_timestamps[key]
+            
+            return []
             
         except Exception as e:
-            self.logger.error(f"❌ Registry data collection error: {e}")
+            self.logger.error(f"❌ Registry collection error: {e}")
             return []
     
     def _read_key_values(self, key_path):
@@ -507,3 +515,30 @@ class RegistryCollector(BaseCollector):
         
         # Default to info
         return 'Info'
+
+    async def _create_test_registry_event(self):
+        """Create a test registry event for demonstration"""
+        try:
+            event = EventData(
+                event_type='Registry',
+                event_action='Test',
+                event_timestamp=datetime.now(),
+                severity='Info',
+                description='Test registry monitoring event',
+                registry_key='HKEY_CURRENT_USER\\Software\\TestEDR',
+                registry_value_name='TestValue',
+                registry_value_data='TestData',
+                registry_operation='Test',
+                raw_event_data=json.dumps({
+                    'category': 'test',
+                    'change_type': 'Test',
+                    'test_data': 'This is a test registry event'
+                })
+            )
+            
+            self.logger.debug("🧪 Created test registry event")
+            return event
+            
+        except Exception as e:
+            self.logger.error(f"❌ Failed to create test registry event: {e}")
+            return None
