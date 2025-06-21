@@ -1,6 +1,7 @@
 # agent/core/communication.py
 """
 Server Communication - Handle all communication with EDR server
+Fixed session management and graceful cleanup
 """
 
 import aiohttp
@@ -16,7 +17,7 @@ from ..schemas.events import EventData
 from ..schemas.server_responses import ServerResponse
 
 class ServerCommunication:
-    """Handle communication with EDR server"""
+    """Handle communication with EDR server - Fixed session management"""
     
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
@@ -36,6 +37,7 @@ class ServerCommunication:
         
         # HTTP session
         self.session: Optional[aiohttp.ClientSession] = None
+        self._session_closed = False
         
         # Connection settings
         self.timeout = self.server_config.get('timeout', 30)
@@ -45,20 +47,33 @@ class ServerCommunication:
     async def initialize(self):
         """Initialize communication session"""
         try:
-            # Create session with timeout
+            # Close existing session if any
+            await self.close()
+            
+            # Create new session with timeout
             timeout = aiohttp.ClientTimeout(total=self.timeout)
             
             # Setup headers
             headers = {
                 'Content-Type': 'application/json',
                 'X-Agent-Token': self.auth_token,
-                'User-Agent': 'EDR-Agent/1.0'
+                'User-Agent': 'EDR-Agent/2.0'
             }
+            
+            # Create connector with proper cleanup
+            connector = aiohttp.TCPConnector(
+                limit=10,
+                limit_per_host=5,
+                ttl_dns_cache=300,
+                use_dns_cache=True,
+            )
             
             self.session = aiohttp.ClientSession(
                 timeout=timeout,
-                headers=headers
+                headers=headers,
+                connector=connector
             )
+            self._session_closed = False
             
             self.logger.info(f"✅ Communication initialized: {self.base_url}")
             
@@ -67,10 +82,34 @@ class ServerCommunication:
             raise
     
     async def close(self):
-        """Close communication session"""
-        if self.session:
-            await self.session.close()
-            self.logger.info("🔌 Communication session closed")
+        """Close communication session properly"""
+        try:
+            if self.session and not self._session_closed:
+                await self.session.close()
+                self._session_closed = True
+                self.logger.info("🔌 Communication session closed")
+        except Exception as e:
+            self.logger.error(f"❌ Error closing session: {e}")
+    
+    async def __aenter__(self):
+        """Async context manager entry"""
+        await self.initialize()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        await self.close()
+    
+    def __del__(self):
+        """Destructor - ensure session is closed"""
+        if self.session and not self._session_closed:
+            try:
+                # Try to close session in event loop
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(self.close())
+            except Exception:
+                pass
     
     async def register_agent(self, registration_data: AgentRegistrationData) -> Optional[Dict]:
         """Register agent with server"""
@@ -225,7 +264,19 @@ class ServerCommunication:
         
         # Add raw data if present
         if hasattr(event_data, 'raw_event_data') and event_data.raw_event_data:
-            payload['raw_event_data'] = event_data.raw_event_data
+            # Ensure raw_event_data is a dictionary
+            if isinstance(event_data.raw_event_data, str):
+                try:
+                    import json
+                    payload['raw_event_data'] = json.loads(event_data.raw_event_data)
+                except json.JSONDecodeError:
+                    # If it's not valid JSON, send as string in a dict
+                    payload['raw_event_data'] = {'data': event_data.raw_event_data}
+            elif isinstance(event_data.raw_event_data, dict):
+                payload['raw_event_data'] = event_data.raw_event_data
+            else:
+                # Convert other types to dict
+                payload['raw_event_data'] = {'data': str(event_data.raw_event_data)}
         
         # Remove None values
         return {k: v for k, v in payload.items() if v is not None}
@@ -277,8 +328,8 @@ class ServerCommunication:
     
     async def _make_request(self, method: str, url: str, payload: Optional[Dict] = None) -> Optional[Dict]:
         """Make HTTP request with retry logic"""
-        if not self.session:
-            raise Exception("Session not initialized")
+        if not self.session or self._session_closed:
+            await self.initialize()
         
         for attempt in range(self.max_retries):
             try:
@@ -351,5 +402,6 @@ class ServerCommunication:
             'base_url': self.base_url,
             'timeout': self.timeout,
             'max_retries': self.max_retries,
-            'auth_configured': bool(self.auth_token)
+            'auth_configured': bool(self.auth_token),
+            'session_active': self.session is not None and not self._session_closed
         }

@@ -1,100 +1,349 @@
 # config/agent_config.yaml
-# EDR Agent Configuration File
+# EDR Agent Enhanced Configuration - Production Ready
 
-# Agent Information
+# ============================================================================
+# AGENT CORE CONFIGURATION
+# ============================================================================
 agent:
-  name: "EDR-Agent"
-  version: "1.0.0"
-  heartbeat_interval: 30          # seconds
-  event_batch_size: 100           # events per batch
-  event_queue_size: 1000          # maximum events in queue
-  max_memory_usage: 512           # MB
+  name: "EDR-SecurityAgent-v2"
+  version: "2.0.0"
+  environment: "production"                # development, staging, production
+  
+  # Heartbeat and Communication
+  heartbeat_interval: 30                   # seconds
+  heartbeat_timeout: 90                    # seconds
+  max_heartbeat_failures: 3               # before marking agent offline
+  
+  # Event Processing
+  event_batch_size: 100                    # events per batch
+  event_queue_size: 5000                   # maximum events in memory
+  max_memory_usage: 1024                   # MB
+  
+  # Performance Settings
+  max_cpu_usage: 25                        # percent
+  auto_throttle: true                      # reduce activity if high CPU
+  adaptive_polling: true                   # adjust polling based on load
+  
+  # Agent Behavior
   debug_mode: false
+  stealth_mode: false                      # minimize agent footprint
+  anti_tamper: true                        # protect agent from modification
+  self_protect: true                       # prevent agent termination
 
-# Server Connection
+# ============================================================================
+# SERVER CONNECTION CONFIGURATION
+# ============================================================================
 server:
+  # Primary Server
   host: "192.168.20.85"
   port: 5000
+  protocol: "http"                         # http, https
+  
+  # Backup Servers (failover)
+  backup_servers:
+    - host: "192.168.20.86"
+      port: 5000
+      protocol: "http"
+    - host: "edr-backup.company.local"
+      port: 5000
+      protocol: "https"
+  
+  # Authentication
   auth_token: "edr_agent_auth_2024"
-  timeout: 30                     # seconds
-  max_retries: 3
-  retry_delay: 5                  # seconds
+  api_key: ""                              # optional API key
+  certificate_path: ""                     # for SSL/TLS
+  
+  # Connection Settings
+  timeout: 30                              # seconds
+  max_retries: 5
+  retry_delay: 10                          # seconds
+  retry_backoff: 2.0                       # exponential backoff multiplier
+  keep_alive: true
+  connection_pool_size: 10
+  
+  # SSL/TLS Settings
   ssl_enabled: false
   ssl_verify: true
+  ssl_cert_path: ""
+  ssl_key_path: ""
+  ssl_ca_path: ""
 
-# Data Collection Settings
+# ============================================================================
+# DATA COLLECTION CONFIGURATION
+# ============================================================================
 collection:
   enabled: true
+  
+  # Global Collection Settings
+  real_time_monitoring: true
+  polling_interval: 5                      # seconds
+  max_events_per_interval: 2000
+  event_deduplication: true
+  deduplication_window: 10                 # seconds
   
   # Event Types
   collect_processes: true
   collect_files: true
   collect_network: true
-  collect_registry: true
+  collect_registry: true                   # Windows only
   collect_authentication: true
   collect_system_events: true
+  collect_dns_queries: false              # requires additional setup
+  collect_web_traffic: false              # requires proxy setup
   
-  # Collection Behavior
-  real_time_monitoring: true
-  polling_interval: 5             # seconds
-  max_events_per_interval: 1000
+  # Process Monitoring
+  process_monitoring:
+    monitor_creation: true
+    monitor_termination: true
+    monitor_modification: false
+    collect_command_lines: true
+    collect_environment_vars: false
+    collect_process_hashes: true
+    hash_size_limit_mb: 50
+    monitor_dll_loads: false               # Windows only, high overhead
+    monitor_child_processes: true
+    track_process_tree: true
   
-  # File Monitoring Paths
-  monitor_paths:
-    - "C:\\Users"
-    - "C:\\Program Files"
-    - "C:\\Program Files (x86)"
-    - "C:\\ProgramData"
-    - "C:\\Windows\\Temp"
-    - "C:\\Temp"
+  # File Monitoring
+  file_monitoring:
+    # Monitor Paths (Windows)
+    monitor_paths_windows:
+      - "C:\\Users"
+      - "C:\\Program Files"
+      - "C:\\Program Files (x86)"
+      - "C:\\ProgramData"
+      - "C:\\Windows\\Temp"
+      - "C:\\Temp"
+      - "C:\\Windows\\System32\\drivers"
+      - "C:\\Windows\\System32\\Tasks"
+    
+    # Monitor Paths (Linux)
+    monitor_paths_linux:
+      - "/home"
+      - "/usr/bin"
+      - "/usr/local/bin"
+      - "/tmp"
+      - "/var/tmp"
+      - "/etc"
+      - "/var/log"
+      - "/opt"
+    
+    # File Operations
+    monitor_creation: true
+    monitor_modification: true
+    monitor_deletion: true
+    monitor_moves: true
+    monitor_attribute_changes: false
+    
+    # File Analysis
+    calculate_hashes: true
+    hash_algorithm: "sha256"               # md5, sha1, sha256, sha512
+    hash_size_limit_mb: 100
+    scan_executables_only: false
+    deep_file_analysis: false             # extract metadata, signatures
+  
+  # Network Monitoring
+  network_monitoring:
+    monitor_tcp: true
+    monitor_udp: true
+    monitor_icmp: false
+    monitor_listening_ports: true
+    monitor_established_connections: true
+    monitor_outbound_only: false
+    
+    # Traffic Analysis
+    analyze_patterns: true
+    detect_beaconing: true
+    detect_port_scanning: true
+    detect_data_exfiltration: true
+    connection_timeout: 300                # seconds
+    max_connections_tracked: 10000
+    
+    # DNS Monitoring
+    monitor_dns: false
+    dns_log_file: "/var/log/dns.log"
+    suspicious_domains_check: true
+  
+  # Registry Monitoring (Windows)
+  registry_monitoring:
+    monitor_startup_keys: true
+    monitor_security_keys: true
+    monitor_network_keys: true
+    monitor_service_keys: true
+    monitor_policy_keys: true
+    real_time_monitoring: true
+    
+    # Critical Registry Paths
+    critical_paths:
+      - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
+      - "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
+      - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
+      - "HKLM\\SOFTWARE\\Microsoft\\Windows Defender"
+      - "HKLM\\SOFTWARE\\Policies"
+  
+  # Authentication Monitoring
+  authentication_monitoring:
+    monitor_logons: true
+    monitor_logoffs: true
+    monitor_failed_attempts: true
+    monitor_privilege_escalation: true
+    monitor_account_changes: true
+    failed_attempt_threshold: 5           # trigger alert after N failures
 
-# Detection Settings
+# ============================================================================
+# THREAT DETECTION CONFIGURATION
+# ============================================================================
 detection:
   enabled: true
+  
+  # Detection Engines
   local_rules_enabled: true
-  behavior_analysis: true
+  behavioral_analysis: true
+  machine_learning: false                  # requires ML models
+  threat_intelligence: true
+  yara_scanning: false                     # requires YARA rules
+  
+  # Threat Intelligence
   threat_cache_enabled: true
-  cache_size: 10000
-  suspicious_threshold: 70
+  cache_size: 50000                        # number of IoCs to cache
+  cache_ttl: 3600                          # seconds
+  auto_update_feeds: true
+  update_interval: 3600                    # seconds
+  
+  # Detection Thresholds
+  suspicious_threshold: 60                 # 0-100 risk score
+  malicious_threshold: 80                  # 0-100 risk score
+  alert_threshold: 70                      # 0-100 risk score
+  
+  # Behavioral Analysis
+  baseline_learning_period: 72            # hours
+  anomaly_detection: true
+  user_behavior_analysis: true
+  process_behavior_analysis: true
+  network_behavior_analysis: true
+  
+  # Response Actions
+  auto_isolate_threats: false             # automatically isolate infected systems
+  auto_quarantine_files: false           # automatically quarantine malicious files
+  auto_kill_processes: false             # automatically terminate malicious processes
+  send_alerts_immediately: true          # send high-priority alerts immediately
 
-# Logging Configuration
+# ============================================================================
+# LOGGING CONFIGURATION
+# ============================================================================
 logging:
-  level: "INFO"                   # DEBUG, INFO, WARNING, ERROR, CRITICAL
-  file_enabled: true
+  # Log Levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  
+  # Output Destinations
   console_enabled: true
-  max_file_size: "10MB"
-  backup_count: 5
+  file_enabled: true
+  syslog_enabled: false                    # Linux/Unix syslog
+  event_log_enabled: true                  # Windows Event Log
+  
+  # File Logging
   log_directory: "logs"
+  log_file_name: "edr_agent.log"
+  max_file_size: "50MB"
+  backup_count: 10
+  compress_backups: true
+  
+  # Log Rotation
+  rotate_daily: true
+  rotate_on_startup: false
+  
+  # Advanced Logging
+  log_format: "detailed"                   # simple, detailed, json
+  include_timestamps: true
+  include_thread_info: true
+  include_process_info: true
+  
+  # Component-specific Logging
+  collectors_log_level: "INFO"
+  communication_log_level: "INFO"
+  detection_log_level: "INFO"
+  
+  # Security
+  encrypt_logs: false                      # encrypt log files
+  log_integrity_check: false              # verify log integrity
 
-# Security Settings
+# ============================================================================
+# SECURITY CONFIGURATION
+# ============================================================================
 security:
+  # Agent Protection
   anti_tamper_enabled: true
   integrity_check_enabled: true
-  encryption_enabled: false
-  secure_communication: true
-
-# Performance Limits
-performance:
-  max_cpu_usage: 20               # percent
-  max_memory_usage: 512           # MB
-  monitoring_enabled: true
-  auto_throttle: true
-  batch_processing: true
-
-# Event Filters
-filters:
-  # System Process Filtering
-  exclude_system_processes: true
+  self_defense_enabled: true
+  hide_agent_processes: false             # make agent less visible
   
-  # Directory Exclusions
-  exclude_windows_directories:
+  # Communication Security
+  encrypt_communication: false            # encrypt all server communication
+  sign_messages: false                     # digitally sign messages
+  validate_server_cert: true              # validate server SSL certificate
+  
+  # Data Protection
+  encrypt_local_data: false               # encrypt local configuration/cache
+  secure_memory: true                     # use secure memory allocation
+  clear_sensitive_data: true             # clear sensitive data from memory
+  
+  # Access Control
+  run_as_service: true                    # run as Windows service
+  require_admin_privileges: true         # require administrator/root privileges
+  restrict_file_access: true             # restrict access to agent files
+
+# ============================================================================
+# PERFORMANCE OPTIMIZATION
+# ============================================================================
+performance:
+  # CPU Management
+  max_cpu_usage: 20                      # percent
+  cpu_throttling: true
+  priority_class: "normal"               # low, normal, high
+  
+  # Memory Management
+  max_memory_usage: 1024                 # MB
+  memory_optimization: true
+  garbage_collection: true
+  memory_pressure_handling: true
+  
+  # I/O Optimization
+  async_processing: true
+  batch_processing: true
+  compression_enabled: false
+  buffer_size: 65536                     # bytes
+  
+  # Threading
+  max_worker_threads: 10
+  thread_pool_size: 5
+  async_event_processing: true
+  
+  # Caching
+  enable_caching: true
+  cache_size_mb: 100
+  cache_cleanup_interval: 300            # seconds
+
+# ============================================================================
+# FILTERING CONFIGURATION
+# ============================================================================
+filters:
+  # Global Filters
+  exclude_system_processes: true
+  exclude_agent_activity: true           # exclude agent's own activity
+  
+  # Process Filtering
+  exclude_process_names:
+    - "svchost.exe"
+    - "dwm.exe"
+    - "winlogon.exe"
+    - "csrss.exe"
+    - "smss.exe"
+  
+  exclude_process_paths:
     - "C:\\Windows\\System32"
     - "C:\\Windows\\SysWOW64"
-    - "C:\\Windows\\WinSxS"
-    - "C:\\Windows\\servicing"
-    - "C:\\Windows\\Logs"
   
-  # File Extension Exclusions
+  # File Filtering
   exclude_file_extensions:
     - ".tmp"
     - ".log"
@@ -102,54 +351,135 @@ filters:
     - ".swp"
     - ".lock"
     - ".cache"
+    - ".thumbs"
+    - ".db"
   
-  # File Size Limits
-  max_file_size_mb: 100
-  
-  # Process Filtering
-  include_only_executables: false
+  exclude_file_paths:
+    - "C:\\Windows\\System32"
+    - "C:\\Windows\\SysWOW64"
+    - "C:\\Windows\\WinSxS"
+    - "C:\\Windows\\servicing"
+    - "C:\\Windows\\Logs"
+    - "C:\\ProgramData\\Microsoft"
+    - "C:\\Users\\*\\AppData\\Local\\Temp"
   
   # Network Filtering
   exclude_loopback: true
   exclude_multicast: true
+  exclude_broadcast: true
+  exclude_link_local: true
+  
+  exclude_ports:
+    - 135      # RPC
+    - 445      # SMB
+    - 139      # NetBIOS
+    - 5355     # LLMNR
+  
+  # Registry Filtering (Windows)
+  exclude_registry_paths:
+    - "HKLM\\SOFTWARE\\Classes"
+    - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer"
+  
+  # Size Limits
+  max_file_size_mb: 500
+  max_command_line_length: 2048
+  max_registry_value_size: 1024
 
-# Advanced Settings
+# ============================================================================
+# ALERTING CONFIGURATION
+# ============================================================================
+alerting:
+  enabled: true
+  
+  # Alert Levels
+  send_info_alerts: false
+  send_low_alerts: true
+  send_medium_alerts: true
+  send_high_alerts: true
+  send_critical_alerts: true
+  
+  # Alert Throttling
+  throttle_duplicate_alerts: true
+  duplicate_window: 300                   # seconds
+  max_alerts_per_minute: 50
+  
+  # Alert Delivery
+  immediate_delivery: true                # for high/critical alerts
+  batch_delivery: true                   # for low/medium alerts
+  batch_interval: 60                     # seconds
+  
+  # Alert Enrichment
+  include_context: true                  # include surrounding events
+  include_system_info: true             # include system information
+  include_process_tree: true            # include parent/child processes
+
+# ============================================================================
+# MAINTENANCE AND UPDATES
+# ============================================================================
+maintenance:
+  # Automatic Updates
+  auto_update_enabled: false             # automatically update agent
+  update_check_interval: 86400          # seconds (daily)
+  update_server: "updates.edr-server.com"
+  
+  # Cleanup Tasks
+  cleanup_enabled: true
+  cleanup_interval: 3600                 # seconds
+  
+  # Data Retention
+  event_retention_days: 30               # local event retention
+  log_retention_days: 90                 # log file retention
+  cache_retention_hours: 24              # cache data retention
+  
+  # Health Monitoring
+  health_check_interval: 300             # seconds
+  send_health_reports: true
+  health_report_interval: 3600          # seconds
+  
+  # Diagnostics
+  enable_diagnostics: true
+  diagnostic_log_level: "DEBUG"
+  performance_monitoring: true
+  resource_usage_tracking: true
+
+# ============================================================================
+# COMPLIANCE AND REPORTING
+# ============================================================================
+compliance:
+  # Regulatory Compliance
+  gdpr_compliance: false                 # GDPR data protection
+  hipaa_compliance: false               # HIPAA healthcare compliance
+  pci_compliance: false                 # PCI-DSS payment compliance
+  
+  # Data Handling
+  anonymize_user_data: false
+  encrypt_pii: false                    # personally identifiable information
+  data_retention_policy: "standard"     # minimal, standard, extended
+  
+  # Audit Logging
+  audit_all_actions: false
+  audit_log_file: "audit.log"
+  audit_log_format: "json"
+
+# ============================================================================
+# ADVANCED FEATURES
+# ============================================================================
 advanced:
-  # Hash Calculation
-  calculate_file_hashes: true
-  hash_algorithm: "sha256"        # md5, sha1, sha256
-  hash_size_limit_mb: 10
+  # Experimental Features
+  experimental_features: false
   
-  # Command Line Collection
-  collect_command_lines: true
+  # Integration Capabilities
+  siem_integration: false               # SIEM system integration
+  sandbox_integration: false           # malware sandbox integration
+  threat_sharing: false                # share threat intelligence
   
-  # Process Monitoring
-  monitor_process_creation: true
-  monitor_process_termination: true
-  monitor_process_modification: false
+  # Advanced Analysis
+  memory_analysis: false                # analyze process memory
+  network_traffic_analysis: false      # deep packet inspection
+  code_injection_detection: true       # detect code injection
+  rootkit_detection: true              # detect rootkits/bootkits
   
-  # File Monitoring
-  monitor_file_creation: true
-  monitor_file_modification: true
-  monitor_file_deletion: true
-  monitor_file_moves: true
-  
-  # Network Monitoring
-  monitor_network_connections: true
-  monitor_dns_queries: false
-  
-  # Registry Monitoring (Windows only)
-  monitor_registry_changes: true
-  
-  # Authentication Monitoring
-  monitor_login_events: true
-  monitor_privilege_escalation: true
-  
-  # Event Deduplication
-  deduplication_enabled: true
-  deduplication_window_seconds: 5
-  
-  # Cache Settings
-  process_cache_size: 5000
-  file_cache_size: 10000
-  network_cache_size: 2000
+  # Cloud Features
+  cloud_backup: false                   # backup data to cloud
+  cloud_analysis: false                # send samples for cloud analysis
+  cloud_threat_feeds: false            # use cloud threat intelligence

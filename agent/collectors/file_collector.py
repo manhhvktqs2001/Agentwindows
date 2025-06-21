@@ -1,11 +1,13 @@
 # agent/collectors/file_collector.py
 """
-File Collector - Monitor file system events (creation, modification, deletion)
+File Collector - Fixed Access Denied and permission issues
+Graceful handling of restricted paths
 """
 
 import asyncio
 import logging
 import hashlib
+import os
 import platform
 from datetime import datetime
 from pathlib import Path
@@ -63,7 +65,7 @@ class FileEventHandler(FileSystemEventHandler):
             )
 
 class FileCollector(BaseCollector):
-    """Collect file system events"""
+    """Collect file system events - Fixed access issues"""
     
     def __init__(self, config_manager):
         super().__init__(config_manager, "FileCollector")
@@ -71,6 +73,7 @@ class FileCollector(BaseCollector):
         # File monitoring
         self.observer: Optional[Observer] = None
         self.event_handler: Optional[FileEventHandler] = None
+        self.observer_started = False
         
         # Configuration
         self.monitor_paths = self._get_monitor_paths()
@@ -89,45 +92,94 @@ class FileCollector(BaseCollector):
         self.recent_events: Dict[str, datetime] = {}
         self.event_deduplication_window = 1.0  # seconds
         
+        # Access control
+        self.accessible_paths = []
+        self.restricted_paths = []
+        
         self._setup_filters()
     
     def _get_monitor_paths(self) -> List[str]:
-        """Get paths to monitor"""
+        """Get paths to monitor - with access checking"""
         try:
-            # Default paths based on platform
+            # Default paths based on platform and user permissions
             if platform.system().lower() == 'windows':
-                default_paths = [
+                # User-accessible paths first
+                user_paths = [
+                    str(Path.home()),  # User's home directory
+                    str(Path.home() / 'Desktop'),
+                    str(Path.home() / 'Documents'),
+                    str(Path.home() / 'Downloads'),
+                    'C:\\Users\\Public',
+                    'C:\\Temp'
+                ]
+                
+                # System paths (may require admin)
+                system_paths = [
                     'C:\\Users',
                     'C:\\Program Files',
                     'C:\\Program Files (x86)',
                     'C:\\ProgramData',
                     'C:\\Windows\\Temp'
                 ]
+                
+                default_paths = user_paths + system_paths
             else:
                 default_paths = [
+                    str(Path.home()),
+                    '/tmp',
+                    '/var/tmp',
                     '/home',
                     '/usr/bin',
                     '/usr/local/bin',
-                    '/tmp',
-                    '/var/tmp'
+                    '/etc',
+                    '/var/log',
+                    '/opt'
                 ]
             
             # Get from configuration or use defaults
             config_paths = self.collection_config.get('monitor_paths', default_paths)
             
-            # Filter out non-existent paths
-            valid_paths = []
+            # Test access to each path
+            accessible_paths = []
             for path in config_paths:
-                if Path(path).exists():
-                    valid_paths.append(str(Path(path).resolve()))
+                if self._test_path_access(path):
+                    accessible_paths.append(str(Path(path).resolve()))
                 else:
-                    self.logger.warning(f"⚠️ Monitor path does not exist: {path}")
+                    self.logger.warning(f"⚠️ Cannot access path: {path}")
+                    self.restricted_paths.append(path)
             
-            return valid_paths
+            self.accessible_paths = accessible_paths
+            return accessible_paths
             
         except Exception as e:
             self.logger.error(f"❌ Error getting monitor paths: {e}")
             return []
+    
+    def _test_path_access(self, path: str) -> bool:
+        """Test if path is accessible for monitoring"""
+        try:
+            path_obj = Path(path)
+            
+            # Check if path exists
+            if not path_obj.exists():
+                return False
+            
+            # Check if we can read the directory
+            if path_obj.is_dir():
+                try:
+                    # Try to list directory contents
+                    list(path_obj.iterdir())
+                    return True
+                except PermissionError:
+                    return False
+                except OSError:
+                    return False
+            else:
+                # For files, check if readable
+                return path_obj.is_file() and os.access(str(path_obj), os.R_OK)
+                
+        except Exception:
+            return False
     
     def _setup_filters(self):
         """Setup file filters from configuration"""
@@ -140,7 +192,12 @@ class FileCollector(BaseCollector):
             
             # Directories to exclude
             exclude_dirs = filters_config.get('exclude_windows_directories', [])
-            self.excluded_directories.update(Path(d).resolve() for d in exclude_dirs if Path(d).exists())
+            for exclude_dir in exclude_dirs:
+                try:
+                    if Path(exclude_dir).exists():
+                        self.excluded_directories.add(Path(exclude_dir).resolve())
+                except Exception:
+                    pass
             
             # File size limit
             self.max_file_size = filters_config.get('max_file_size_mb', 100) * 1024 * 1024
@@ -149,7 +206,7 @@ class FileCollector(BaseCollector):
             self.logger.error(f"❌ Error setting up filters: {e}")
     
     async def _collector_specific_init(self):
-        """Initialize file collector"""
+        """Initialize file collector with access checking"""
         try:
             # Create event handler
             self.event_handler = FileEventHandler(self)
@@ -157,47 +214,64 @@ class FileCollector(BaseCollector):
             # Create observer
             self.observer = Observer()
             
-            # Setup monitoring for each path
-            for path in self.monitor_paths:
+            # Setup monitoring for accessible paths only
+            monitored_count = 0
+            for path in self.accessible_paths:
                 try:
                     self.observer.schedule(
                         self.event_handler,
                         path,
                         recursive=True
                     )
+                    monitored_count += 1
                     self.logger.info(f"📁 Monitoring path: {path}")
                 except Exception as e:
-                    self.logger.error(f"❌ Failed to monitor path {path}: {e}")
+                    self.logger.warning(f"⚠️ Cannot monitor path {path}: {e}")
+                    self.restricted_paths.append(path)
             
-            if not self.monitor_paths:
-                self.logger.warning("⚠️ No valid paths to monitor")
+            if monitored_count == 0:
+                self.logger.warning("⚠️ No accessible paths to monitor")
+            else:
+                self.logger.info(f"✅ Setup monitoring for {monitored_count} accessible paths")
+            
+            if self.restricted_paths:
+                self.logger.info(f"ℹ️ {len(self.restricted_paths)} paths require admin privileges")
             
         except Exception as e:
             self.logger.error(f"❌ File collector initialization failed: {e}")
-            raise Exception(f"Initialization failed: {e}")
+            # Don't raise exception - allow agent to continue
     
     async def start(self):
         """Start file monitoring"""
         try:
             await super().start()
             
-            if self.observer and self.monitor_paths:
-                self.observer.start()
-                self.logger.info("✅ File system monitoring started")
+            if self.observer and self.accessible_paths and not self.observer_started:
+                try:
+                    self.observer.start()
+                    self.observer_started = True
+                    self.logger.info("✅ File system monitoring started")
+                except Exception as e:
+                    self.logger.warning(f"⚠️ File monitoring limited: {e}")
+                    self.observer_started = False
             else:
-                self.logger.warning("⚠️ File system monitoring not started - no valid paths")
+                self.logger.info("📁 File monitoring disabled - no accessible paths")
             
         except Exception as e:
             self.logger.error(f"❌ File collector start failed: {e}")
-            raise
+            # Don't raise - continue without file monitoring
     
     async def stop(self):
         """Stop file monitoring"""
         try:
-            if self.observer:
-                self.observer.stop()
-                self.observer.join()
-                self.logger.info("🛑 File system monitoring stopped")
+            if self.observer and self.observer_started:
+                try:
+                    self.observer.stop()
+                    self.observer.join(timeout=5)  # Wait max 5 seconds
+                    self.observer_started = False
+                    self.logger.info("🛑 File system monitoring stopped")
+                except Exception as e:
+                    self.logger.error(f"❌ Error stopping file observer: {e}")
             
             await super().stop()
             
@@ -208,6 +282,7 @@ class FileCollector(BaseCollector):
         """File collector uses event-driven approach, no polling needed"""
         # Clean up old event tracking data
         await self._cleanup_recent_events()
+        return []  # Return empty list as events come through file system events
     
     async def _handle_file_event(self, file_path: str, action: str, event: FileSystemEvent):
         """Handle file system event"""
@@ -226,11 +301,12 @@ class FileCollector(BaseCollector):
             if not file_info:
                 return
             
-            # Create event data
+            # Create event data with severity
             event_data = EventData(
                 event_type='File',
                 event_action=action,
                 event_timestamp=datetime.now(),
+                severity=self._determine_severity(file_info),
                 # File details
                 file_path=file_info['path'],
                 file_name=file_info['name'],
@@ -261,8 +337,13 @@ class FileCollector(BaseCollector):
             try:
                 resolved_path = path_obj.resolve()
                 for excluded_dir in self.excluded_directories:
-                    if resolved_path.is_relative_to(excluded_dir):
-                        return False
+                    try:
+                        if resolved_path.is_relative_to(excluded_dir):
+                            return False
+                    except (ValueError, AttributeError):
+                        # is_relative_to might not be available in older Python versions
+                        if str(resolved_path).startswith(str(excluded_dir)):
+                            return False
             except (OSError, ValueError):
                 # Path might not exist or be invalid
                 pass
@@ -397,13 +478,15 @@ class FileCollector(BaseCollector):
     def get_file_stats(self) -> Dict:
         """Get file monitoring statistics"""
         return {
-            'monitor_paths': self.monitor_paths,
+            'accessible_paths': self.accessible_paths,
+            'restricted_paths': self.restricted_paths,
             'excluded_extensions': list(self.excluded_extensions),
             'excluded_directories': [str(d) for d in self.excluded_directories],
             'max_file_size_mb': self.max_file_size / (1024 * 1024),
             'collect_hashes': self.collect_hashes,
             'recent_events_count': len(self.recent_events),
-            'observer_running': self.observer.is_alive() if self.observer else False
+            'observer_running': self.observer_started,
+            'observer_alive': self.observer.is_alive() if self.observer and self.observer_started else False
         }
     
     def configure_monitoring(self, **kwargs):
