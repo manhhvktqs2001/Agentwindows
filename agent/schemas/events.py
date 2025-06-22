@@ -20,6 +20,17 @@ class EventType(str, Enum):
 
 class EventAction(str, Enum):
     """Event action enumeration"""
+    # Basic actions
+    CREATE = "Create"
+    MODIFY = "Modify"
+    DELETE = "Delete"
+    ACCESS = "Access"
+    START = "Start"
+    STOP = "Stop"
+    CONNECT = "Connect"
+    DISCONNECT = "Disconnect"
+    
+    # Legacy actions (for compatibility)
     CREATED = "Created"
     MODIFIED = "Modified"
     DELETED = "Deleted"
@@ -28,18 +39,47 @@ class EventAction(str, Enum):
     STOPPED = "Stopped"
     CONNECTED = "Connected"
     DISCONNECTED = "Disconnected"
+    
+    # Authentication actions
     LOGIN = "Login"
     LOGOUT = "Logout"
     FAILED = "Failed"
     SUCCESS = "Success"
+    
+    # Security actions
     DETECTED = "Detected"
     BLOCKED = "Blocked"
     ALLOWED = "Allowed"
+    SUSPICIOUS_ACTIVITY = "SuspiciousActivity"
+    
+    # Resource monitoring
     RESOURCE_USAGE = "ResourceUsage"
     CPU_SPIKE = "CpuSpike"
     MEMORY_LEAK = "MemoryLeak"
-    DISK_IO = "DiskIO"
-    NETWORK_ANOMALY = "NetworkAnomaly"
+    DISK_IO_HIGH = "DiskIoHigh"
+    NETWORK_USAGE = "NetworkUsage"
+    
+    # Network specific
+    CONNECTION = "Connection"
+    CONNECTION_CLOSED = "ConnectionClosed"
+    DNS_QUERY = "DnsQuery"
+    HTTP_REQUEST = "HttpRequest"
+    SSL_CONNECTION = "SslConnection"
+    PORT_SCAN = "PortScan"
+    NETWORK_CONNECTION = "NetworkConnection"
+    
+    # Process specific
+    TERMINATE = "Terminate"
+    FILE_ACCESS = "FileAccess"
+    
+    # Registry specific
+    REGISTRY_ACCESS = "RegistryAccess"
+    STARTUP_ENTRY = "StartupEntry"
+    
+    # System specific
+    SYSTEM_BOOT = "SystemBoot"
+    SYSTEM_LOAD = "SystemLoad"
+    ANOMALY_DETECTED = "AnomalyDetected"
 
 class Severity(str, Enum):
     """Event severity enumeration - for agent use"""
@@ -104,8 +144,9 @@ class EventData:
     
     # Registry events
     registry_key: Optional[str] = None
-    registry_value_name: Optional[str] = None
-    registry_value_data: Optional[str] = None
+    registry_name: Optional[str] = None
+    registry_value: Optional[str] = None
+    registry_type: Optional[int] = None
     registry_operation: Optional[str] = None
     
     # Authentication events
@@ -119,7 +160,7 @@ class EventData:
     disk_usage: Optional[float] = None
     
     # Additional data
-    raw_event_data: Optional[str] = None
+    raw_event_data: Optional[Dict[str, Any]] = None
     
     def __post_init__(self):
         """Validate data after initialization"""
@@ -191,7 +232,7 @@ class EventData:
         elif self.event_type == 'Network':
             return f"Network {self.event_action}: {self.destination_ip}:{self.destination_port}"
         elif self.event_type == 'Registry':
-            return f"Registry {self.event_action}: {self.registry_value_name}"
+            return f"Registry {self.event_action}: {self.registry_name}"
         elif self.event_type == 'Authentication':
             return f"Auth {self.event_action}: {self.login_user}"
         elif self.event_type == 'System':
@@ -205,93 +246,60 @@ class EventData:
     
     def add_context(self, context: Dict[str, Any]):
         """Add additional context to raw_event_data"""
-        import json
-        
         if self.raw_event_data:
-            try:
-                existing_data = json.loads(self.raw_event_data)
-                existing_data.update(context)
-                self.raw_event_data = json.dumps(existing_data)
-            except json.JSONDecodeError:
-                # If existing data is not JSON, create new JSON
-                self.raw_event_data = json.dumps(context)
+            self.raw_event_data.update(context)
         else:
-            self.raw_event_data = json.dumps(context)
+            self.raw_event_data = context
 
-# Helper functions for creating events with proper severity
+# Helper functions for creating events
 def create_process_event(severity: str = "INFO", **kwargs) -> EventData:
-    """Create a process event with normalized severity"""
-    return EventData.create_with_severity(
-        severity=severity,
-        event_type="Process",
-        **kwargs
-    )
+    """Create a process event"""
+    return EventData.create_with_severity(severity, event_type="Process", **kwargs)
 
 def create_file_event(severity: str = "INFO", **kwargs) -> EventData:
-    """Create a file event with normalized severity"""
-    return EventData.create_with_severity(
-        severity=severity,
-        event_type="File",
-        **kwargs
-    )
+    """Create a file event"""
+    return EventData.create_with_severity(severity, event_type="File", **kwargs)
 
 def create_network_event(severity: str = "INFO", **kwargs) -> EventData:
-    """Create a network event with normalized severity"""
-    return EventData.create_with_severity(
-        severity=severity,
-        event_type="Network",
-        **kwargs
-    )
+    """Create a network event"""
+    return EventData.create_with_severity(severity, event_type="Network", **kwargs)
 
 def create_registry_event(severity: str = "INFO", **kwargs) -> EventData:
-    """Create a registry event with normalized severity"""
-    return EventData.create_with_severity(
-        severity=severity,
-        event_type="Registry",
-        **kwargs
-    )
+    """Create a registry event"""
+    return EventData.create_with_severity(severity, event_type="Registry", **kwargs)
 
 def create_authentication_event(severity: str = "INFO", **kwargs) -> EventData:
-    """Create an authentication event with normalized severity"""
-    return EventData.create_with_severity(
-        severity=severity,
-        event_type="Authentication",
-        **kwargs
-    )
+    """Create an authentication event"""
+    return EventData.create_with_severity(severity, event_type="Authentication", **kwargs)
 
 def create_system_event(severity: str = "INFO", **kwargs) -> EventData:
-    """Create a system event with normalized severity"""
-    return EventData.create_with_severity(
-        severity=severity,
-        event_type="System",
-        **kwargs
-    )
+    """Create a system event"""
+    return EventData.create_with_severity(severity, event_type="System", **kwargs)
 
-# Severity helper functions
+# Utility functions
 def normalize_severity(severity: str) -> str:
-    """Normalize severity string to server format"""
+    """Normalize severity string to standard format"""
     severity_mapping = {
+        'info': 'INFO',
+        'low': 'LOW', 
+        'medium': 'MEDIUM',
+        'high': 'HIGH',
+        'critical': 'CRITICAL',
         'Info': 'INFO',
-        'Low': 'LOW', 
-        'Medium': 'MEDIUM',
+        'Low': 'LOW',
+        'Medium': 'MEDIUM', 
         'High': 'HIGH',
-        'Critical': 'CRITICAL',
-        'INFO': 'INFO',
-        'LOW': 'LOW',
-        'MEDIUM': 'MEDIUM',
-        'HIGH': 'HIGH',
-        'CRITICAL': 'CRITICAL'
+        'Critical': 'CRITICAL'
     }
     return severity_mapping.get(severity, 'INFO')
 
 def get_severity_level(severity: str) -> int:
-    """Get numeric severity level for comparison"""
-    levels = {
-        'INFO': 1,
-        'LOW': 2,
-        'MEDIUM': 3,
-        'HIGH': 4,
-        'CRITICAL': 5
+    """Get numeric level for severity comparison"""
+    severity_levels = {
+        'INFO': 0,
+        'LOW': 1,
+        'MEDIUM': 2,
+        'HIGH': 3,
+        'CRITICAL': 4
     }
-    normalized = normalize_severity(severity)
-    return levels.get(normalized, 1)
+    return severity_levels.get(severity.upper(), 0)

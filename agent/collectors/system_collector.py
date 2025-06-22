@@ -46,6 +46,16 @@ class SystemCollector(BaseCollector):
         
         self.logger.info("🖥️ Enhanced System Collector initialized")
     
+    async def _collect_data(self):
+        """Implement abstract method from BaseCollector - collect system data"""
+        try:
+            # Use existing collect_data method for data collection
+            events = await self.collect_data()
+            return events
+        except Exception as e:
+            self.logger.error(f"❌ System data collection failed: {e}")
+            return []
+    
     async def initialize(self):
         """Initialize system collector with enhanced monitoring"""
         try:
@@ -147,7 +157,7 @@ class SystemCollector(BaseCollector):
             
         except Exception as e:
             self.logger.error(f"Initial system state failed: {e}")
-    
+
     async def _collect_cpu_data(self) -> List[EventData]:
         """Collect CPU usage data"""
         try:
@@ -327,7 +337,7 @@ class SystemCollector(BaseCollector):
             self.last_disk_usage = current_disk
             
             return events
-            
+
         except Exception as e:
             self.logger.error(f"Disk data collection failed: {e}")
             return []
@@ -524,3 +534,45 @@ class SystemCollector(BaseCollector):
         except Exception as e:
             self.logger.error(f"System event creation failed: {e}")
             return None
+
+    async def start_monitoring(self):
+        """Start continuous system monitoring"""
+        self.is_running = True
+        self.logger.info("🚀 Starting continuous system monitoring...")
+        
+        # Start monitoring loop
+        asyncio.create_task(self._monitoring_loop())
+        
+        self.logger.info("✅ System monitoring started")
+    
+    async def stop_monitoring(self):
+        """Stop system monitoring"""
+        self.is_running = False
+        self.logger.info("🛑 System monitoring stopped")
+    
+    async def _monitoring_loop(self):
+        """Continuous monitoring loop"""
+        while self.is_running:
+            try:
+                # Collect system data
+                events = await self.collect_data()
+                
+                # Send events to event processor
+                if hasattr(self, 'event_processor') and self.event_processor:
+                    for event in events:
+                        await self.event_processor.submit_event(event)
+                
+                await asyncio.sleep(self.polling_interval)
+                
+            except Exception as e:
+                self.logger.error(f"❌ System monitoring error: {e}")
+                await asyncio.sleep(10)  # Wait longer on error
+
+    def set_event_processor(self, event_processor):
+        """Set event processor for sending events"""
+        self.event_processor = event_processor
+        self.logger.info("Event processor linked to System Collector")
+    
+    async def stop(self):
+        """Stop system monitoring"""
+        await self.stop_monitoring()

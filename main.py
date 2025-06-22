@@ -33,16 +33,16 @@ def run_as_admin():
             # Get the current script path
             script_path = os.path.abspath(__file__)
             
-            # Re-run with admin privileges
-            ctypes.windll.shell32.ShellExecuteW(
-                None, 
-                "runas", 
+            # Re-run with admin privileges in current terminal
+            # Use subprocess instead of ShellExecuteW to keep terminal output
+            result = subprocess.run([
                 sys.executable, 
-                f'"{script_path}"', 
-                None, 
-                1
-            )
-            sys.exit(0)
+                script_path
+            ], capture_output=False, text=True)
+            
+            # If we get here, the subprocess has finished
+            sys.exit(result.returncode)
+            
     except Exception as e:
         print(f"Failed to elevate privileges: {e}")
         print("Please run this script as Administrator manually.")
@@ -63,7 +63,6 @@ def fix_imports():
         if str(agent_dir) not in sys.path:
             sys.path.insert(0, str(agent_dir))
         
-        print("✅ Import paths configured")
         return True
         
     except Exception as e:
@@ -71,13 +70,12 @@ def fix_imports():
         return False
 
 # Check and request admin privileges
-print("DEBUG: Checking admin privileges...")
-run_as_admin()
+# run_as_admin()  # Comment out auto elevation
 
-# Confirm admin privileges
+# Check admin privileges and warn if not admin
 if is_admin():
     print("=" * 60)
-    print("EDR Agent - Running with Administrator Privileges")
+    print("✅ EDR Agent - Running with Administrator Privileges")
     print("=" * 60)
     print("Enhanced monitoring capabilities enabled:")
     print("  - Process monitoring with elevated access")
@@ -88,41 +86,45 @@ if is_admin():
     print("  - System event monitoring")
     print("=" * 60)
 else:
-    print("ERROR: Failed to obtain administrator privileges!")
-    print("EDR Agent requires admin rights for full monitoring capabilities.")
-    input("Press Enter to exit...")
-    sys.exit(1)
+    print("=" * 60)
+    print("⚠️  WARNING: EDR Agent is NOT running with Administrator Privileges")
+    print("=" * 60)
+    print("Limited monitoring capabilities:")
+    print("  - Some system monitoring may be restricted")
+    print("  - Registry monitoring may not work")
+    print("  - Some process details may be limited")
+    print("=" * 60)
+    print("💡 To run with full privileges:")
+    print("   1. Right-click on Command Prompt/PowerShell")
+    print("   2. Select 'Run as administrator'")
+    print("   3. Navigate to this directory")
+    print("   4. Run: python main.py")
+    print("=" * 60)
+    print("Press ENTER to continue with limited privileges, or Ctrl+C to exit...")
+    try:
+        input()
+    except KeyboardInterrupt:
+        print("\nExiting...")
+        sys.exit(0)
 
 # Fix imports
-print("DEBUG: Fixing imports...")
 if not fix_imports():
     print("Failed to configure import paths")
-    input("Press Enter to exit...")
     sys.exit(1)
 
 # Add current directory to Python path
 sys.path.insert(0, str(Path(__file__).parent))
 
-print("DEBUG: About to import ConfigManager...")
-input("Press Enter to continue...")
-
 try:
     from agent.core.config_manager import ConfigManager
-    print("✅ ConfigManager imported successfully")
 except Exception as e:
     print(f"❌ ConfigManager import failed: {e}")
-    input("Press Enter to exit...")
     sys.exit(1)
-
-print("DEBUG: About to import AgentManager...")
-input("Press Enter to continue...")
 
 try:
     from agent.core.agent_manager import AgentManager
-    print("✅ AgentManager imported successfully")
 except Exception as e:
     print(f"❌ AgentManager import failed: {e}")
-    input("Press Enter to exit...")
     sys.exit(1)
 
 # Configure enhanced logging
@@ -171,7 +173,6 @@ class EnhancedEDRAgent:
     async def initialize(self):
         """Initialize enhanced EDR agent"""
         try:
-            print("DEBUG: Starting agent initialization...")
             self.logger.info("Initializing Enhanced EDR Agent...")
             self.logger.info("=" * 60)
             
@@ -181,78 +182,75 @@ class EnhancedEDRAgent:
             else:
                 self.logger.warning("Running without Administrator privileges - Limited monitoring")
             
-            print("DEBUG: About to create ConfigManager...")
-            input("Press Enter to continue...")
-            
             # Setup configuration
             self.config_manager = ConfigManager()
-            print("✅ ConfigManager created successfully")
-            
-            print("DEBUG: About to load config...")
-            input("Press Enter to continue...")
             
             await self.config_manager.load_config()
-            print("✅ Config loaded successfully")
-            
-            print("DEBUG: About to create AgentManager...")
-            input("Press Enter to continue...")
             
             # Initialize agent manager
             self.agent_manager = AgentManager(self.config_manager)
-            print("✅ AgentManager created successfully")
-            
-            print("DEBUG: About to initialize AgentManager...")
-            input("Press Enter to continue...")
             
             await self.agent_manager.initialize()
-            print("✅ AgentManager initialized successfully")
             
             self.logger.info("Enhanced EDR Agent initialized successfully")
             self.logger.info("=" * 60)
             
         except Exception as e:
-            print(f"❌ Initialization failed: {e}")
             self.logger.error(f"Failed to initialize Enhanced EDR Agent: {e}")
-            input("Press Enter to exit...")
             raise
     
     async def start(self):
-        """Start enhanced EDR agent with continuous monitoring"""
+        """Start enhanced EDR agent"""
         try:
-            print("DEBUG: Starting agent...")
-            self.logger.info("Starting Enhanced EDR Agent with continuous monitoring...")
-            self.logger.info("Monitoring: Process, Network, System, File, Registry, Authentication")
-            self.logger.info("Enhanced polling intervals for real-time data collection")
-            self.logger.info("Security notifications enabled")
-            self.logger.info("=" * 60)
-            
-            print("DEBUG: About to start agent manager...")
-            input("Press Enter to continue...")
-            
-            # Start agent
-            await self.agent_manager.start()
-            print("✅ Agent manager started successfully")
-            
-            # Set running state
+            self.logger.info("🚀 Starting Enhanced EDR Agent...")
             self.is_running = True
-            self.start_time = time.time()
-            self.performance_stats['start_time'] = self.start_time
             
-            self.logger.info("Enhanced EDR Agent started successfully")
-            self.logger.info("Continuous monitoring active - Press Ctrl+C to stop")
-            self.logger.info("=" * 60)
+            # Start all collectors
+            await self.agent_manager.start_collectors()
             
-            # Start performance monitoring
-            asyncio.create_task(self._performance_monitoring_loop())
+            # Start alert monitoring loop
+            asyncio.create_task(self._alert_monitoring_loop())
             
-            # Start statistics logging
-            asyncio.create_task(self._statistics_logging_loop())
+            # Start heartbeat loop
+            asyncio.create_task(self._heartbeat_loop())
+            
+            self.logger.info("✅ Enhanced EDR Agent started successfully")
             
         except Exception as e:
-            print(f"❌ Start failed: {e}")
-            self.logger.error(f"Failed to start Enhanced EDR Agent: {e}")
-            input("Press Enter to exit...")
+            self.logger.error(f"❌ Failed to start agent: {e}")
             raise
+    
+    async def _alert_monitoring_loop(self):
+        """Monitor for alerts from server"""
+        while self.is_running:
+            try:
+                # Check for pending alerts
+                alerts = await self.agent_manager.server_communication.check_for_alerts()
+                
+                # Handle each alert
+                for alert in alerts:
+                    await self.agent_manager.security_notifications.handle_server_alert(alert)
+                
+                # Wait before next check
+                await asyncio.sleep(30)  # Check every 30 seconds
+                
+            except Exception as e:
+                self.logger.error(f"❌ Alert monitoring error: {e}")
+                await asyncio.sleep(60)  # Wait longer on error
+    
+    async def _heartbeat_loop(self):
+        """Send heartbeat to server"""
+        while self.is_running:
+            try:
+                # Send heartbeat
+                await self.agent_manager.send_heartbeat()
+                
+                # Wait before next heartbeat
+                await asyncio.sleep(60)  # Heartbeat every minute
+                
+            except Exception as e:
+                self.logger.error(f"❌ Heartbeat error: {e}")
+                await asyncio.sleep(120)  # Wait longer on error
     
     async def stop(self):
         """Stop enhanced EDR agent gracefully"""
@@ -355,66 +353,109 @@ class EnhancedEDRAgent:
     
     def signal_handler(self, signum, frame):
         """Handle interrupt signals"""
-        self.logger.info(f"Received signal {signum}, stopping agent...")
-        asyncio.create_task(self.stop())
+        print(f"\n🛑 Received signal {signum}, stopping agent gracefully...")
+        self.logger.info(f"Received signal {signum}, stopping agent gracefully...")
+        self.is_running = False
 
 async def main():
     """Main function to run the agent"""
-    print("DEBUG: Starting main function...")
     
     # Setup logging
     setup_logging()
-    print("✅ Logging setup completed")
     
     # Create agent instance
     agent = EnhancedEDRAgent()
-    print("✅ Agent instance created")
     
     # Set up signal handlers
     signal.signal(signal.SIGINT, agent.signal_handler)
     signal.signal(signal.SIGTERM, agent.signal_handler)
-    print("✅ Signal handlers set up")
     
     try:
-        print("DEBUG: About to initialize agent...")
-        input("Press Enter to continue...")
+        print("🔧 Initializing Enhanced EDR Agent...")
         
         # Initialize agent
         await agent.initialize()
         
-        print("DEBUG: About to start agent...")
-        input("Press Enter to continue...")
+        print("🚀 Starting Enhanced EDR Agent...")
         
         # Start agent
         await agent.start()
         
-        print("DEBUG: Agent started successfully. Press Enter to continue monitoring...")
-        input("Press Enter to continue...")
+        print("\n" + "=" * 60)
+        print("🚀 Enhanced EDR Agent is now running!")
+        print("📊 Monitoring system activities continuously...")
+        print("🔔 Press Ctrl+C to stop the program")
+        print("=" * 60)
         
         # Keep running until interrupted
         while agent.is_running:
-            await asyncio.sleep(1)
+            try:
+                await asyncio.sleep(1)
+            except KeyboardInterrupt:
+                print("\n🛑 Received Ctrl+C, stopping agent gracefully...")
+                agent.is_running = False
+                break
             
     except KeyboardInterrupt:
         print("\n🛑 Received interrupt signal, stopping agent...")
+        agent.is_running = False
     except Exception as e:
-        print(f"❌ Agent error: {e}")
-        agent.logger.error(f"Agent error: {e}")
-        input("Press Enter to exit...")
+        print(f"\n❌ CRITICAL ERROR: {e}")
+        print("=" * 60)
+        print("🔍 ERROR DETAILS:")
+        import traceback
+        traceback.print_exc()
+        print("=" * 60)
+        print("💡 TROUBLESHOOTING:")
+        print("1. Check if all dependencies are installed correctly")
+        print("2. Verify agent configuration files")
+        print("3. Check Windows permissions")
+        print("4. Review logs in logs/enhanced_agent.log")
+        print("=" * 60)
+        
+        # Wait for user input before exiting
+        try:
+            input("\nPress ENTER to exit...")
+        except:
+            pass
+            
     finally:
-        await agent.stop()
+        try:
+            print("\n🔄 Stopping agent and cleaning up...")
+            await agent.stop()
+            print("\n✅ Agent stopped successfully!")
+            print("=" * 60)
+        except Exception as e:
+            print(f"\n❌ Error during shutdown: {e}")
+            import traceback
+            traceback.print_exc()
 
 if __name__ == "__main__":
     try:
-        print("DEBUG: Starting EDR Agent...")
+        print("=" * 60)
+        print("🔧 EDR Agent Starting...")
+        print("=" * 60)
+        
         # Run the agent
         asyncio.run(main())
+        
     except Exception as e:
-        print(f"❌ Failed to run agent: {e}")
+        print(f"\n❌ FATAL ERROR: {e}")
         print("=" * 60)
-        print("Troubleshooting:")
+        print("🔍 FATAL ERROR DETAILS:")
+        import traceback
+        traceback.print_exc()
+        print("=" * 60)
+        print("💡 TROUBLESHOOTING:")
         print("1. Make sure all dependencies are installed: pip install -r requirements.txt")
         print("2. Check if Python path is correct")
         print("3. Verify agent files are not corrupted")
+        print("4. Check Windows Event Viewer for system errors")
+        print("5. Review logs in logs/enhanced_agent.log")
         print("=" * 60)
-        input("Press Enter to exit...")
+        
+        # Wait for user input before exiting
+        try:
+            input("\nPress ENTER to exit...")
+        except:
+            pass

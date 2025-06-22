@@ -17,10 +17,10 @@ from pathlib import Path
 from agent.core.communication import ServerCommunication
 from agent.core.config_manager import ConfigManager
 from agent.core.event_processor import EventProcessor
-from agent.collectors.process_collector import ProcessCollector
-from agent.collectors.file_collector import FileCollector
-from agent.collectors.network_collector import NetworkCollector
-from agent.collectors.registry_collector import RegistryCollector
+from agent.collectors.process_collector import EnhancedProcessCollector
+from agent.collectors.file_collector import EnhancedFileCollector
+from agent.collectors.network_collector import EnhancedNetworkCollector
+from agent.collectors.registry_collector import EnhancedRegistryCollector
 from agent.collectors.authentication_collector import AuthenticationCollector
 from agent.collectors.system_collector import SystemCollector
 from agent.schemas.agent_data import AgentRegistrationData, AgentHeartbeatData
@@ -55,23 +55,43 @@ class AgentManager:
     async def initialize(self):
         """Initialize agent manager and components"""
         try:
-            self.logger.info("Agent manager initialized")
+            self.logger.info("🔧 Starting Agent Manager initialization...")
             
             # Initialize server communication
-            self.communication = ServerCommunication(self.config_manager)
-            await self.communication.initialize()
+            try:
+                self.logger.info("📡 Initializing server communication...")
+                self.communication = ServerCommunication(self.config_manager)
+                await self.communication.initialize()
+                self.logger.info("✅ Server communication initialized")
+            except Exception as e:
+                self.logger.error(f"❌ Server communication initialization failed: {e}")
+                raise Exception(f"Server communication failed: {e}")
             
             # Initialize event processor
-            self.event_processor = EventProcessor(self.config_manager, self.communication)
+            try:
+                self.logger.info("⚙️ Initializing event processor...")
+                self.event_processor = EventProcessor(self.config_manager, self.communication)
+                self.logger.info("✅ Event processor initialized")
+            except Exception as e:
+                self.logger.error(f"❌ Event processor initialization failed: {e}")
+                raise Exception(f"Event processor failed: {e}")
             
             # Initialize collectors
-            await self._initialize_collectors()
+            try:
+                self.logger.info("📊 Initializing data collectors...")
+                await self._initialize_collectors()
+                self.logger.info("✅ Data collectors initialized")
+            except Exception as e:
+                self.logger.error(f"❌ Collector initialization failed: {e}")
+                raise Exception(f"Collector initialization failed: {e}")
             
-            self.logger.info("Agent manager initialized")
+            self.logger.info("🎉 Agent manager initialization completed successfully")
             
         except Exception as e:
-            self.logger.error(f"Agent manager initialization failed: {e}")
-            raise Exception(f"Initialization failed: {e}")
+            self.logger.error(f"❌ Agent manager initialization failed: {e}")
+            import traceback
+            self.logger.error(f"🔍 Full error details:\n{traceback.format_exc()}")
+            raise Exception(f"Agent manager initialization failed: {e}")
     
     async def _initialize_collectors(self):
         """Initialize data collectors"""
@@ -81,48 +101,80 @@ class AgentManager:
             
             # Process collector
             if collection_config.get('collect_processes', True):
-                self.collectors['process'] = ProcessCollector(self.config_manager)
-                await self.collectors['process'].initialize()
-                self.logger.info("Process collector initialized")
+                try:
+                    self.logger.info("🔄 Initializing Process Collector...")
+                    self.collectors['process'] = EnhancedProcessCollector(self.config_manager)
+                    await self.collectors['process'].initialize()
+                    self.logger.info("✅ Process collector initialized")
+                except Exception as e:
+                    self.logger.error(f"❌ Process collector initialization failed: {e}")
+                    raise Exception(f"Process collector failed: {e}")
             
             # File collector
             if collection_config.get('collect_files', True):
-                self.collectors['file'] = FileCollector(self.config_manager)
-                await self.collectors['file'].initialize()
-                self.logger.info("File collector initialized")
+                try:
+                    self.logger.info("📁 Initializing File Collector...")
+                    self.collectors['file'] = EnhancedFileCollector(self.config_manager)
+                    await self.collectors['file'].initialize()
+                    self.logger.info("✅ File collector initialized")
+                except Exception as e:
+                    self.logger.error(f"❌ File collector initialization failed: {e}")
+                    raise Exception(f"File collector failed: {e}")
             
             # Network collector
             if collection_config.get('collect_network', True):
-                self.collectors['network'] = NetworkCollector(self.config_manager)
-                await self.collectors['network'].initialize()
-                self.logger.info("Network collector initialized")
+                try:
+                    self.logger.info("🌐 Initializing Network Collector...")
+                    self.collectors['network'] = EnhancedNetworkCollector(self.config_manager)
+                    await self.collectors['network'].initialize()
+                    self.logger.info("✅ Network collector initialized")
+                except Exception as e:
+                    self.logger.error(f"❌ Network collector initialization failed: {e}")
+                    raise Exception(f"Network collector failed: {e}")
             
             # Registry collector (Windows only)
             if (collection_config.get('collect_registry', True) and 
                 platform.system().lower() == 'windows'):
-                self.collectors['registry'] = RegistryCollector(self.config_manager)
-                await self.collectors['registry'].initialize()
-                self.logger.info("Registry collector initialized")
+                try:
+                    self.logger.info("🔧 Initializing Registry Collector...")
+                    self.collectors['registry'] = EnhancedRegistryCollector(self.config_manager)
+                    await self.collectors['registry'].initialize()
+                    self.logger.info("✅ Registry collector initialized")
+                except Exception as e:
+                    self.logger.error(f"❌ Registry collector initialization failed: {e}")
+                    raise Exception(f"Registry collector failed: {e}")
             
             # Authentication collector - FIXED: Optimized
             if collection_config.get('collect_authentication', True):
-                self.collectors['authentication'] = AuthenticationCollector(self.config_manager)
-                await self.collectors['authentication'].initialize()
-                # FIXED: Increase polling interval for slow collectors
-                self.collectors['authentication'].polling_interval = 15  # Increase from 5 to 15 seconds
-                self.logger.info("Authentication collector initialized (optimized)")
+                try:
+                    self.logger.info("🔐 Initializing Authentication Collector...")
+                    self.collectors['authentication'] = AuthenticationCollector(self.config_manager)
+                    await self.collectors['authentication'].initialize()
+                    # FIXED: Increase polling interval for slow collectors
+                    self.collectors['authentication'].polling_interval = 15  # Increase from 5 to 15 seconds
+                    self.logger.info("✅ Authentication collector initialized (optimized)")
+                except Exception as e:
+                    self.logger.error(f"❌ Authentication collector initialization failed: {e}")
+                    raise Exception(f"Authentication collector failed: {e}")
             
             # System collector - FIXED: Optimized
-            self.collectors['system'] = SystemCollector(self.config_manager)
-            await self.collectors['system'].initialize()
-            # FIXED: Increase polling interval for slow collectors
-            self.collectors['system'].polling_interval = 15  # Increase from 5 to 15 seconds
-            self.logger.info("System collector initialized (optimized)")
+            try:
+                self.logger.info("💻 Initializing System Collector...")
+                self.collectors['system'] = SystemCollector(self.config_manager)
+                await self.collectors['system'].initialize()
+                # FIXED: Increase polling interval for slow collectors
+                self.collectors['system'].polling_interval = 15  # Increase from 5 to 15 seconds
+                self.logger.info("✅ System collector initialized (optimized)")
+            except Exception as e:
+                self.logger.error(f"❌ System collector initialization failed: {e}")
+                raise Exception(f"System collector failed: {e}")
             
-            self.logger.info(f"{len(self.collectors)} collectors initialized")
+            self.logger.info(f"🎉 {len(self.collectors)} collectors initialized successfully")
             
         except Exception as e:
-            self.logger.error(f"Collector initialization failed: {e}")
+            self.logger.error(f"❌ Collector initialization failed: {e}")
+            import traceback
+            self.logger.error(f"🔍 Full collector error details:\n{traceback.format_exc()}")
             raise
     
     async def start(self):
@@ -132,6 +184,11 @@ class AgentManager:
             
             # Register with server
             await self._register_with_server()
+            
+            # Set agent_id for event processor immediately after registration
+            if self.event_processor and self.agent_id:
+                self.event_processor.set_agent_id(self.agent_id)
+                self.logger.info(f"[EVENT_PROCESSOR] Set AgentID: {self.agent_id}")
             
             # Check if alert endpoints are available
             await self._check_alert_endpoints_availability()
@@ -153,9 +210,6 @@ class AgentManager:
             asyncio.create_task(self._heartbeat_loop())
             
             self.logger.info(f"[START] Using AgentID: {self.agent_id}")
-            if self.event_processor:
-                self.event_processor.set_agent_id(self.agent_id)
-                self.logger.info(f"[EVENT_PROCESSOR] Set AgentID: {self.agent_id}")
             
             self.logger.info("Agent started successfully")
             
@@ -166,10 +220,10 @@ class AgentManager:
     async def stop(self):
         """Stop the agent gracefully"""
         try:
-            self.logger.info("Stopping agent...")
+            self.logger.info("🛑 Stopping agent gracefully...")
             self.is_monitoring = False
             
-            # Stop collectors
+            # Stop collectors first
             await self._stop_collectors()
             
             # Stop event processor
@@ -178,12 +232,16 @@ class AgentManager:
             
             # Send final heartbeat
             if self.is_registered:
-                await self._send_heartbeat(status='Offline')
+                try:
+                    await self._send_heartbeat(status='Offline')
+                except:
+                    pass  # Ignore heartbeat errors during shutdown
             
-            self.logger.info("Agent stopped")
+            self.logger.info("✅ Agent stopped gracefully")
             
         except Exception as e:
-            self.logger.error(f"Agent stop error: {e}")
+            self.logger.error(f"❌ Agent stop error: {e}")
+            # Continue with shutdown even if there are errors
     
     async def _register_with_server(self):
         """Register agent with EDR server"""
@@ -323,12 +381,25 @@ class AgentManager:
     async def _stop_collectors(self):
         """Stop all data collectors"""
         try:
-            for name, collector in self.collectors.items():
-                await collector.stop()
-                self.logger.info(f"🛑 Stopped {name} collector")
-                
+            self.logger.info("🛑 Stopping all collectors...")
+            
+            if hasattr(self, 'process_collector'):
+                await self.process_collector.stop()
+            if hasattr(self, 'network_collector'):
+                await self.network_collector.stop()
+            if hasattr(self, 'registry_collector'):
+                await self.registry_collector.stop()
+            if hasattr(self, 'file_collector'):
+                await self.file_collector.stop()
+            if hasattr(self, 'system_collector'):
+                await self.system_collector.stop()
+            if hasattr(self, 'auth_collector'):
+                await self.auth_collector.stop()
+            
+            self.logger.info("✅ All collectors stopped")
+            
         except Exception as e:
-            self.logger.error(f"❌ Failed to stop collectors: {e}")
+            self.logger.error(f"❌ Error stopping collectors: {e}")
     
     async def _heartbeat_loop(self):
         """Heartbeat loop with conditional alert checking - FIXED"""
@@ -507,3 +578,95 @@ class AgentManager:
             'performance': self._get_performance_metrics(),
             'alert_endpoints_available': self.alert_endpoints_available  # FIXED: Add status
         }
+
+    async def start_collectors(self):
+        """Start all enhanced collectors for continuous monitoring"""
+        try:
+            self.logger.info("🚀 Starting all enhanced collectors...")
+            
+            # Initialize enhanced collectors
+            from ..collectors.process_collector import EnhancedProcessCollector
+            from ..collectors.network_collector import EnhancedNetworkCollector
+            from ..collectors.registry_collector import EnhancedRegistryCollector
+            from ..collectors.file_collector import EnhancedFileCollector
+            from ..collectors.system_collector import SystemCollector
+            from ..collectors.authentication_collector import AuthenticationCollector
+            
+            # Create collectors
+            self.process_collector = EnhancedProcessCollector(self.config_manager)
+            self.network_collector = EnhancedNetworkCollector(self.config_manager)
+            self.registry_collector = EnhancedRegistryCollector(self.config_manager)
+            self.file_collector = EnhancedFileCollector(self.config_manager)
+            self.system_collector = SystemCollector(self.config_manager)
+            self.auth_collector = AuthenticationCollector(self.config_manager)
+            
+            # Link event processor to all collectors
+            self.process_collector.set_event_processor(self.event_processor)
+            self.network_collector.set_event_processor(self.event_processor)
+            self.registry_collector.set_event_processor(self.event_processor)
+            self.file_collector.set_event_processor(self.event_processor)
+            self.system_collector.set_event_processor(self.event_processor)
+            self.auth_collector.set_event_processor(self.event_processor)
+            
+            # Start all collectors
+            await self.process_collector.start_monitoring()
+            await self.network_collector.start_monitoring()
+            await self.registry_collector.start_monitoring()
+            await self.file_collector.start_monitoring()
+            await self.system_collector.start_monitoring()
+            await self.auth_collector.start_monitoring()
+            
+            self.logger.info("✅ All enhanced collectors started successfully")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Failed to start collectors: {e}")
+            raise
+    
+    async def stop_collectors(self):
+        """Stop all collectors"""
+        try:
+            self.logger.info("🛑 Stopping all collectors...")
+            
+            if hasattr(self, 'process_collector'):
+                await self.process_collector.stop()
+            if hasattr(self, 'network_collector'):
+                await self.network_collector.stop()
+            if hasattr(self, 'registry_collector'):
+                await self.registry_collector.stop()
+            if hasattr(self, 'file_collector'):
+                await self.file_collector.stop()
+            if hasattr(self, 'system_collector'):
+                await self.system_collector.stop()
+            if hasattr(self, 'auth_collector'):
+                await self.auth_collector.stop()
+            
+            self.logger.info("✅ All collectors stopped")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error stopping collectors: {e}")
+    
+    def get_collector_stats(self) -> Dict:
+        """Get statistics from all collectors"""
+        stats = {
+            'agent_manager': {
+                'status': 'running' if self.is_running else 'stopped',
+                'collectors_active': 0
+            }
+        }
+        
+        collectors = [
+            ('process', self.process_collector),
+            ('network', self.network_collector),
+            ('registry', self.registry_collector),
+            ('file', self.file_collector),
+            ('system', self.system_collector),
+            ('authentication', self.auth_collector)
+        ]
+        
+        for name, collector in collectors:
+            if hasattr(collector, 'get_stats'):
+                stats[name] = collector.get_stats()
+                if collector.get_stats().get('is_running', False):
+                    stats['agent_manager']['collectors_active'] += 1
+        
+        return stats

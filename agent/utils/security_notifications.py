@@ -36,6 +36,9 @@ except ImportError:
 
 # Try to import win10toast for better Windows 10/11 notifications
 try:
+    import warnings
+    # Suppress pkg_resources deprecation warning
+    warnings.filterwarnings("ignore", category=UserWarning, module="pkg_resources")
     from win10toast import ToastNotifier
     WIN10_TOAST_AVAILABLE = True
 except ImportError:
@@ -764,6 +767,143 @@ class SecurityAlertNotifier:
                     
         except Exception as e:
             self.logger.error(f"❌ Configuration error: {e}")
+
+    async def handle_server_alert(self, alert_data: Dict) -> bool:
+        """Handle alert from server and send acknowledgment back"""
+        try:
+            self.logger.info(f"🚨 Received server alert: {alert_data.get('title', 'Unknown Alert')}")
+            
+            # Display alert notification
+            success = await self.display_alert_notification(alert_data)
+            
+            # Send acknowledgment back to server
+            if success:
+                await self.send_alert_acknowledgment(alert_data)
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"❌ Failed to handle server alert: {e}")
+            return False
+    
+    async def display_alert_notification(self, alert_data: Dict) -> bool:
+        """Display alert notification using Windows toast"""
+        try:
+            title = alert_data.get('title', 'EDR Security Alert')
+            message = alert_data.get('description', 'Security threat detected')
+            severity = alert_data.get('severity', 'Medium')
+            
+            # Create notification message
+            notification_text = f"""
+🚨 {title}
+
+{message}
+
+Severity: {severity}
+Risk Score: {alert_data.get('risk_score', 'Unknown')}
+Detection Method: {alert_data.get('detection_method', 'Unknown')}
+
+Time: {alert_data.get('detected_at', 'Unknown')}
+            """.strip()
+            
+            # Display toast notification
+            if self.toast_notifier:
+                self.toast_notifier.show_toast(
+                    title=title,
+                    msg=notification_text,
+                    duration=10,  # Show for 10 seconds
+                    threaded=True
+                )
+                
+                self.logger.info(f"✅ Alert notification displayed: {title}")
+                return True
+            else:
+                # Fallback to console output
+                print(f"\n{'='*60}")
+                print(f"🚨 EDR SECURITY ALERT")
+                print(f"{'='*60}")
+                print(notification_text)
+                print(f"{'='*60}\n")
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"❌ Failed to display alert notification: {e}")
+            return False
+    
+    async def send_alert_acknowledgment(self, alert_data: Dict) -> bool:
+        """Send alert acknowledgment back to server"""
+        try:
+            from ..core.communication import ServerCommunication
+            
+            # Create acknowledgment data
+            acknowledgment = {
+                'alert_id': alert_data.get('alert_id'),
+                'agent_id': self.config_manager.get('agent_id'),
+                'acknowledged_at': datetime.now().isoformat(),
+                'acknowledged_by': 'EDR_Agent',
+                'response_action': 'Alert displayed to user',
+                'user_response': 'Acknowledged'
+            }
+            
+            # Send to server
+            if hasattr(self, 'server_communication'):
+                response = await self.server_communication.send_alert_acknowledgment(
+                    alert_data.get('alert_id'), 
+                    acknowledgment
+                )
+                
+                if response and response.get('success'):
+                    self.logger.info(f"✅ Alert acknowledgment sent to server: {alert_data.get('alert_id')}")
+                    return True
+                else:
+                    self.logger.warning(f"⚠️ Failed to send alert acknowledgment: {response}")
+                    return False
+            else:
+                self.logger.warning("⚠️ Server communication not available for alert acknowledgment")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"❌ Failed to send alert acknowledgment: {e}")
+            return False
+    
+    async def submit_alert_to_server(self, alert_data: Dict) -> bool:
+        """Submit alert from agent to server"""
+        try:
+            from ..core.communication import ServerCommunication
+            
+            # Prepare alert data for server
+            server_alert = {
+                'agent_id': self.config_manager.get('agent_id'),
+                'alert_type': alert_data.get('type', 'agent_detection'),
+                'title': alert_data.get('title', 'Agent Detection'),
+                'severity': alert_data.get('severity', 'Medium'),
+                'detection_method': alert_data.get('detection_method', 'Agent Analysis'),
+                'description': alert_data.get('description', 'Threat detected by agent'),
+                'risk_score': alert_data.get('risk_score', 50),
+                'confidence': alert_data.get('confidence', 0.8),
+                'mitre_tactic': alert_data.get('mitre_tactic'),
+                'mitre_technique': alert_data.get('mitre_technique'),
+                'event_id': alert_data.get('event_id'),
+                'detected_at': alert_data.get('detected_at', datetime.now().isoformat())
+            }
+            
+            # Send to server
+            if hasattr(self, 'server_communication'):
+                response = await self.server_communication.submit_alert(server_alert)
+                
+                if response and response.get('success'):
+                    self.logger.info(f"✅ Alert submitted to server: {response.get('alert_id')}")
+                    return True
+                else:
+                    self.logger.warning(f"⚠️ Failed to submit alert: {response}")
+                    return False
+            else:
+                self.logger.warning("⚠️ Server communication not available for alert submission")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"❌ Failed to submit alert to server: {e}")
+            return False
 
 
 def create_security_notifier(config_manager=None):

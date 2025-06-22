@@ -49,16 +49,13 @@ class BaseCollector(ABC):
         self.collection_errors = 0
         self.last_collection_time: Optional[datetime] = None
         
+        # Event processor reference (will be set by parent)
+        self.event_processor = None
+        
         # ZERO DELAY: Performance optimization flags
         self._collecting = False
         self._last_performance_log = 0
         self._immediate_send_threshold = 0.001  # Send within 1ms
-        
-        # Event processor reference (will be set by parent)
-        self.event_processor = None
-        
-        # ZERO DELAY: Event queue for immediate processing
-        self._immediate_events = asyncio.Queue(maxsize=1)  # Very small queue for immediate processing
     
     async def initialize(self):
         """Initialize the collector with ZERO DELAY support"""
@@ -89,9 +86,6 @@ class BaseCollector(ABC):
             
             self.logger.info(f"🚀 Starting collector with ZERO DELAY: {self.collector_name}")
             
-            # Start immediate processing loop
-            asyncio.create_task(self._immediate_processing_loop())
-            
             # Start minimal polling loop for detection
             asyncio.create_task(self._minimal_polling_loop())
             
@@ -103,48 +97,34 @@ class BaseCollector(ABC):
             raise Exception(f"Start failed: {e}")
     
     async def stop(self):
-        """Stop the collector"""
+        """Stop the collector gracefully"""
         try:
-            self.logger.info(f"🛑 Stopping ZERO DELAY {self.collector_name}...")
+            self.logger.info(f"🛑 Stopping {self.collector_name} gracefully...")
             self.is_running = False
             
-            # Wait for current collection to finish
-            max_wait = 2  # Reduced wait time for immediate processing
+            # Wait for current collection to finish (max 5 seconds)
+            max_wait = 5
             wait_count = 0
             while self._collecting and wait_count < max_wait:
-                await asyncio.sleep(0.01)  # 10ms check interval
-                wait_count += 0.01
-            
-            # Process any remaining immediate events
-            await self._process_remaining_immediate_events()
+                await asyncio.sleep(0.1)  # 100ms check interval
+                wait_count += 0.1
             
             # Perform collector-specific cleanup
             await self._collector_specific_cleanup()
             
-            self.logger.info(f"✅ ZERO DELAY {self.collector_name} stopped")
+            self.logger.info(f"✅ {self.collector_name} stopped gracefully")
             
         except Exception as e:
             self.logger.error(f"❌ {self.collector_name} stop error: {e}")
+            # Continue with shutdown even if there are errors
     
-    async def _immediate_processing_loop(self):
-        """Immediate processing loop for ZERO DELAY events"""
-        while self.is_running:
-            try:
-                # Process events from immediate queue
-                try:
-                    # Wait for immediate events with very short timeout
-                    while not self._immediate_events.empty():
-                        event = await asyncio.wait_for(self._immediate_events.get(), timeout=0.001)
-                        await self._send_event_immediately(event)
-                except asyncio.TimeoutError:
-                    pass  # No immediate events to process
-                
-                # Minimal sleep to prevent CPU overload
-                await asyncio.sleep(0.001)  # 1ms sleep for immediate processing
-                
-            except Exception as e:
-                self.logger.error(f"❌ Immediate processing loop error: {e}")
-                await asyncio.sleep(0.01)
+    async def stop_monitoring(self):
+        """Stop monitoring - alias for stop method"""
+        await self.stop()
+    
+    async def start_monitoring(self):
+        """Start monitoring - alias for start method"""
+        await self.start()
     
     async def _minimal_polling_loop(self):
         """Minimal polling loop for ZERO DELAY detection"""
@@ -201,21 +181,19 @@ class BaseCollector(ABC):
                 await asyncio.sleep(0.01)
     
     async def _add_immediate_event(self, event_data: EventData):
-        """Add event for immediate processing"""
+        """Add event and send IMMEDIATELY - ZERO DELAY"""
         try:
-            if self.immediate_processing:
-                # Try to add to immediate queue
-                try:
-                    self._immediate_events.put_nowait(event_data)
-                except asyncio.QueueFull:
-                    # If immediate queue is full, send directly
-                    await self._send_event_immediately(event_data)
+            # ZERO DELAY: Send immediately to event processor
+            if self.event_processor:
+                await self.event_processor.add_event(event_data)
+                self.events_sent += 1
+                self.logger.debug(f"🚀 Event sent immediately: {event_data.event_type}")
             else:
-                # Fallback to normal processing
-                await self.add_event(event_data)
+                self.logger.warning("Event processor not available for immediate sending")
                 
         except Exception as e:
-            self.logger.error(f"❌ Failed to add immediate event: {e}")
+            self.logger.error(f"Immediate event sending failed: {e}")
+            self.collection_errors += 1
     
     async def _send_event_immediately(self, event_data: EventData):
         """Send event immediately through event processor"""

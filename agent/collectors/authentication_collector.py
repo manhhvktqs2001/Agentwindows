@@ -81,6 +81,15 @@ class AuthenticationCollector(BaseCollector):
         
         self.logger.info("🔐 Enhanced Authentication Collector initialized")
     
+    def set_event_processor(self, event_processor):
+        """Set event processor for sending events"""
+        self.event_processor = event_processor
+        self.logger.info("Event processor linked to Authentication Collector")
+    
+    async def stop(self):
+        """Stop authentication monitoring"""
+        await self.stop_monitoring()
+    
     async def initialize(self):
         """Initialize authentication collector with enhanced monitoring"""
         try:
