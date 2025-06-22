@@ -1,6 +1,6 @@
-# agent/collectors/file_collector.py - Completely Fixed
+# agent/collectors/file_collector.py - FINAL FIXED VERSION
 """
-File Collector - Fixed all access issues and attribute errors
+File Collector - Fixed event loop error in threading
 """
 
 import asyncio
@@ -12,17 +12,19 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 import json
+import threading
+import queue
 
 from .base_collector import BaseCollector
 from ..schemas.events import EventData
 
 class FileCollector(BaseCollector):
-    """File system monitoring collector - Completely Fixed"""
+    """File system monitoring collector - Fixed threading issues"""
     
     def __init__(self, config_manager):
         super().__init__(config_manager, "FileCollector")
         
-        # IMPORTANT: Initialize ALL attributes FIRST
+        # Initialize ALL attributes FIRST
         self.restricted_paths = []
         self.accessible_paths = []
         self.excluded_extensions = {'.tmp', '.log', '.bak', '.swp', '.lock'}
@@ -45,7 +47,11 @@ class FileCollector(BaseCollector):
         self.recent_events = {}
         self.event_deduplication_window = 1.0  # seconds
         
-        # Now get monitor paths (after all attributes are initialized)
+        # FIXED: Event queue for thread-safe communication
+        self.file_event_queue = queue.Queue()
+        self.queue_processor_running = False
+        
+        # Get monitor paths
         self.monitor_paths = self._get_monitor_paths()
         
         # Setup filters
@@ -54,19 +60,16 @@ class FileCollector(BaseCollector):
     def _get_monitor_paths(self) -> List[str]:
         """Get paths to monitor with access checking"""
         try:
-            # Start with empty lists (already initialized)
             self.accessible_paths = []
             self.restricted_paths = []
             
-            # User-accessible paths (most likely to work)
+            # User-accessible paths
             user_home = str(Path.home())
             potential_paths = [
                 user_home,
                 os.path.join(user_home, 'Desktop'),
                 os.path.join(user_home, 'Documents'),
                 os.path.join(user_home, 'Downloads'),
-                'C:\\Temp',
-                'C:\\Users\\Public'
             ]
             
             # Test each path
@@ -94,14 +97,11 @@ class FileCollector(BaseCollector):
         try:
             path_obj = Path(path)
             
-            # Check if path exists
             if not path_obj.exists():
                 return False
             
-            # Check if we can read the directory
             if path_obj.is_dir():
                 try:
-                    # Try to list directory contents
                     list(path_obj.iterdir())
                     return True
                 except (PermissionError, OSError):
@@ -130,9 +130,8 @@ class FileCollector(BaseCollector):
             self.logger.error(f"❌ Error setting up filters: {e}")
     
     async def _collector_specific_init(self):
-        """Initialize file collector"""
+        """Initialize file collector with FIXED threading approach"""
         try:
-            # Only setup watchdog if we have accessible paths
             if self.accessible_paths:
                 try:
                     from watchdog.observers import Observer
@@ -141,8 +140,8 @@ class FileCollector(BaseCollector):
                     # Create observer
                     self.observer = Observer()
                     
-                    # Create simple event handler
-                    self.event_handler = SimpleFileEventHandler(self)
+                    # Create THREAD-SAFE event handler
+                    self.event_handler = self._create_thread_safe_handler()
                     
                     # Schedule monitoring for accessible paths
                     for path in self.accessible_paths:
@@ -150,7 +149,7 @@ class FileCollector(BaseCollector):
                             self.observer.schedule(
                                 self.event_handler,
                                 path,
-                                recursive=False  # Start with non-recursive to reduce load
+                                recursive=False  # Start with non-recursive
                             )
                             self.logger.debug(f"📁 Scheduled monitoring for: {path}")
                         except Exception as e:
@@ -168,10 +167,62 @@ class FileCollector(BaseCollector):
         except Exception as e:
             self.logger.error(f"❌ File collector initialization failed: {e}")
     
+    def _create_thread_safe_handler(self):
+        """Create thread-safe event handler that uses queue"""
+        try:
+            from watchdog.events import FileSystemEventHandler
+            
+            class ThreadSafeFileHandler(FileSystemEventHandler):
+                def __init__(self, collector):
+                    super().__init__()
+                    self.collector = collector
+                    self.logger = logging.getLogger(__name__)
+                
+                def on_created(self, event):
+                    if not event.is_directory:
+                        self._queue_event(event.src_path, 'Create')
+                
+                def on_modified(self, event):
+                    if not event.is_directory:
+                        self._queue_event(event.src_path, 'Modify')
+                
+                def on_deleted(self, event):
+                    if not event.is_directory:
+                        self._queue_event(event.src_path, 'Delete')
+                
+                def on_moved(self, event):
+                    if not event.is_directory:
+                        dest_path = getattr(event, 'dest_path', event.src_path)
+                        self._queue_event(dest_path, 'Move')
+                
+                def _queue_event(self, file_path: str, action: str):
+                    """FIXED: Queue event instead of calling async directly"""
+                    try:
+                        # Put event in queue for main thread to process
+                        self.collector.file_event_queue.put({
+                            'file_path': file_path,
+                            'action': action,
+                            'timestamp': datetime.now()
+                        })
+                        self.logger.debug(f"📋 Queued file event: {action} - {Path(file_path).name}")
+                        
+                    except Exception as e:
+                        self.logger.error(f"❌ File event queueing error: {e}")
+            
+            return ThreadSafeFileHandler(self)
+            
+        except ImportError:
+            self.logger.warning("⚠️ Cannot create watchdog handler")
+            return None
+    
     async def start(self):
-        """Start file monitoring"""
+        """Start file monitoring with queue processor"""
         try:
             await super().start()
+            
+            # Start queue processor
+            self.queue_processor_running = True
+            asyncio.create_task(self._process_file_event_queue())
             
             if self.observer and self.accessible_paths:
                 try:
@@ -189,6 +240,9 @@ class FileCollector(BaseCollector):
     async def stop(self):
         """Stop file monitoring"""
         try:
+            # Stop queue processor
+            self.queue_processor_running = False
+            
             if self.observer and self.observer_started:
                 try:
                     self.observer.stop()
@@ -203,12 +257,50 @@ class FileCollector(BaseCollector):
         except Exception as e:
             self.logger.error(f"❌ File collector stop error: {e}")
     
+    async def _process_file_event_queue(self):
+        """FIXED: Process file events from queue in main async loop"""
+        self.logger.info("🔄 File event queue processor started")
+        
+        while self.queue_processor_running and self.is_running:
+            try:
+                # Process all queued events
+                processed_count = 0
+                
+                while not self.file_event_queue.empty() and processed_count < 50:
+                    try:
+                        # Get event from queue (non-blocking)
+                        event_data = self.file_event_queue.get_nowait()
+                        
+                        # Process the event
+                        await self.handle_file_event(
+                            event_data['file_path'], 
+                            event_data['action']
+                        )
+                        
+                        processed_count += 1
+                        
+                    except queue.Empty:
+                        break
+                    except Exception as e:
+                        self.logger.error(f"❌ Event processing error: {e}")
+                
+                if processed_count > 0:
+                    self.logger.debug(f"📋 Processed {processed_count} file events")
+                
+                # Wait before next check
+                await asyncio.sleep(0.5)
+                
+            except Exception as e:
+                self.logger.error(f"❌ Queue processor error: {e}")
+                await asyncio.sleep(1)
+        
+        self.logger.info("🔄 File event queue processor stopped")
+    
     async def _collect_data(self):
         """File collector uses event-driven approach, no polling needed"""
         # Clean up old event tracking data
         await self._cleanup_recent_events()
-        
-        return []  # Return empty list as events come through file system events
+        return []
     
     async def _cleanup_recent_events(self):
         """Clean up old event tracking data"""
@@ -216,7 +308,6 @@ class FileCollector(BaseCollector):
             current_time = datetime.now()
             cutoff_time = current_time - timedelta(minutes=5)
             
-            # Remove old events from tracking
             old_events = [
                 event_id for event_id, timestamp in self.recent_events.items()
                 if timestamp < cutoff_time
@@ -229,7 +320,7 @@ class FileCollector(BaseCollector):
             self.logger.error(f"❌ Recent events cleanup error: {e}")
     
     async def handle_file_event(self, file_path: str, action: str):
-        """Handle file system event (called by event handler)"""
+        """Handle file system event (called by queue processor)"""
         try:
             # Basic validation
             if not self._should_monitor_file(file_path):
@@ -373,42 +464,7 @@ class FileCollector(BaseCollector):
             'collect_hashes': self.collect_hashes,
             'recent_events_count': len(self.recent_events),
             'observer_running': self.observer_started,
-            'monitor_paths_count': len(self.accessible_paths)
+            'monitor_paths_count': len(self.accessible_paths),
+            'queue_size': self.file_event_queue.qsize(),
+            'queue_processor_running': self.queue_processor_running
         }
-
-
-class SimpleFileEventHandler:
-    """Simple file event handler to avoid complex watchdog integration"""
-    
-    def __init__(self, file_collector):
-        self.file_collector = file_collector
-        self.logger = logging.getLogger(__name__)
-    
-    def on_created(self, event):
-        """Handle file creation"""
-        if not event.is_directory:
-            asyncio.create_task(
-                self.file_collector.handle_file_event(event.src_path, 'Create')
-            )
-    
-    def on_modified(self, event):
-        """Handle file modification"""
-        if not event.is_directory:
-            asyncio.create_task(
-                self.file_collector.handle_file_event(event.src_path, 'Modify')
-            )
-    
-    def on_deleted(self, event):
-        """Handle file deletion"""
-        if not event.is_directory:
-            asyncio.create_task(
-                self.file_collector.handle_file_event(event.src_path, 'Delete')
-            )
-    
-    def on_moved(self, event):
-        """Handle file move/rename"""
-        if not event.is_directory:
-            dest_path = getattr(event, 'dest_path', event.src_path)
-            asyncio.create_task(
-                self.file_collector.handle_file_event(dest_path, 'Move')
-            )
