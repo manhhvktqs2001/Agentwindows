@@ -1,7 +1,7 @@
 # agent/core/communication.py
 """
 Server Communication - Handle all communication with EDR server
-Fixed session management and graceful cleanup
+Enhanced with Alert Acknowledgment System
 """
 
 import aiohttp
@@ -17,7 +17,7 @@ from ..schemas.events import EventData
 from ..schemas.server_responses import ServerResponse
 
 class ServerCommunication:
-    """Handle communication with EDR server - Fixed session management"""
+    """Handle communication with EDR server - Enhanced with Alert Acknowledgment"""
     
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
@@ -43,6 +43,9 @@ class ServerCommunication:
         self.timeout = self.server_config.get('timeout', 30)
         self.max_retries = self.server_config.get('max_retries', 3)
         self.retry_delay = self.server_config.get('retry_delay', 5)
+        
+        # Agent ID for alert acknowledgment
+        self.agent_id = None
         
     async def initialize(self):
         """Initialize communication session"""
@@ -132,7 +135,8 @@ class ServerCommunication:
             
             response = await self._make_request('POST', url, payload)
             
-            if response:
+            if response and response.get('agent_id'):
+                self.agent_id = response['agent_id']  # Store agent ID for alert acknowledgment
                 self.logger.info("✅ Agent registration successful")
                 return response
             else:
@@ -292,7 +296,7 @@ class ServerCommunication:
             return None
 
     async def get_pending_alerts(self, agent_id: str) -> Optional[Dict]:
-        """Get pending alert notifications from server - NEW"""
+        """Get pending alert notifications from server"""
         try:
             url = f"{self.base_url}/api/v1/agents/{agent_id}/pending-alerts"
             response = await self._make_request('GET', url)
@@ -309,6 +313,126 @@ class ServerCommunication:
         except Exception as e:
             self.logger.error(f"❌ Get pending alerts failed: {e}")
             return None
+    
+    # ============================================================================
+    # ALERT ACKNOWLEDGMENT METHODS - NEW
+    # ============================================================================
+    
+    async def acknowledge_alert(self, alert_id: str, status: str = "acknowledged", 
+                              details: Dict[str, Any] = None) -> Optional[Dict]:
+        """Acknowledge alert receipt and processing to server"""
+        try:
+            url = f"{self.base_url}/api/v1/alerts/{alert_id}/acknowledge"
+            
+            payload = {
+                'alert_id': alert_id,
+                'status': status,  # acknowledged, dismissed, investigating, resolved
+                'acknowledged_at': datetime.now().isoformat(),
+                'acknowledged_by': 'agent',
+                'agent_id': self.agent_id,
+                'details': details or {},
+                'client_timestamp': datetime.now().isoformat()
+            }
+            
+            self.logger.info(f"📤 Acknowledging alert: {alert_id} - {status}")
+            
+            response = await self._make_request('POST', url, payload)
+            
+            if response and response.get('success'):
+                self.logger.debug(f"✅ Alert acknowledged: {alert_id}")
+                return response
+            else:
+                self.logger.warning(f"⚠️ Alert acknowledgment failed: {alert_id}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"❌ Alert acknowledgment error: {e}")
+            return None
+    
+    async def update_alert_status(self, alert_id: str, new_status: str, 
+                                details: Dict[str, Any] = None) -> Optional[Dict]:
+        """Update alert status on server"""
+        try:
+            url = f"{self.base_url}/api/v1/alerts/{alert_id}/status"
+            
+            payload = {
+                'status': new_status,  # pending, acknowledged, investigating, resolved, false_positive
+                'updated_by': 'agent',
+                'updated_at': datetime.now().isoformat(),
+                'agent_id': self.agent_id,
+                'details': details or {}
+            }
+            
+            self.logger.info(f"📊 Updating alert status: {alert_id} → {new_status}")
+            
+            response = await self._make_request('PUT', url, payload)
+            
+            if response and response.get('success'):
+                self.logger.debug(f"✅ Alert status updated: {alert_id}")
+                return response
+            else:
+                self.logger.warning(f"⚠️ Alert status update failed: {alert_id}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"❌ Alert status update error: {e}")
+            return None
+    
+    async def send_alert_feedback(self, alert_id: str, feedback_type: str, 
+                                feedback_data: Dict[str, Any] = None) -> Optional[Dict]:
+        """Send detailed alert feedback to server"""
+        try:
+            url = f"{self.base_url}/api/v1/alerts/{alert_id}/feedback"
+            
+            payload = {
+                'alert_id': alert_id,
+                'feedback_type': feedback_type,  # notification_displayed, user_clicked, user_dismissed, etc.
+                'feedback_data': feedback_data or {},
+                'timestamp': datetime.now().isoformat(),
+                'agent_id': self.agent_id,
+                'source': 'agent'
+            }
+            
+            response = await self._make_request('POST', url, payload)
+            
+            if response and response.get('success'):
+                self.logger.debug(f"✅ Alert feedback sent: {alert_id}")
+                return response
+            else:
+                self.logger.debug(f"⚠️ Alert feedback failed: {alert_id}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"❌ Alert feedback error: {e}")
+            return None
+    
+    async def mark_alerts_as_retrieved(self, alert_ids: List[str]) -> Optional[Dict]:
+        """Mark multiple alerts as retrieved by agent"""
+        try:
+            url = f"{self.base_url}/api/v1/alerts/mark-retrieved"
+            
+            payload = {
+                'alert_ids': alert_ids,
+                'retrieved_at': datetime.now().isoformat(),
+                'agent_id': self.agent_id
+            }
+            
+            response = await self._make_request('POST', url, payload)
+            
+            if response and response.get('success'):
+                self.logger.info(f"✅ Marked {len(alert_ids)} alerts as retrieved")
+                return response
+            else:
+                self.logger.warning(f"⚠️ Failed to mark alerts as retrieved")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"❌ Mark alerts retrieved error: {e}")
+            return None
+    
+    # ============================================================================
+    # EXISTING METHODS
+    # ============================================================================
     
     async def check_server_health(self) -> bool:
         """Check server health"""
@@ -414,5 +538,7 @@ class ServerCommunication:
             'timeout': self.timeout,
             'max_retries': self.max_retries,
             'auth_configured': bool(self.auth_token),
-            'session_active': self.session is not None and not self._session_closed
+            'session_active': self.session is not None and not self._session_closed,
+            'agent_id': self.agent_id,
+            'alert_acknowledgment_enabled': True
         }

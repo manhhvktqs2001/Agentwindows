@@ -1,6 +1,7 @@
-# agent/core/event_processor.py - Fixed reentrant call error
+# agent/core/event_processor.py - Final Version with Alert Acknowledgment
 """
-Event Processor với Security Alert Notification System - Fixed logging issues
+Event Processor với Security Alert Notification System và Alert Acknowledgment
+Enhanced để gửi acknowledgment ngược lại server để lưu vào bảng Alerts
 """
 
 import asyncio
@@ -25,12 +26,13 @@ class EventStats:
     events_failed: int = 0
     events_queued: int = 0
     alerts_received: int = 0
+    alerts_acknowledged: int = 0
     security_notifications_sent: int = 0
     last_batch_sent: Optional[datetime] = None
     batch_count: int = 0
 
 class EventProcessor:
-    """Event Processor with Security Alert Notifications - Fixed reentrant logging"""
+    """Event Processor with Security Alert Notifications and Server Acknowledgment"""
     
     def __init__(self, config_manager: ConfigManager, communication: ServerCommunication):
         self.config_manager = config_manager
@@ -63,10 +65,11 @@ class EventProcessor:
         # Event filtering
         self.filters = self.config.get('filters', {})
         
-        # Security Alert Notification System
+        # Security Alert Notification System with Communication Link
         self.security_notifier = SecurityAlertNotifier(config_manager)
+        self.security_notifier.set_communication(communication)  # Link communication for acknowledgment
         
-        self._safe_log("info", "🔒 Event Processor with Security Notifications initialized")
+        self._safe_log("info", "🔒 Event Processor with Security Notifications and Acknowledgment initialized")
     
     def _safe_log(self, level: str, message: str):
         """Thread-safe logging to prevent reentrant calls"""
@@ -81,7 +84,7 @@ class EventProcessor:
         """Start event processor"""
         try:
             self.is_running = True
-            self._safe_log("info", "🚀 Event processor started with security notifications")
+            self._safe_log("info", "🚀 Event processor started with security notifications and acknowledgment")
             
             # Start batch processing task
             asyncio.create_task(self._batch_processing_loop())
@@ -143,7 +146,7 @@ class EventProcessor:
             self.stats.events_failed += 1
     
     async def _send_batch(self):
-        """Send batch of events to server and handle security alerts - Fixed logging"""
+        """Send batch of events to server and handle security alerts with acknowledgment"""
         try:
             if not self.event_queue or not self.agent_id:
                 return
@@ -173,8 +176,8 @@ class EventProcessor:
                 # Safe logging for successful batch
                 self._safe_log("info", f"✅ Batch sent successfully: {len(batch_events)} events")
                 
-                # Handle security alerts from server (with safe logging)
-                await self._handle_security_alerts_from_server(response, batch_events)
+                # Handle security alerts from server with acknowledgment
+                await self._handle_security_alerts_from_server_with_ack(response, batch_events)
                     
             else:
                 # Return events to queue on failure
@@ -195,29 +198,43 @@ class EventProcessor:
                 for event in batch_events:
                     self.event_queue.appendleft(event)
     
-    async def _handle_security_alerts_from_server(self, server_response: Dict[str, Any], batch_events: List[EventData]):
-        """Handle security alerts from server response - Enhanced with multiple detection methods"""
+    async def _handle_security_alerts_from_server_with_ack(self, server_response: Dict[str, Any], batch_events: List[EventData]):
+        """Handle security alerts from server response with enhanced acknowledgment"""
         try:
             alerts_found = False
             alerts_to_process = []
+            alert_ids_to_mark_retrieved = []
             
             # Method 1: Check for alerts_generated field (standard format)
             if 'alerts_generated' in server_response and server_response['alerts_generated']:
                 alerts_found = True
                 alerts_to_process.extend(server_response['alerts_generated'])
                 self._safe_log("warning", f"🚨 ALERTS_GENERATED: {len(server_response['alerts_generated'])} alerts from server")
+                
+                # Collect alert IDs for marking as retrieved
+                for alert in server_response['alerts_generated']:
+                    alert_id = alert.get('server_alert_id') or alert.get('id') or alert.get('alert_id')
+                    if alert_id:
+                        alert_ids_to_mark_retrieved.append(str(alert_id))
             
             # Method 2: Check for alerts field (alternative format)
             elif 'alerts' in server_response and server_response['alerts']:
                 alerts_found = True
                 alerts_to_process.extend(server_response['alerts'])
                 self._safe_log("warning", f"🚨 ALERTS: {len(server_response['alerts'])} alerts from server")
+                
+                # Collect alert IDs
+                for alert in server_response['alerts']:
+                    alert_id = alert.get('server_alert_id') or alert.get('id') or alert.get('alert_id')
+                    if alert_id:
+                        alert_ids_to_mark_retrieved.append(str(alert_id))
             
             # Method 3: Check for threat_detected field
             elif server_response.get('threat_detected', False):
                 alerts_found = True
                 alert_data = {
                     'alert_id': f"threat_{int(time.time())}",
+                    'server_alert_id': server_response.get('alert_id'),  # From server DB
                     'rule_name': 'Server Threat Detection',
                     'alert_type': 'Security Alert',
                     'title': 'Threat Detected by Server',
@@ -228,6 +245,11 @@ class EventProcessor:
                     'timestamp': datetime.now().isoformat()
                 }
                 alerts_to_process.append(alert_data)
+                
+                alert_id = alert_data.get('server_alert_id')
+                if alert_id:
+                    alert_ids_to_mark_retrieved.append(str(alert_id))
+                
                 self._safe_log("warning", f"🚨 THREAT_DETECTED: Risk Score {alert_data['risk_score']}")
             
             # Method 4: Check for success=true with risk_score > threshold (inferred threat)
@@ -236,6 +258,7 @@ class EventProcessor:
                 alerts_found = True
                 alert_data = {
                     'alert_id': f"inferred_{int(time.time())}",
+                    'server_alert_id': server_response.get('alert_id'),
                     'rule_name': 'High Risk Activity',
                     'alert_type': 'Risk Alert',
                     'title': 'High Risk Activity Detected',
@@ -246,6 +269,11 @@ class EventProcessor:
                     'timestamp': datetime.now().isoformat()
                 }
                 alerts_to_process.append(alert_data)
+                
+                alert_id = alert_data.get('server_alert_id')
+                if alert_id:
+                    alert_ids_to_mark_retrieved.append(str(alert_id))
+                
                 self._safe_log("warning", f"🚨 HIGH_RISK: Score {alert_data['risk_score']}")
             
             # Method 5: Check if there are any fields containing "alert" or "threat"
@@ -255,6 +283,7 @@ class EventProcessor:
                         alerts_found = True
                         alert_data = {
                             'alert_id': f"field_{int(time.time())}",
+                            'server_alert_id': server_response.get('alert_id'),
                             'rule_name': f'Server Alert ({key})',
                             'alert_type': 'Security Alert',
                             'title': f'Security Alert: {key}',
@@ -265,10 +294,15 @@ class EventProcessor:
                             'timestamp': datetime.now().isoformat()
                         }
                         alerts_to_process.append(alert_data)
+                        
+                        alert_id = alert_data.get('server_alert_id')
+                        if alert_id:
+                            alert_ids_to_mark_retrieved.append(str(alert_id))
+                        
                         self._safe_log("warning", f"🚨 FIELD_ALERT: {key} = {value}")
                         break  # Only process first alert field found
             
-            # Process all found alerts
+            # Process all found alerts with acknowledgment
             if alerts_found and alerts_to_process:
                 self.stats.alerts_received += len(alerts_to_process)
                 
@@ -280,7 +314,16 @@ class EventProcessor:
                     f"   Severities: {[alert.get('severity', 'Unknown') for alert in alerts_to_process]}"
                 )
                 
-                # Send to security notifier for display
+                # Mark alerts as retrieved on server (if we have alert IDs)
+                if alert_ids_to_mark_retrieved:
+                    try:
+                        await self.communication.mark_alerts_as_retrieved(alert_ids_to_mark_retrieved)
+                        self._safe_log("info", f"✅ Marked {len(alert_ids_to_mark_retrieved)} alerts as retrieved")
+                        self.stats.alerts_acknowledged += len(alert_ids_to_mark_retrieved)
+                    except Exception as e:
+                        self._safe_log("error", f"❌ Failed to mark alerts as retrieved: {e}")
+                
+                # Send to security notifier for display and acknowledgment
                 mock_response = {'alerts_generated': alerts_to_process}
                 self.security_notifier.process_server_alerts(mock_response, batch_events)
                 self.stats.security_notifications_sent += 1
@@ -290,7 +333,8 @@ class EventProcessor:
                     self._safe_log("error", 
                         f"🚨 ALERT: {alert.get('rule_name', 'Unknown')} | "
                         f"Severity: {alert.get('severity', 'Unknown')} | "
-                        f"Risk: {alert.get('risk_score', 0)}/100"
+                        f"Risk: {alert.get('risk_score', 0)}/100 | "
+                        f"Server ID: {alert.get('server_alert_id', 'N/A')}"
                     )
             else:
                 # Debug: Log server response for analysis if no alerts found
@@ -401,13 +445,16 @@ class EventProcessor:
                 
                 if self.stats.events_collected > 0:
                     success_rate = (self.stats.events_sent / self.stats.events_collected) * 100
+                    acknowledgment_rate = (self.stats.alerts_acknowledged / max(self.stats.alerts_received, 1)) * 100
                     
                     stats_message = (
                         f"📊 Event Stats: Collected={self.stats.events_collected}, "
                         f"Sent={self.stats.events_sent}, Failed={self.stats.events_failed}, "
                         f"Queued={self.stats.events_queued}, "
                         f"Alerts={self.stats.alerts_received}, "
-                        f"Success Rate={success_rate:.1f}%"
+                        f"Acknowledged={self.stats.alerts_acknowledged}, "
+                        f"Success Rate={success_rate:.1f}%, "
+                        f"Acknowledgment Rate={acknowledgment_rate:.1f}%"
                     )
                     
                     self._safe_log("info", stats_message)
@@ -423,17 +470,28 @@ class EventProcessor:
             'events_failed': self.stats.events_failed,
             'events_queued': self.stats.events_queued,
             'alerts_received': self.stats.alerts_received,
+            'alerts_acknowledged': self.stats.alerts_acknowledged,
             'security_notifications_sent': self.stats.security_notifications_sent,
             'batch_count': self.stats.batch_count,
             'last_batch_sent': self.stats.last_batch_sent.isoformat() if self.stats.last_batch_sent else None,
             'queue_size': len(self.event_queue),
             'max_queue_size': self.max_queue_size,
             'batch_size': self.batch_size,
-            'success_rate': (self.stats.events_sent / max(self.stats.events_collected, 1)) * 100
+            'success_rate': (self.stats.events_sent / max(self.stats.events_collected, 1)) * 100,
+            'acknowledgment_rate': (self.stats.alerts_acknowledged / max(self.stats.alerts_received, 1)) * 100
         }
         
         # Add security notification stats
         if self.security_notifier:
             base_stats['security_notifier_stats'] = self.security_notifier.get_security_stats()
+        
+        # Add communication info
+        if self.communication:
+            base_stats['communication_info'] = {
+                'server_host': self.communication.server_host,
+                'server_port': self.communication.server_port,
+                'agent_id': getattr(self.communication, 'agent_id', None),
+                'alert_acknowledgment_enabled': True
+            }
         
         return base_stats

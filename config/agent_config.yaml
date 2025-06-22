@@ -1,26 +1,26 @@
 # config/agent_config.yaml
-# EDR Agent Enhanced Configuration - Production Ready
+# EDR Agent Enhanced Configuration - FIXED: Performance Optimized
 
 # ============================================================================
-# AGENT CORE CONFIGURATION
+# AGENT CORE CONFIGURATION - FIXED: Optimized for performance
 # ============================================================================
 agent:
   name: "EDR-SecurityAgent-v2"
   version: "2.0.0"
   environment: "production"                # development, staging, production
   
-  # Heartbeat and Communication
-  heartbeat_interval: 30                   # seconds
-  heartbeat_timeout: 90                    # seconds
+  # Heartbeat and Communication - FIXED: Optimized intervals
+  heartbeat_interval: 45                   # FIXED: Increase from 30 to 45 seconds
+  heartbeat_timeout: 120                   # FIXED: Increase from 90 to 120 seconds
   max_heartbeat_failures: 3               # before marking agent offline
   
-  # Event Processing
-  event_batch_size: 100                    # events per batch
-  event_queue_size: 5000                   # maximum events in memory
-  max_memory_usage: 1024                   # MB
+  # Event Processing - FIXED: Optimized batch sizes
+  event_batch_size: 50                     # FIXED: Reduce from 100 to 50 events per batch
+  event_queue_size: 2000                   # FIXED: Reduce from 5000 to 2000 maximum events in memory
+  max_memory_usage: 512                    # FIXED: Reduce from 1024 to 512 MB
   
-  # Performance Settings
-  max_cpu_usage: 25                        # percent
+  # Performance Settings - FIXED: More conservative limits
+  max_cpu_usage: 15                        # FIXED: Reduce from 25 to 15 percent
   auto_throttle: true                      # reduce activity if high CPU
   adaptive_polling: true                   # adjust polling based on load
   
@@ -39,47 +39,35 @@ server:
   port: 5000
   protocol: "http"                         # http, https
   
-  # Backup Servers (failover)
-  backup_servers:
-    - host: "192.168.20.86"
-      port: 5000
-      protocol: "http"
-    - host: "edr-backup.company.local"
-      port: 5000
-      protocol: "https"
-  
   # Authentication
   auth_token: "edr_agent_auth_2024"
   api_key: ""                              # optional API key
   certificate_path: ""                     # for SSL/TLS
   
-  # Connection Settings
-  timeout: 30                              # seconds
-  max_retries: 5
-  retry_delay: 10                          # seconds
+  # Connection Settings - FIXED: More patient timeouts
+  timeout: 45                              # FIXED: Increase from 30 to 45 seconds
+  max_retries: 3                           # FIXED: Reduce from 5 to 3
+  retry_delay: 15                          # FIXED: Increase from 10 to 15 seconds
   retry_backoff: 2.0                       # exponential backoff multiplier
   keep_alive: true
-  connection_pool_size: 10
+  connection_pool_size: 5                  # FIXED: Reduce from 10 to 5
   
   # SSL/TLS Settings
   ssl_enabled: false
   ssl_verify: true
-  ssl_cert_path: ""
-  ssl_key_path: ""
-  ssl_ca_path: ""
 
 # ============================================================================
-# DATA COLLECTION CONFIGURATION
+# DATA COLLECTION CONFIGURATION - FIXED: Performance optimized
 # ============================================================================
 collection:
   enabled: true
   
-  # Global Collection Settings
+  # Global Collection Settings - FIXED: Reduced frequency
   real_time_monitoring: true
-  polling_interval: 5                      # seconds
-  max_events_per_interval: 2000
+  polling_interval: 15                     # FIXED: Increase from 5 to 15 seconds
+  max_events_per_interval: 100             # FIXED: Reduce from 2000 to 100
   event_deduplication: true
-  deduplication_window: 10                 # seconds
+  deduplication_window: 15                 # FIXED: Increase from 10 to 15 seconds
   
   # Event Types
   collect_processes: true
@@ -88,31 +76,32 @@ collection:
   collect_registry: true                   # Windows only
   collect_authentication: true
   collect_system_events: true
-  collect_dns_queries: false              # requires additional setup
-  collect_web_traffic: false              # requires proxy setup
+  collect_dns_queries: false              # FIXED: Disable high-overhead features
+  collect_web_traffic: false              # FIXED: Disable high-overhead features
   
-  # Process Monitoring
+  # Process Monitoring - FIXED: Reduced overhead
   process_monitoring:
     monitor_creation: true
     monitor_termination: true
-    monitor_modification: false
+    monitor_modification: false            # FIXED: Disable to reduce load
     collect_command_lines: true
-    collect_environment_vars: false
-    collect_process_hashes: true
-    hash_size_limit_mb: 50
-    monitor_dll_loads: false               # Windows only, high overhead
+    collect_environment_vars: false       # FIXED: Disable to reduce load
+    collect_process_hashes: false         # FIXED: Disable to reduce load (expensive)
+    hash_size_limit_mb: 10                # FIXED: Reduce from 50 to 10MB
+    monitor_dll_loads: false              # FIXED: Keep disabled (high overhead)
     monitor_child_processes: true
-    track_process_tree: true
+    track_process_tree: false             # FIXED: Disable to reduce complexity
   
-  # File Monitoring
+  # File Monitoring - FIXED: Reduced scope
   file_monitoring:
     enabled: true
     paths_to_monitor:
       - "C:\\Users\\manhh\\Desktop"           # User's desktop
       - "C:\\Users\\manhh\\Documents"        # User's documents
       - "C:\\Users\\manhh\\Downloads"        # User's downloads
-      - "C:\\Users\\manhh\\AppData\\Local\\Temp"  # User's temp folder
-      - "C:\\Windows\\Temp"                  # System temp (if accessible)
+      # FIXED: Remove high-traffic directories
+      # - "C:\\Users\\manhh\\AppData\\Local\\Temp"
+      # - "C:\\Windows\\Temp"
     file_extensions:
       - ".exe"
       - ".dll"
@@ -121,220 +110,205 @@ collection:
       - ".ps1"
       - ".vbs"
       - ".js"
-      - ".jar"
-      - ".msi"
-      - ".zip"
-      - ".rar"
-      - ".7z"
-    max_file_size: 104857600  # 100MB
-    collect_hashes: true
+      # FIXED: Remove less critical extensions to reduce noise
+      # - ".jar"
+      # - ".msi"
+      # - ".zip"
+      # - ".rar"
+      # - ".7z"
+    max_file_size: 50MB                   # FIXED: Reduce from 100MB to 50MB
+    collect_hashes: false                 # FIXED: Disable to improve performance
     monitor_creation: true
-    monitor_modification: true
+    monitor_modification: false           # FIXED: Disable to reduce noise
     monitor_deletion: true
     monitor_access: false
   
-  # Network Monitoring
+  # Network Monitoring - FIXED: Reduced complexity
   network_monitoring:
     monitor_tcp: true
-    monitor_udp: true
+    monitor_udp: false                    # FIXED: Disable UDP to reduce noise
     monitor_icmp: false
     monitor_listening_ports: true
     monitor_established_connections: true
-    monitor_outbound_only: false
+    monitor_outbound_only: true           # FIXED: Focus on outbound only
     
-    # Traffic Analysis
-    analyze_patterns: true
-    detect_beaconing: true
-    detect_port_scanning: true
-    detect_data_exfiltration: true
+    # Traffic Analysis - FIXED: Simplified
+    analyze_patterns: false               # FIXED: Disable complex analysis
+    detect_beaconing: false               # FIXED: Disable to reduce CPU
+    detect_port_scanning: false           # FIXED: Disable to reduce CPU
+    detect_data_exfiltration: false       # FIXED: Disable to reduce CPU
     connection_timeout: 300                # seconds
-    max_connections_tracked: 10000
+    max_connections_tracked: 1000          # FIXED: Reduce from 10000 to 1000
     
     # DNS Monitoring
     monitor_dns: false
-    dns_log_file: "/var/log/dns.log"
-    suspicious_domains_check: true
+    suspicious_domains_check: false       # FIXED: Disable to reduce overhead
   
-  # Registry Monitoring (Windows)
+  # Registry Monitoring (Windows) - FIXED: Reduced scope
   registry_monitoring:
     monitor_startup_keys: true
-    monitor_security_keys: true
-    monitor_network_keys: true
-    monitor_service_keys: true
-    monitor_policy_keys: true
-    real_time_monitoring: true
+    monitor_security_keys: false          # FIXED: Disable to reduce overhead
+    monitor_network_keys: false           # FIXED: Disable to reduce overhead
+    monitor_service_keys: false           # FIXED: Disable to reduce overhead
+    monitor_policy_keys: false            # FIXED: Disable to reduce overhead
+    real_time_monitoring: false           # FIXED: Disable real-time to reduce CPU
     
-    # Critical Registry Paths
+    # Critical Registry Paths - FIXED: Minimal set
     critical_paths:
       - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
       - "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
-      - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
-      - "HKLM\\SOFTWARE\\Microsoft\\Windows Defender"
-      - "HKLM\\SOFTWARE\\Policies"
+      # FIXED: Remove less critical paths
+      # - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
+      # - "HKLM\\SOFTWARE\\Microsoft\\Windows Defender"
+      # - "HKLM\\SOFTWARE\\Policies"
   
-  # Authentication Monitoring
+  # Authentication Monitoring - FIXED: Reduced frequency
   authentication_monitoring:
     monitor_logons: true
-    monitor_logoffs: true
+    monitor_logoffs: false                # FIXED: Disable to reduce noise
     monitor_failed_attempts: true
-    monitor_privilege_escalation: true
-    monitor_account_changes: true
+    monitor_privilege_escalation: false   # FIXED: Disable to reduce complexity
+    monitor_account_changes: false        # FIXED: Disable to reduce noise
     failed_attempt_threshold: 5           # trigger alert after N failures
 
 # ============================================================================
-# THREAT DETECTION CONFIGURATION
+# THREAT DETECTION CONFIGURATION - FIXED: Simplified
 # ============================================================================
 detection:
   enabled: true
   
-  # Detection Engines
-  local_rules_enabled: true
-  behavioral_analysis: true
-  machine_learning: false                  # requires ML models
-  threat_intelligence: true
-  yara_scanning: false                     # requires YARA rules
+  # Detection Engines - FIXED: Minimal set
+  local_rules_enabled: false             # FIXED: Disable to reduce CPU
+  behavioral_analysis: false             # FIXED: Disable to reduce CPU
+  machine_learning: false               # requires ML models
+  threat_intelligence: false            # FIXED: Disable to reduce network calls
+  yara_scanning: false                  # requires YARA rules
   
-  # Threat Intelligence
-  threat_cache_enabled: true
-  cache_size: 50000                        # number of IoCs to cache
-  cache_ttl: 3600                          # seconds
-  auto_update_feeds: true
-  update_interval: 3600                    # seconds
+  # Threat Intelligence - FIXED: Disabled
+  threat_cache_enabled: false           # FIXED: Disable caching
+  cache_size: 1000                      # FIXED: Reduce from 50000 to 1000
+  cache_ttl: 7200                       # FIXED: Increase from 3600 to 7200 seconds
+  auto_update_feeds: false              # FIXED: Disable auto updates
+  update_interval: 86400                # FIXED: Increase to daily
   
   # Detection Thresholds
-  suspicious_threshold: 60                 # 0-100 risk score
-  malicious_threshold: 80                  # 0-100 risk score
-  alert_threshold: 70                      # 0-100 risk score
+  suspicious_threshold: 70              # FIXED: Increase from 60 to 70
+  malicious_threshold: 85               # FIXED: Increase from 80 to 85
+  alert_threshold: 75                   # FIXED: Increase from 70 to 75
   
-  # Behavioral Analysis
-  baseline_learning_period: 72            # hours
-  anomaly_detection: true
-  user_behavior_analysis: true
-  process_behavior_analysis: true
-  network_behavior_analysis: true
+  # Behavioral Analysis - FIXED: All disabled
+  baseline_learning_period: 168        # FIXED: Increase to 1 week
+  anomaly_detection: false              # FIXED: Disable
+  user_behavior_analysis: false         # FIXED: Disable
+  process_behavior_analysis: false      # FIXED: Disable
+  network_behavior_analysis: false      # FIXED: Disable
   
-  # Response Actions
-  auto_isolate_threats: false             # automatically isolate infected systems
-  auto_quarantine_files: false           # automatically quarantine malicious files
-  auto_kill_processes: false             # automatically terminate malicious processes
-  send_alerts_immediately: true          # send high-priority alerts immediately
+  # Response Actions - FIXED: Manual only
+  auto_isolate_threats: false          # manually isolate infected systems
+  auto_quarantine_files: false         # manually quarantine malicious files
+  auto_kill_processes: false           # manually terminate malicious processes
+  send_alerts_immediately: true        # send high-priority alerts immediately
 
 # ============================================================================
-# LOGGING CONFIGURATION
+# LOGGING CONFIGURATION - FIXED: Reduced verbosity
 # ============================================================================
 logging:
   # Log Levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  level: "INFO"
+  level: "WARNING"                      # FIXED: Increase from INFO to WARNING
   
   # Output Destinations
   console_enabled: true
   file_enabled: true
-  syslog_enabled: false                    # Linux/Unix syslog
-  event_log_enabled: true                  # Windows Event Log
+  syslog_enabled: false                 # Linux/Unix syslog
+  event_log_enabled: false             # FIXED: Disable Windows Event Log
   
-  # File Logging
+  # File Logging - FIXED: Smaller files
   log_directory: "logs"
   log_file_name: "edr_agent.log"
-  max_file_size: "50MB"
-  backup_count: 10
+  max_file_size: "10MB"                 # FIXED: Reduce from 50MB to 10MB
+  backup_count: 3                       # FIXED: Reduce from 10 to 3
   compress_backups: true
   
   # Log Rotation
   rotate_daily: true
   rotate_on_startup: false
   
-  # Advanced Logging
-  log_format: "detailed"                   # simple, detailed, json
+  # Advanced Logging - FIXED: Simplified
+  log_format: "simple"                  # FIXED: Change from detailed to simple
   include_timestamps: true
-  include_thread_info: true
-  include_process_info: true
+  include_thread_info: false            # FIXED: Disable to reduce overhead
+  include_process_info: false           # FIXED: Disable to reduce overhead
   
-  # Component-specific Logging
-  collectors_log_level: "INFO"
-  communication_log_level: "INFO"
-  detection_log_level: "INFO"
+  # Component-specific Logging - FIXED: Increased levels
+  collectors_log_level: "WARNING"       # FIXED: Increase from INFO to WARNING
+  communication_log_level: "WARNING"    # FIXED: Increase from INFO to WARNING
+  detection_log_level: "WARNING"        # FIXED: Increase from INFO to WARNING
   
   # Security
-  encrypt_logs: false                      # encrypt log files
-  log_integrity_check: false              # verify log integrity
+  encrypt_logs: false                   # encrypt log files
+  log_integrity_check: false           # verify log integrity
 
 # ============================================================================
-# SECURITY CONFIGURATION
-# ============================================================================
-security:
-  # Agent Protection
-  anti_tamper_enabled: true
-  integrity_check_enabled: true
-  self_defense_enabled: true
-  hide_agent_processes: false             # make agent less visible
-  
-  # Communication Security
-  encrypt_communication: false            # encrypt all server communication
-  sign_messages: false                     # digitally sign messages
-  validate_server_cert: true              # validate server SSL certificate
-  
-  # Data Protection
-  encrypt_local_data: false               # encrypt local configuration/cache
-  secure_memory: true                     # use secure memory allocation
-  clear_sensitive_data: true             # clear sensitive data from memory
-  
-  # Access Control
-  run_as_service: true                    # run as Windows service
-  require_admin_privileges: true         # require administrator/root privileges
-  restrict_file_access: true             # restrict access to agent files
-
-# ============================================================================
-# PERFORMANCE OPTIMIZATION
+# PERFORMANCE OPTIMIZATION - FIXED: Conservative settings
 # ============================================================================
 performance:
-  # CPU Management
-  max_cpu_usage: 20                      # percent
+  # CPU Management - FIXED: More conservative
+  max_cpu_usage: 15                     # FIXED: Reduce from 20 to 15 percent
   cpu_throttling: true
-  priority_class: "normal"               # low, normal, high
+  priority_class: "below_normal"        # FIXED: Lower from normal to below_normal
   
-  # Memory Management
-  max_memory_usage: 1024                 # MB
+  # Memory Management - FIXED: Reduced limits
+  max_memory_usage: 512                 # FIXED: Reduce from 1024 to 512 MB
   memory_optimization: true
   garbage_collection: true
   memory_pressure_handling: true
   
-  # I/O Optimization
+  # I/O Optimization - FIXED: Reduced activity
   async_processing: true
   batch_processing: true
   compression_enabled: false
-  buffer_size: 65536                     # bytes
+  buffer_size: 32768                    # FIXED: Reduce from 65536 to 32768 bytes
   
-  # Threading
-  max_worker_threads: 10
-  thread_pool_size: 5
+  # Threading - FIXED: Reduced threads
+  max_worker_threads: 4                 # FIXED: Reduce from 10 to 4
+  thread_pool_size: 2                   # FIXED: Reduce from 5 to 2
   async_event_processing: true
   
-  # Caching
+  # Caching - FIXED: Smaller cache
   enable_caching: true
-  cache_size_mb: 100
-  cache_cleanup_interval: 300            # seconds
+  cache_size_mb: 32                     # FIXED: Reduce from 100 to 32MB
+  cache_cleanup_interval: 600           # FIXED: Increase from 300 to 600 seconds
 
 # ============================================================================
-# FILTERING CONFIGURATION
+# FILTERING CONFIGURATION - FIXED: More aggressive filtering
 # ============================================================================
 filters:
   # Global Filters
   exclude_system_processes: true
-  exclude_agent_activity: true           # exclude agent's own activity
+  exclude_agent_activity: true          # exclude agent's own activity
   
-  # Process Filtering
+  # Process Filtering - FIXED: Expanded exclusions
   exclude_process_names:
     - "svchost.exe"
     - "dwm.exe"
     - "winlogon.exe"
     - "csrss.exe"
     - "smss.exe"
+    - "wininit.exe"                     # FIXED: Add more system processes
+    - "services.exe"
+    - "lsass.exe"
+    - "spoolsv.exe"
+    - "explorer.exe"
+    - "taskmgr.exe"
+    - "conhost.exe"
   
   exclude_process_paths:
     - "C:\\Windows\\System32"
     - "C:\\Windows\\SysWOW64"
+    - "C:\\Windows\\WinSxS"             # FIXED: Add more paths
+    - "C:\\Windows\\servicing"
   
-  # File Filtering
+  # File Filtering - FIXED: More exclusions
   exclude_file_extensions:
     - ".tmp"
     - ".log"
@@ -344,6 +318,9 @@ filters:
     - ".cache"
     - ".thumbs"
     - ".db"
+    - ".dat"                            # FIXED: Add more extensions
+    - ".temp"
+    - ".old"
   
   exclude_file_paths:
     - "C:\\Windows\\System32"
@@ -353,8 +330,10 @@ filters:
     - "C:\\Windows\\Logs"
     - "C:\\ProgramData\\Microsoft"
     - "C:\\Users\\*\\AppData\\Local\\Temp"
+    - "C:\\Users\\*\\AppData\\Local\\Microsoft"  # FIXED: Add more paths
+    - "C:\\Users\\*\\AppData\\Roaming\\Microsoft"
   
-  # Network Filtering
+  # Network Filtering - FIXED: More exclusions
   exclude_loopback: true
   exclude_multicast: true
   exclude_broadcast: true
@@ -365,240 +344,211 @@ filters:
     - 445      # SMB
     - 139      # NetBIOS
     - 5355     # LLMNR
+    - 137      # FIXED: Add NetBIOS Name Service
+    - 138      # FIXED: Add NetBIOS Datagram Service
   
-  # Registry Filtering (Windows)
-  exclude_registry_paths:
-    - "HKLM\\SOFTWARE\\Classes"
-    - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer"
-  
-  # Size Limits
-  max_file_size_mb: 500
-  max_command_line_length: 2048
-  max_registry_value_size: 1024
+  # Size Limits - FIXED: Smaller limits
+  max_file_size_mb: 100                 # FIXED: Reduce from 500 to 100
+  max_command_line_length: 512          # FIXED: Reduce from 2048 to 512
+  max_registry_value_size: 256          # FIXED: Reduce from 1024 to 256
 
 # ============================================================================
-# ALERTING CONFIGURATION
+# ALERTING CONFIGURATION - FIXED: Reduced frequency
 # ============================================================================
 alerting:
   enabled: true
   
-  # Alert Levels
+  # Alert Levels - FIXED: Only important alerts
   send_info_alerts: false
-  send_low_alerts: true
-  send_medium_alerts: true
+  send_low_alerts: false                # FIXED: Disable low alerts
+  send_medium_alerts: false             # FIXED: Disable medium alerts
   send_high_alerts: true
   send_critical_alerts: true
   
-  # Alert Throttling
+  # Alert Throttling - FIXED: More aggressive throttling
   throttle_duplicate_alerts: true
-  duplicate_window: 300                   # seconds
-  max_alerts_per_minute: 50
+  duplicate_window: 600                 # FIXED: Increase from 300 to 600 seconds
+  max_alerts_per_minute: 10             # FIXED: Reduce from 50 to 10
   
-  # Alert Delivery
-  immediate_delivery: true                # for high/critical alerts
-  batch_delivery: true                   # for low/medium alerts
-  batch_interval: 60                     # seconds
+  # Alert Delivery - FIXED: Batch more
+  immediate_delivery: false             # FIXED: Disable immediate delivery
+  batch_delivery: true                  # for all alerts
+  batch_interval: 300                   # FIXED: Increase from 60 to 300 seconds
   
-  # Alert Enrichment
-  include_context: true                  # include surrounding events
-  include_system_info: true             # include system information
-  include_process_tree: true            # include parent/child processes
+  # Alert Enrichment - FIXED: Minimal enrichment
+  include_context: false                # FIXED: Disable context to reduce overhead
+  include_system_info: false            # FIXED: Disable system info
+  include_process_tree: false           # FIXED: Disable process tree
 
 # ============================================================================
-# MAINTENANCE AND UPDATES
+# MAINTENANCE AND UPDATES - FIXED: Reduced frequency
 # ============================================================================
 maintenance:
   # Automatic Updates
-  auto_update_enabled: false             # automatically update agent
-  update_check_interval: 86400          # seconds (daily)
-  update_server: "updates.edr-server.com"
+  auto_update_enabled: false            # automatically update agent
+  update_check_interval: 172800         # FIXED: Increase to 2 days
   
-  # Cleanup Tasks
+  # Cleanup Tasks - FIXED: Less frequent cleanup
   cleanup_enabled: true
-  cleanup_interval: 3600                 # seconds
+  cleanup_interval: 7200                # FIXED: Increase from 3600 to 7200 seconds
   
-  # Data Retention
-  event_retention_days: 30               # local event retention
-  log_retention_days: 90                 # log file retention
-  cache_retention_hours: 24              # cache data retention
+  # Data Retention - FIXED: Shorter retention
+  event_retention_days: 7               # FIXED: Reduce from 30 to 7 days
+  log_retention_days: 30                # FIXED: Reduce from 90 to 30 days
+  cache_retention_hours: 12             # FIXED: Reduce from 24 to 12 hours
   
-  # Health Monitoring
-  health_check_interval: 300             # seconds
-  send_health_reports: true
-  health_report_interval: 3600          # seconds
+  # Health Monitoring - FIXED: Less frequent monitoring
+  health_check_interval: 600            # FIXED: Increase from 300 to 600 seconds
+  send_health_reports: false            # FIXED: Disable to reduce network traffic
+  health_report_interval: 7200          # FIXED: Increase from 3600 to 7200 seconds
   
-  # Diagnostics
-  enable_diagnostics: true
-  diagnostic_log_level: "DEBUG"
-  performance_monitoring: true
-  resource_usage_tracking: true
+  # Diagnostics - FIXED: Minimal diagnostics
+  enable_diagnostics: false             # FIXED: Disable to reduce overhead
+  diagnostic_log_level: "ERROR"         # FIXED: Only errors
+  performance_monitoring: false         # FIXED: Disable to reduce overhead
+  resource_usage_tracking: false        # FIXED: Disable to reduce overhead
 
 # ============================================================================
-# COMPLIANCE AND REPORTING
+# COMPLIANCE AND REPORTING - FIXED: Disabled
 # ============================================================================
 compliance:
-  # Regulatory Compliance
-  gdpr_compliance: false                 # GDPR data protection
-  hipaa_compliance: false               # HIPAA healthcare compliance
-  pci_compliance: false                 # PCI-DSS payment compliance
+  # Regulatory Compliance - FIXED: All disabled
+  gdpr_compliance: false
+  hipaa_compliance: false
+  pci_compliance: false
   
-  # Data Handling
+  # Data Handling - FIXED: Minimal processing
   anonymize_user_data: false
-  encrypt_pii: false                    # personally identifiable information
-  data_retention_policy: "standard"     # minimal, standard, extended
+  encrypt_pii: false
+  data_retention_policy: "minimal"      # FIXED: Change from standard to minimal
   
-  # Audit Logging
+  # Audit Logging - FIXED: Disabled
   audit_all_actions: false
-  audit_log_file: "audit.log"
-  audit_log_format: "json"
+  audit_log_file: ""                    # FIXED: Disable audit logging
+  audit_log_format: ""
 
 # ============================================================================
-# ADVANCED FEATURES
+# ADVANCED FEATURES - FIXED: All disabled
 # ============================================================================
 advanced:
-  # Experimental Features
+  # Experimental Features - FIXED: All disabled
   experimental_features: false
   
-  # Integration Capabilities
-  siem_integration: false               # SIEM system integration
-  sandbox_integration: false           # malware sandbox integration
-  threat_sharing: false                # share threat intelligence
+  # Integration Capabilities - FIXED: All disabled
+  siem_integration: false
+  sandbox_integration: false
+  threat_sharing: false
   
-  # Advanced Analysis
-  memory_analysis: false                # analyze process memory
-  network_traffic_analysis: false      # deep packet inspection
-  code_injection_detection: true       # detect code injection
-  rootkit_detection: true              # detect rootkits/bootkits
+  # Advanced Analysis - FIXED: All disabled
+  memory_analysis: false
+  network_traffic_analysis: false
+  code_injection_detection: false       # FIXED: Disable to reduce CPU
+  rootkit_detection: false              # FIXED: Disable to reduce CPU
   
-  # Cloud Features
-  cloud_backup: false                   # backup data to cloud
-  cloud_analysis: false                # send samples for cloud analysis
-  cloud_threat_feeds: false            # use cloud threat intelligence
-  # ============================================================================
+  # Cloud Features - FIXED: All disabled
+  cloud_backup: false
+  cloud_analysis: false
+  cloud_threat_feeds: false
+
 # ============================================================================
-# SECURITY NOTIFICATION CONFIGURATION  
+# SECURITY NOTIFICATION CONFIGURATION - FIXED: Simplified
 # ============================================================================
 security_notifications:
-  enabled: true                          # Enable/disable security notifications
+  enabled: true                         # Enable/disable security notifications
   
   # Display Settings
-  show_on_screen: true                   # Show popup notifications
-  position: "bottom-right"               # Notification position
+  show_on_screen: true                  # Show popup notifications
+  position: "bottom-right"              # Notification position
   
-  # Alert Filtering
-  show_low_alerts: false                 # Show LOW severity alerts
-  show_medium_alerts: true               # Show MEDIUM severity alerts  
-  show_high_alerts: true                 # Show HIGH severity alerts
-  show_critical_alerts: true            # Show CRITICAL severity alerts
+  # Alert Filtering - FIXED: Only critical alerts
+  show_low_alerts: false
+  show_medium_alerts: false
+  show_high_alerts: true                # FIXED: Only high and critical
+  show_critical_alerts: true
   
-  # Notification Behavior
-  auto_dismiss_timeout: 30               # Seconds before auto-dismiss
-  play_sound: true                       # Play sound for critical alerts
-  persistent_critical: true             # Keep critical alerts longer
-  click_action: "focus_agent"            # Action when notification clicked
+  # Notification Behavior - FIXED: Longer timeouts
+  auto_dismiss_timeout: 60              # FIXED: Increase from 30 to 60 seconds
+  play_sound: false                     # FIXED: Disable sound to reduce distraction
+  persistent_critical: true
+  click_action: "focus_agent"
   
-  # Rate Limiting
-  max_security_alerts_per_minute: 10     # Prevent notification spam
-  duplicate_suppression_window: 300      # Seconds to suppress duplicate alerts
+  # Rate Limiting - FIXED: More restrictive
+  max_security_alerts_per_minute: 3     # FIXED: Reduce from 10 to 3
+  duplicate_suppression_window: 600     # FIXED: Increase from 300 to 600 seconds
   
-  # Priority-based Timeouts
-  critical_alert_timeout: 60             # Critical alerts (1 minute)
-  high_alert_timeout: 30                 # High alerts (30 seconds)
-  medium_alert_timeout: 15               # Medium alerts (15 seconds)
-  low_alert_timeout: 10                  # Low alerts (10 seconds)
+  # Priority-based Timeouts - FIXED: Longer timeouts
+  critical_alert_timeout: 120           # FIXED: Increase to 2 minutes
+  high_alert_timeout: 60                # FIXED: Increase to 1 minute
+  medium_alert_timeout: 30
+  low_alert_timeout: 15
   
-  # Content Settings
-  include_rule_name: true                # Show detection rule name
-  include_mitre_info: true               # Show MITRE ATT&CK info
-  include_risk_score: true               # Show risk score
-  include_event_details: true            # Show related event details
-  max_description_length: 200            # Truncate long descriptions
+  # Content Settings - FIXED: Minimal content
+  include_rule_name: true
+  include_mitre_info: false             # FIXED: Disable to reduce complexity
+  include_risk_score: true
+  include_event_details: false          # FIXED: Disable to reduce noise
+  max_description_length: 100           # FIXED: Reduce from 200 to 100
   
-  # Advanced Features
-  group_similar_alerts: true             # Group similar alerts together
-  escalation_enabled: false              # Escalate repeated critical alerts
-  integration_mode: "standalone"         # standalone, siem_integrated, custom
+  # Advanced Features - FIXED: Simplified
+  group_similar_alerts: true
+  escalation_enabled: false
+  integration_mode: "standalone"
   
   # Fallback Options
-  use_messagebox_fallback: false         # Use MessageBox if toast fails
-  log_all_alerts: true                   # Always log alerts to file
-  send_to_syslog: false                  # Send alerts to Windows Event Log
+  use_messagebox_fallback: true         # FIXED: Enable fallback
+  log_all_alerts: true
+  send_to_syslog: false
 
 # ============================================================================
-# DETECTION RULE PRIORITIES (cho Security Notifications)
+# DETECTION RULE PRIORITIES - FIXED: Minimal set
 # ============================================================================  
 rule_priorities:
-  # Critical Rules (always show, longest timeout)
+  # Critical Rules (always show, longest timeout) - FIXED: Reduced set
   critical_rules:
     - "Mimikatz Credential Dumping"
-    - "Mass File Encryption Detection" 
     - "Ransomware Activity"
-    - "Kernel Driver Loading"
     - "System File Modification"
     
-  # High Priority Rules  
+  # High Priority Rules - FIXED: Essential only
   high_priority_rules:
     - "Suspicious PowerShell Encoded"
-    - "Linux Reverse Shell Detection"
     - "Code Injection Detected"
     - "Privilege Escalation"
-    - "Remote Admin Tools"
     
-  # Medium Priority Rules
-  medium_priority_rules:
-    - "Registry Run Key Persistence"
-    - "Suspicious Download Activity"
-    - "Unusual Network Connection"
-    - "File Hash Mismatch"
+  # Medium Priority Rules - FIXED: Disabled (not shown)
+  medium_priority_rules: []
     
-  # Low Priority Rules (optional notifications)
-  low_priority_rules:
-    - "Policy Violation"
-    - "Unusual File Access"
-    - "Non-standard Port Usage"
+  # Low Priority Rules - FIXED: Disabled (not shown)
+  low_priority_rules: []
 
 # ============================================================================
-# MITRE ATT&CK INTEGRATION
+# MITRE ATT&CK INTEGRATION - FIXED: Simplified
 # ============================================================================
 mitre_integration:
-  enabled: true                          # Show MITRE ATT&CK info in notifications
-  show_tactic: true                      # Show tactic (e.g., "Defense Evasion")
-  show_technique: true                   # Show technique (e.g., "T1055")
-  show_description: false                # Show technique description (verbose)
+  enabled: false                        # FIXED: Disable to reduce complexity
+  show_tactic: false
+  show_technique: false
+  show_description: false
   
-  # Priority by MITRE Tactic
+  # Priority by MITRE Tactic - FIXED: Minimal set
   high_priority_tactics:
-    - "Initial Access"
     - "Execution" 
-    - "Privilege Escalation"
-    - "Defense Evasion"
-    - "Credential Access"
-    - "Lateral Movement"
     - "Impact"
     
-  medium_priority_tactics:
-    - "Persistence"
-    - "Discovery"
-    - "Collection"
-    - "Command and Control"
-    - "Exfiltration"
+  medium_priority_tactics: []
 
 # ============================================================================
-# THREAT INTELLIGENCE INTEGRATION
+# THREAT INTELLIGENCE INTEGRATION - FIXED: Disabled
 # ============================================================================
 threat_intel_notifications:
-  enabled: true                          # Show threat intel matches
-  show_ioc_matches: true                 # Show IoC matches (hash, IP, domain)
-  show_threat_actor: false               # Show attributed threat actor
-  confidence_threshold: 0.7              # Minimum confidence for notification
+  enabled: false                        # FIXED: Disable to reduce network calls
+  show_ioc_matches: false
+  show_threat_actor: false
+  confidence_threshold: 0.9             # FIXED: Increase threshold
   
-  # IoC Type Priorities
+  # IoC Type Priorities - FIXED: Critical only
   critical_ioc_types:
     - "known_malware_hash"
-    - "c2_server_ip"
     - "ransomware_extension"
     
-  high_ioc_types:
-    - "suspicious_domain"
-    - "malicious_ip" 
-    - "exploit_signature"
+  high_ioc_types: []

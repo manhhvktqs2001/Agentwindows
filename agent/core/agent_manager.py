@@ -1,6 +1,7 @@
 # agent/core/agent_manager.py
 """
 Agent Manager - Core agent management and coordination
+Fixed to disable pending alerts until server endpoints are ready
 """
 
 import asyncio
@@ -47,6 +48,9 @@ class AgentManager:
         
         # Configuration
         self.config = self.config_manager.get_config()
+        
+        # Alert system settings
+        self.alert_endpoints_available = False  # FIXED: Track server endpoint availability
         
     async def initialize(self):
         """Initialize agent manager and components"""
@@ -100,16 +104,20 @@ class AgentManager:
                 await self.collectors['registry'].initialize()
                 self.logger.info("✅ Registry collector initialized")
             
-            # Authentication collector
+            # Authentication collector - FIXED: Optimized
             if collection_config.get('collect_authentication', True):
                 self.collectors['authentication'] = AuthenticationCollector(self.config_manager)
                 await self.collectors['authentication'].initialize()
-                self.logger.info("✅ Authentication collector initialized")
+                # FIXED: Increase polling interval for slow collectors
+                self.collectors['authentication'].polling_interval = 15  # Increase from 5 to 15 seconds
+                self.logger.info("✅ Authentication collector initialized (optimized)")
             
-            # System collector
+            # System collector - FIXED: Optimized
             self.collectors['system'] = SystemCollector(self.config_manager)
             await self.collectors['system'].initialize()
-            self.logger.info("✅ System collector initialized")
+            # FIXED: Increase polling interval for slow collectors
+            self.collectors['system'].polling_interval = 15  # Increase from 5 to 15 seconds
+            self.logger.info("✅ System collector initialized (optimized)")
             
             self.logger.info(f"✅ {len(self.collectors)} collectors initialized")
             
@@ -124,6 +132,9 @@ class AgentManager:
             
             # Register with server
             await self._register_with_server()
+            
+            # Check if alert endpoints are available
+            await self._check_alert_endpoints_availability()
             
             # Start event processor
             await self.event_processor.start()
@@ -216,6 +227,27 @@ class AgentManager:
             self.logger.error(f"❌ Registration failed: {e}")
             raise
     
+    async def _check_alert_endpoints_availability(self):
+        """Check if server has alert endpoints available - FIXED: New method"""
+        try:
+            if not self.agent_id or not self.communication:
+                return
+            
+            # Try to call pending alerts endpoint to test availability
+            test_response = await self.communication.get_pending_alerts(self.agent_id)
+            
+            if test_response is not None:
+                self.alert_endpoints_available = True
+                self.logger.info("✅ Alert endpoints available on server")
+            else:
+                self.alert_endpoints_available = False
+                self.logger.info("⚠️ Alert endpoints not available on server (will be disabled)")
+                
+        except Exception as e:
+            self.alert_endpoints_available = False
+            self.logger.info("⚠️ Alert endpoints not available on server (will be disabled)")
+            self.logger.debug(f"Alert endpoint test failed: {e}")
+    
     def _get_system_info(self) -> Dict[str, str]:
         """Get system information for registration"""
         try:
@@ -299,14 +331,24 @@ class AgentManager:
             self.logger.error(f"❌ Failed to stop collectors: {e}")
     
     async def _heartbeat_loop(self):
-        """Heartbeat loop with alert checking"""
+        """Heartbeat loop with conditional alert checking - FIXED"""
         while self.is_monitoring and self.is_registered:
             try:
                 # Send heartbeat
                 await self._send_heartbeat()
                 
-                # Check for pending alerts
-                await self._check_pending_alerts()
+                # FIXED: Only check for pending alerts if endpoints are available
+                if self.alert_endpoints_available:
+                    await self._check_pending_alerts()
+                else:
+                    # Log debug message every 10 heartbeats to avoid spam
+                    if hasattr(self, '_heartbeat_count'):
+                        self._heartbeat_count += 1
+                    else:
+                        self._heartbeat_count = 1
+                    
+                    if self._heartbeat_count % 10 == 0:
+                        self.logger.debug("📋 Alert endpoints not available, skipping alert check")
                 
                 # Wait for next heartbeat
                 await asyncio.sleep(self.config.get('agent', {}).get('heartbeat_interval', 30))
@@ -316,9 +358,12 @@ class AgentManager:
                 await asyncio.sleep(10)  # Wait before retry
 
     async def _check_pending_alerts(self):
-        """Check for pending alerts from server - NEW"""
+        """Check for pending alerts from server - FIXED: Enhanced error handling"""
         try:
             if not self.agent_id or not self.communication:
+                return
+            
+            if not self.alert_endpoints_available:
                 return
             
             # Get pending alerts
@@ -343,7 +388,13 @@ class AgentManager:
                         self.logger.error(f"Failed to process alert: {e}")
                         
         except Exception as e:
-            self.logger.error(f"❌ Alert check failed: {e}")
+            # FIXED: Don't log error for missing endpoints - disable endpoints
+            if "Server endpoint not found" in str(e) or "404" in str(e):
+                if self.alert_endpoints_available:
+                    self.alert_endpoints_available = False
+                    self.logger.info("⚠️ Alert endpoints no longer available, disabling alert checks")
+            else:
+                self.logger.debug(f"Alert check failed: {e}")
     
     async def _send_heartbeat(self, status: str = 'Active'):
         """Send heartbeat to server"""
@@ -377,34 +428,41 @@ class AgentManager:
             self.logger.error(f"❌ Heartbeat send error: {e}")
     
     def _get_performance_metrics(self) -> Dict[str, float]:
-        """Get current system performance metrics"""
+        """Get current system performance metrics - FIXED: Optimized"""
         try:
-            # CPU usage
-            cpu_usage = psutil.cpu_percent(interval=1)
+            # FIXED: Use cached values to improve performance
+            current_time = time.time()
             
-            # Memory usage
-            memory = psutil.virtual_memory()
-            memory_usage = memory.percent
-            
-            # Disk usage
-            disk = psutil.disk_usage('/')
-            disk_usage = disk.percent
-            
-            # Network latency (simple ping simulation)
-            network_latency = 0
-            try:
-                import time
-                start_time = time.time()
-                # This is a placeholder - in real implementation, ping the server
-                network_latency = int((time.time() - start_time) * 1000)
-            except:
-                network_latency = 0
+            if (not hasattr(self, '_last_metrics_time') or 
+                current_time - self._last_metrics_time > 30):  # Cache for 30 seconds
+                
+                # CPU usage with minimal interval
+                self._cached_cpu = psutil.cpu_percent(interval=0.1)  # FIXED: Reduce from 1s to 0.1s
+                
+                # Memory usage
+                memory = psutil.virtual_memory()
+                self._cached_memory = memory.percent
+                
+                # Disk usage
+                disk = psutil.disk_usage('/')
+                self._cached_disk = disk.percent
+                
+                # Network latency (simple simulation)
+                self._cached_latency = 0
+                try:
+                    start_time = time.time()
+                    # This is a placeholder - in real implementation, ping the server
+                    self._cached_latency = int((time.time() - start_time) * 1000)
+                except:
+                    self._cached_latency = 0
+                
+                self._last_metrics_time = current_time
             
             return {
-                'cpu_usage': cpu_usage,
-                'memory_usage': memory_usage,
-                'disk_usage': disk_usage,
-                'network_latency': network_latency
+                'cpu_usage': getattr(self, '_cached_cpu', 0.0),
+                'memory_usage': getattr(self, '_cached_memory', 0.0),
+                'disk_usage': getattr(self, '_cached_disk', 0.0),
+                'network_latency': getattr(self, '_cached_latency', 0)
             }
             
         except Exception as e:
@@ -426,7 +484,8 @@ class AgentManager:
                 'last_heartbeat': self.last_heartbeat.isoformat() if self.last_heartbeat else None,
                 'uptime': (datetime.now() - self.start_time).total_seconds(),
                 'collectors_running': len([c for c in self.collectors.values() if c.is_running]),
-                'total_collectors': len(self.collectors)
+                'total_collectors': len(self.collectors),
+                'alert_endpoints_available': self.alert_endpoints_available  # FIXED: Add status
             }
             
             self.logger.debug(f"💊 Health check: {health_status}")
@@ -445,5 +504,6 @@ class AgentManager:
             'last_heartbeat': self.last_heartbeat.isoformat() if self.last_heartbeat else None,
             'start_time': self.start_time.isoformat(),
             'collectors': {name: collector.is_running for name, collector in self.collectors.items()},
-            'performance': self._get_performance_metrics()
+            'performance': self._get_performance_metrics(),
+            'alert_endpoints_available': self.alert_endpoints_available  # FIXED: Add status
         }
