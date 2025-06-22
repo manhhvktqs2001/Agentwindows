@@ -8,6 +8,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
+import uuid
 
 class ConfigManager:
     """Manage agent configuration"""
@@ -43,7 +44,7 @@ class ConfigManager:
             # Load config from file or use defaults
             if self.config_file and self.config_file.exists():
                 self.config = self._load_from_file(self.config_file)
-                self.logger.info(f"✅ Configuration loaded from: {self.config_file}")
+                self.logger.info(f"Configuration loaded from: {self.config_file}")
             else:
                 self.config = self.default_config.copy()
                 self.logger.info("✅ Using default configuration")
@@ -52,8 +53,8 @@ class ConfigManager:
             self._validate_config()
             
         except Exception as e:
-            self.logger.error(f"❌ Configuration load failed: {e}")
-            self.config = self.default_config.copy()
+            self.logger.error(f"Failed to load configuration: {e}")
+            raise
     
     def _load_from_file(self, file_path: Path) -> Dict[str, Any]:
         """Load configuration from YAML or JSON file"""
@@ -152,58 +153,34 @@ class ConfigManager:
         }
     
     def _validate_config(self):
-        """Validate configuration values"""
+        """Validate configuration structure"""
         try:
-            # Validate required sections
+            # Check required sections
             required_sections = ['agent', 'server', 'collection']
             for section in required_sections:
                 if section not in self.config:
-                    self.logger.warning(f"⚠️ Missing config section: {section}")
-                    self.config[section] = self.default_config.get(section, {})
+                    raise ValueError(f"Missing required configuration section: {section}")
+            
+            # Validate agent configuration
+            agent_config = self.config.get('agent', {})
+            if not agent_config.get('agent_id'):
+                self.config['agent']['agent_id'] = str(uuid.uuid4())
             
             # Validate server configuration
             server_config = self.config.get('server', {})
-            if not server_config.get('host'):
-                self.logger.warning("⚠️ No server host configured, using default")
-                self.config['server']['host'] = self.default_config['server']['host']
+            if not server_config.get('base_url'):
+                raise ValueError("Missing server base_url in configuration")
             
-            if not server_config.get('auth_token'):
-                self.logger.warning("⚠️ No auth token configured, using default")
-                self.config['server']['auth_token'] = self.default_config['server']['auth_token']
+            # Validate collection configuration
+            collection_config = self.config.get('collection', {})
+            if not collection_config.get('polling_interval'):
+                collection_config['polling_interval'] = 10
             
-            # Validate numeric values
-            self._validate_numeric_config('agent.heartbeat_interval', 10, 300)
-            self._validate_numeric_config('agent.event_batch_size', 1, 1000)
-            self._validate_numeric_config('server.timeout', 5, 120)
-            self._validate_numeric_config('performance.max_cpu_usage', 1, 100)
-            self._validate_numeric_config('performance.max_memory_usage', 64, 2048)
-            
-            self.logger.info("✅ Configuration validated")
+            self.logger.info("Configuration validated")
             
         except Exception as e:
-            self.logger.error(f"❌ Configuration validation failed: {e}")
-    
-    def _validate_numeric_config(self, key_path: str, min_val: int, max_val: int):
-        """Validate numeric configuration value"""
-        try:
-            keys = key_path.split('.')
-            config_section = self.config
-            
-            for key in keys[:-1]:
-                config_section = config_section.get(key, {})
-            
-            value = config_section.get(keys[-1])
-            if value is not None:
-                if not isinstance(value, (int, float)) or value < min_val or value > max_val:
-                    self.logger.warning(f"⚠️ Invalid {key_path}: {value}, using default")
-                    # Reset to default value
-                    default_section = self.default_config
-                    for key in keys[:-1]:
-                        default_section = default_section.get(key, {})
-                    config_section[keys[-1]] = default_section.get(keys[-1])
-                        
-        except Exception as e:
-            self.logger.error(f"Error validating {key_path}: {e}")
+            self.logger.error(f"Configuration validation failed: {e}")
+            raise
     
     def get_config(self) -> Dict[str, Any]:
         """Get complete configuration"""

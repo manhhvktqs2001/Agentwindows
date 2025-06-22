@@ -9,18 +9,16 @@ import logging
 import platform
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Any
 import threading
 import json
+import winreg
+import os
+from pathlib import Path
+import subprocess
+from collections import defaultdict
 
 # Windows-specific imports with graceful fallback
-try:
-    import winreg
-    WINREG_AVAILABLE = True
-except ImportError:
-    WINREG_AVAILABLE = False
-    winreg = None
-
 try:
     import win32api
     import win32con
@@ -37,11 +35,13 @@ try:
     WMI_AVAILABLE = True
 except ImportError:
     WMI_AVAILABLE = False
+    wmi = None
 
-from .base_collector import BaseCollector
-from ..schemas.events import EventData
+from agent.collectors.base_collector import BaseCollector
+from agent.schemas.events import EventData, Severity, EventAction
+from agent.utils.registry_utils import RegistryUtils
 
-WINDOWS_AVAILABLE = WINREG_AVAILABLE and WIN32_AVAILABLE
+WINDOWS_AVAILABLE = WIN32_AVAILABLE
 
 class RegistryMonitor:
     """Windows Registry monitoring - graceful fallback for missing APIs"""
@@ -241,322 +241,633 @@ class RegistryMonitor:
         return key_names.get(root_key, f"UNKNOWN_{root_key}")
 
 class RegistryCollector(BaseCollector):
-    """Registry events collector for Windows - with graceful fallback"""
+    """Enhanced Registry Activity Collector"""
     
     def __init__(self, config_manager):
         super().__init__(config_manager, "RegistryCollector")
         
-        # Platform check
-        self.is_windows = platform.system().lower() == 'windows'
+        # Enhanced configuration
+        self.polling_interval = 5  # ENHANCED: Reduced from 15 to 5 seconds for continuous monitoring
+        self.max_keys_per_batch = 50  # ENHANCED: Increased batch size
+        self.track_registry_changes = True
+        self.monitor_suspicious_keys = True
         
-        # Registry monitoring
-        self.registry_monitor = None
-        self.event_loop = None
+        # Registry tracking
+        self.known_keys = set()
+        self.registry_values = {}
+        self.suspicious_keys = set()
+        self.registry_changes = defaultdict(list)
         
-        # Feature availability
-        self.monitoring_available = WINDOWS_AVAILABLE and self.is_windows
-        
-        # Configuration
-        self.monitor_critical_keys = True
+        # Enhanced monitoring
         self.monitor_startup_keys = True
+        self.monitor_persistence_keys = True
         self.monitor_security_keys = True
-        self.monitor_network_keys = True
+        self.monitor_software_keys = True
+        self.monitor_system_keys = True
         
-        # FIX: Initialize monitored_keys attribute
-        self.monitored_keys = []
-        if WINDOWS_AVAILABLE:
-            self.monitored_keys = [
-                r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
-                r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows Defender\Real-Time Protection",
-                r"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System",
-                r"HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services",
-            ]
+        # Suspicious registry patterns
+        self.suspicious_key_patterns = [
+            'Run', 'RunOnce', 'RunServices', 'RunServicesOnce',
+            'Winlogon', 'Shell', 'Explorer', 'Policies',
+            'Security', 'SAM', 'System', 'Software'
+        ]
         
-        # Known critical registry values (only if APIs available)
-        self.critical_values = {}
-        if WINDOWS_AVAILABLE:
-            self.critical_values = {
-                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run": "startup_programs",
-                r"SOFTWARE\Microsoft\Windows Defender\Real-Time Protection": "defender_settings",
-                r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System": "uac_settings",
-            }
+        self.suspicious_value_patterns = [
+            'cmd.exe', 'powershell.exe', 'wscript.exe', 'cscript.exe',
+            'rundll32.exe', 'regsvr32.exe', 'mshta.exe', 'certutil.exe',
+            'bitsadmin.exe', 'wmic.exe', 'schtasks.exe', 'at.exe'
+        ]
         
-        # Value tracking for change detection
-        self.previous_values = {}
+        # Registry monitoring paths
+        self.monitor_paths = [
+            (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run"),
+            (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\RunOnce"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\RunOnce"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Policies"),
+            (winreg.HKEY_LOCAL_MACHINE, r"System\CurrentControlSet\Services"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows NT\CurrentVersion\Winlogon"),
+            (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Policies"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Explorer"),
+            (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer")
+        ]
         
-        # Cache for registry changes
-        self.registry_cache = {}
-        self.registry_timestamps = {}
-        
-    async def _collector_specific_init(self):
-        """Initialize Windows registry collector"""
+        self.logger.info("🔧 Enhanced Registry Collector initialized")
+    
+    async def initialize(self):
+        """Initialize registry collector with enhanced monitoring"""
         try:
-            if not self.is_windows:
-                self.logger.warning("⚠️ Registry collector only supports Windows")
-                return
+            # Get initial registry state
+            await self._scan_all_registry()
             
-            if not self.monitoring_available:
-                self.logger.warning("⚠️ Registry monitoring disabled - Windows API modules not available")
-                self.logger.info("💡 To enable registry monitoring, install: pip install pywin32 wmi")
-                return
+            # Set up enhanced monitoring
+            self._setup_registry_monitoring()
             
-            # Get current event loop for async operations
-            self.event_loop = asyncio.get_event_loop()
-            
-            # Initialize registry monitor
-            self.registry_monitor = RegistryMonitor(self)
-            
-            # Read initial registry state
-            await self._read_initial_state()
-            
-            self.logger.info("✅ Registry collector initialized")
+            self.logger.info(f"✅ Enhanced Registry Collector initialized - Monitoring {len(self.known_keys)} keys")
             
         except Exception as e:
             self.logger.error(f"❌ Registry collector initialization failed: {e}")
-            # Don't raise exception - allow agent to continue without registry monitoring
-            self.monitoring_available = False
+            raise
     
-    async def start(self):
-        """Start registry monitoring"""
+    def _setup_registry_monitoring(self):
+        """Set up enhanced registry monitoring"""
         try:
-            await super().start()
+            # Set up registry event callbacks
+            self._setup_registry_callbacks()
             
-            if self.monitoring_available and self.registry_monitor:
-                self.registry_monitor.start_monitoring()
-                self.logger.info("✅ Registry monitoring started")
-            else:
-                self.logger.info("📋 Registry monitoring disabled - Windows APIs not available")
+            # Initialize registry utilities
+            self.registry_utils = RegistryUtils()
             
         except Exception as e:
-            self.logger.error(f"❌ Registry collector start failed: {e}")
-            # Don't raise - continue without registry monitoring
+            self.logger.error(f"Registry monitoring setup failed: {e}")
     
-    async def stop(self):
-        """Stop registry monitoring"""
+    def _setup_registry_callbacks(self):
+        """Set up registry event callbacks for real-time monitoring"""
         try:
-            if self.monitoring_available and self.registry_monitor:
-                self.registry_monitor.stop_monitoring()
+            # This would integrate with Windows API for real-time registry events
+            # For now, we use polling with enhanced frequency
+            pass
+        except Exception as e:
+            self.logger.debug(f"Registry callbacks setup failed: {e}")
+    
+    async def collect_data(self) -> List[EventData]:
+        """Collect registry data with enhanced monitoring"""
+        try:
+            events = []
             
-            await super().stop()
+            # ENHANCED: Collect new registry keys
+            new_keys = await self._detect_new_registry_keys()
+            events.extend(new_keys)
+            
+            # ENHANCED: Collect modified registry keys
+            modified_keys = await self._detect_modified_registry_keys()
+            events.extend(modified_keys)
+            
+            # ENHANCED: Collect deleted registry keys
+            deleted_keys = await self._detect_deleted_registry_keys()
+            events.extend(deleted_keys)
+            
+            # ENHANCED: Monitor suspicious registry keys
+            suspicious_events = await self._monitor_suspicious_registry_keys()
+            events.extend(suspicious_events)
+            
+            # ENHANCED: Monitor registry value changes
+            value_events = await self._monitor_registry_values()
+            events.extend(value_events)
+            
+            # ENHANCED: Monitor startup keys
+            startup_events = await self._monitor_startup_keys()
+            events.extend(startup_events)
+            
+            if events:
+                self.logger.debug(f"📊 Collected {len(events)} registry events")
+            
+            return events
             
         except Exception as e:
-            self.logger.error(f"❌ Registry collector stop error: {e}")
-    
-    async def _collect_data(self):
-        """Monitor registry for changes"""
-        try:
-            current_time = datetime.now()
-            
-            # Monitor critical registry keys for changes
-            for key_path in self.monitored_keys:
-                try:
-                    current_value = self._get_registry_value(key_path)
-                    key_hash = hash(str(current_value))
-                    
-                    if key_path not in self.registry_cache:
-                        # First time seeing this key
-                        self.registry_cache[key_path] = key_hash
-                        self.logger.debug(f"📝 Initial registry key: {key_path}")
-                    elif self.registry_cache[key_path] != key_hash:
-                        # Registry key changed
-                        event_data = EventData(
-                            event_type='Registry',
-                            event_action='Modify',
-                            event_timestamp=current_time,
-                            severity='Medium',
-                            description=f'Registry key modified: {key_path}',
-                            registry_key=key_path,
-                            registry_value_data=str(current_value),
-                            registry_operation='Modify',
-                            raw_event_data=json.dumps({
-                                'key_path': key_path,
-                                'new_value': current_value,
-                                'action': 'modified'
-                            })
-                        )
-                        await self.add_event(event_data)
-                        self.registry_cache[key_path] = key_hash
-                        self.logger.debug(f"🔧 Registry key changed: {key_path}")
-                        
-                except Exception as e:
-                    self.logger.debug(f"⚠️ Cannot monitor registry key {key_path}: {e}")
-                    continue
-            
-            # Clean up old cache entries (older than 1 hour)
-            cutoff_time = current_time - timedelta(hours=1)
-            old_keys = [key for key, time in self.registry_timestamps.items() if time < cutoff_time]
-            for key in old_keys:
-                if key in self.registry_cache:
-                    del self.registry_cache[key]
-                if key in self.registry_timestamps:
-                    del self.registry_timestamps[key]
-            
-            return []
-            
-        except Exception as e:
-            self.logger.error(f"❌ Registry collection error: {e}")
+            self.logger.error(f"❌ Registry data collection failed: {e}")
             return []
     
-    def _get_registry_value(self, key_path):
-        """Get registry value for a given key path"""
+    async def _scan_all_registry(self):
+        """Scan all registry keys in monitored paths for baseline"""
         try:
-            if not WINDOWS_AVAILABLE:
-                return None
+            for hkey, subkey in self.monitor_paths:
+                await self._scan_registry_key(hkey, subkey)
             
-            # Parse key path
-            if key_path.startswith("HKEY_LOCAL_MACHINE\\"):
-                root_key = winreg.HKEY_LOCAL_MACHINE
-                subkey = key_path[19:]  # Remove "HKEY_LOCAL_MACHINE\\"
-            elif key_path.startswith("HKEY_CURRENT_USER\\"):
-                root_key = winreg.HKEY_CURRENT_USER
-                subkey = key_path[18:]  # Remove "HKEY_CURRENT_USER\\"
-            else:
-                # Assume HKEY_LOCAL_MACHINE for relative paths
-                root_key = winreg.HKEY_LOCAL_MACHINE
-                subkey = key_path
+            self.logger.info(f"📋 Baseline scan: {len(self.known_keys)} registry keys")
             
-            # Open registry key
-            with winreg.OpenKey(root_key, subkey, 0, winreg.KEY_READ) as key:
-                # Read default value
-                try:
-                    value, _ = winreg.QueryValueEx(key, "")
-                    return str(value)
-                except FileNotFoundError:
-                    # No default value, return empty string
-                    return ""
-                    
         except Exception as e:
-            self.logger.debug(f"Error reading registry key {key_path}: {e}")
-            return None
+            self.logger.error(f"Registry scan failed: {e}")
     
-    def _read_key_values(self, key_path):
-        """Read values from a registry key"""
-        if not WINDOWS_AVAILABLE:
-            return None
-            
+    async def _scan_registry_key(self, hkey, subkey):
+        """Scan registry key for values"""
         try:
-            values = {}
-            
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path, 0, winreg.KEY_READ) as key:
+            with winreg.OpenKey(hkey, subkey, 0, winreg.KEY_READ) as key:
                 i = 0
                 while True:
                     try:
-                        value_name, value_data, value_type = winreg.EnumValue(key, i)
-                        values[value_name] = {
-                            'data': value_data,
-                            'type': value_type
+                        name, value, type_ = winreg.EnumValue(key, i)
+                        key_path = f"{self._get_hkey_name(hkey)}\\{subkey}"
+                        key_identifier = f"{key_path}\\{name}"
+                        
+                        self.known_keys.add(key_identifier)
+                        self.registry_values[key_identifier] = {
+                            'value': value,
+                            'type': type_,
+                            'timestamp': time.time()
                         }
+                        
+                        # Check if suspicious
+                        if self._is_suspicious_registry_key(key_path, name, value):
+                            self.suspicious_keys.add(key_identifier)
+                        
                         i += 1
                     except WindowsError:
                         break
+                        
+        except Exception as e:
+            self.logger.debug(f"Registry key scan failed for {subkey}: {e}")
+    
+    async def _detect_new_registry_keys(self) -> List[EventData]:
+        """Detect newly created registry keys"""
+        try:
+            events = []
+            current_keys = set()
             
-            return values
+            for hkey, subkey in self.monitor_paths:
+                await self._scan_registry_key_for_new_values(hkey, subkey, current_keys, events)
+            
+            # Update known keys
+            self.known_keys = current_keys
+            
+            return events
             
         except Exception as e:
-            self.logger.debug(f"Failed to read registry key {key_path}: {e}")
+            self.logger.error(f"New registry key detection failed: {e}")
+            return []
+    
+    async def _scan_registry_key_for_new_values(self, hkey, subkey, current_keys: set, events: List[EventData]):
+        """Scan registry key for new values"""
+        try:
+            with winreg.OpenKey(hkey, subkey, 0, winreg.KEY_READ) as key:
+                i = 0
+                while True:
+                    try:
+                        name, value, type_ = winreg.EnumValue(key, i)
+                        key_path = f"{self._get_hkey_name(hkey)}\\{subkey}"
+                        key_identifier = f"{key_path}\\{name}"
+                        
+                        current_keys.add(key_identifier)
+                        
+                        # Check if this is a new key
+                        if key_identifier not in self.known_keys:
+                            # New registry key detected
+                            event = self._create_registry_event(
+                                action=EventAction.CREATE,
+                                registry_key=key_path,
+                                registry_name=name,
+                                registry_value=str(value),
+                                registry_type=type_,
+                                severity=self._determine_registry_severity(key_path, name, value)
+                            )
+                            events.append(event)
+                            
+                            # Update tracking
+                            self.registry_values[key_identifier] = {
+                                'value': value,
+                                'type': type_,
+                                'timestamp': time.time()
+                            }
+                            
+                            # Check if suspicious
+                            if self._is_suspicious_registry_key(key_path, name, value):
+                                self.suspicious_keys.add(key_identifier)
+                                self.logger.warning(f"🚨 Suspicious registry key detected: {key_identifier}")
+                        
+                        i += 1
+                    except WindowsError:
+                        break
+                        
+        except Exception as e:
+            self.logger.debug(f"New registry key scan failed for {subkey}: {e}")
+    
+    async def _detect_modified_registry_keys(self) -> List[EventData]:
+        """Detect modified registry keys"""
+        try:
+            events = []
+            
+            for key_identifier in list(self.known_keys):
+                try:
+                    # Parse key identifier
+                    parts = key_identifier.split('\\')
+                    if len(parts) < 3:
+                        continue
+                    
+                    hkey_name = parts[0]
+                    subkey = '\\'.join(parts[1:-1])
+                    name = parts[-1]
+                    
+                    hkey = self._get_hkey_from_name(hkey_name)
+                    if hkey is None:
+                        continue
+                    
+                    # Check current value
+                    with winreg.OpenKey(hkey, subkey, 0, winreg.KEY_READ) as key:
+                        try:
+                            current_value, current_type = winreg.QueryValueEx(key, name)
+                            original_data = self.registry_values.get(key_identifier)
+                            
+                            if original_data and (current_value != original_data['value'] or current_type != original_data['type']):
+                                # Registry key modified
+                                event = self._create_registry_event(
+                                    action=EventAction.MODIFY,
+                                    registry_key=f"{hkey_name}\\{subkey}",
+                                    registry_name=name,
+                                    registry_value=str(current_value),
+                                    registry_type=current_type,
+                                    severity=Severity.MEDIUM,
+                                    additional_data={
+                                        'original_value': str(original_data['value']),
+                                        'new_value': str(current_value),
+                                        'original_type': original_data['type'],
+                                        'new_type': current_type
+                                    }
+                                )
+                                events.append(event)
+                                
+                                # Update tracking
+                                self.registry_values[key_identifier] = {
+                                    'value': current_value,
+                                    'type': current_type,
+                                    'timestamp': time.time()
+                                }
+                                
+                                # Check if suspicious
+                                if self._is_suspicious_registry_key(f"{hkey_name}\\{subkey}", name, current_value):
+                                    self.suspicious_keys.add(key_identifier)
+                        
+                        except WindowsError:
+                            # Key might have been deleted
+                            continue
+                
+                except Exception:
+                    continue
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Modified registry key detection failed: {e}")
+            return []
+    
+    async def _detect_deleted_registry_keys(self) -> List[EventData]:
+        """Detect deleted registry keys"""
+        try:
+            events = []
+            
+            for key_identifier in list(self.known_keys):
+                try:
+                    # Parse key identifier
+                    parts = key_identifier.split('\\')
+                    if len(parts) < 3:
+                        continue
+                    
+                    hkey_name = parts[0]
+                    subkey = '\\'.join(parts[1:-1])
+                    name = parts[-1]
+                    
+                    hkey = self._get_hkey_from_name(hkey_name)
+                    if hkey is None:
+                        continue
+                    
+                    # Check if key still exists
+                    with winreg.OpenKey(hkey, subkey, 0, winreg.KEY_READ) as key:
+                        try:
+                            winreg.QueryValueEx(key, name)
+                        except WindowsError:
+                            # Key deleted
+                            event = self._create_registry_event(
+                                action=EventAction.DELETE,
+                                registry_key=f"{hkey_name}\\{subkey}",
+                                registry_name=name,
+                                registry_value="",
+                                registry_type=0,
+                                severity=Severity.LOW
+                            )
+                            events.append(event)
+                            
+                            # Clean up tracking
+                            self.registry_values.pop(key_identifier, None)
+                            self.suspicious_keys.discard(key_identifier)
+                
+                except Exception:
+                    continue
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Deleted registry key detection failed: {e}")
+            return []
+    
+    async def _monitor_suspicious_registry_keys(self) -> List[EventData]:
+        """Monitor activities of suspicious registry keys"""
+        try:
+            events = []
+            
+            for key_identifier in list(self.suspicious_keys):
+                try:
+                    # Parse key identifier
+                    parts = key_identifier.split('\\')
+                    if len(parts) < 3:
+                        continue
+                    
+                    hkey_name = parts[0]
+                    subkey = '\\'.join(parts[1:-1])
+                    name = parts[-1]
+                    
+                    hkey = self._get_hkey_from_name(hkey_name)
+                    if hkey is None:
+                        continue
+                    
+                    # Check if key still exists
+                    with winreg.OpenKey(hkey, subkey, 0, winreg.KEY_READ) as key:
+                        try:
+                            current_value, current_type = winreg.QueryValueEx(key, name)
+                            
+                            # Monitor suspicious activities
+                            event = await self._check_suspicious_registry_activity(
+                                f"{hkey_name}\\{subkey}", name, current_value
+                            )
+                            if event:
+                                events.append(event)
+                        
+                        except WindowsError:
+                            self.suspicious_keys.discard(key_identifier)
+                            continue
+                
+                except Exception:
+                    continue
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Suspicious registry key monitoring failed: {e}")
+            return []
+    
+    async def _check_suspicious_registry_activity(self, key_path: str, name: str, value: Any) -> Optional[EventData]:
+        """Check for suspicious activities in a registry key"""
+        try:
+            value_str = str(value).lower()
+            
+            # Check for suspicious patterns in value
+            for pattern in self.suspicious_value_patterns:
+                if pattern.lower() in value_str:
+                    return self._create_registry_event(
+                        action=EventAction.SUSPICIOUS_ACTIVITY,
+                        registry_key=key_path,
+                        registry_name=name,
+                        registry_value=str(value),
+                        registry_type=1,  # REG_SZ
+                        severity=Severity.HIGH,
+                        additional_data={
+                            'suspicious_pattern': pattern,
+                            'suspicious_activity': 'suspicious_value'
+                        }
+                    )
+            
+            # Check for suspicious key patterns
+            for pattern in self.suspicious_key_patterns:
+                if pattern.lower() in key_path.lower():
+                    return self._create_registry_event(
+                        action=EventAction.SUSPICIOUS_ACTIVITY,
+                        registry_key=key_path,
+                        registry_name=name,
+                        registry_value=str(value),
+                        registry_type=1,  # REG_SZ
+                        severity=Severity.MEDIUM,
+                        additional_data={
+                            'suspicious_pattern': pattern,
+                            'suspicious_activity': 'suspicious_key'
+                        }
+                    )
+            
+            return None
+            
+        except Exception as e:
+            self.logger.debug(f"Suspicious registry activity check failed: {e}")
             return None
     
-    def _detect_changes(self, old_values, new_values):
-        """Detect changes between registry value sets"""
-        changes = []
-        
-        # Check for new or modified values
-        for value_name, value_info in new_values.items():
-            if value_name not in old_values:
-                # New value
-                changes.append({
-                    'action': 'Create',
-                    'value_name': value_name,
-                    'new_data': value_info['data']
-                })
-            elif old_values[value_name]['data'] != value_info['data']:
-                # Modified value
-                changes.append({
-                    'action': 'Modify',
-                    'value_name': value_name,
-                    'old_data': old_values[value_name]['data'],
-                    'new_data': value_info['data']
-                })
-        
-        # Check for deleted values
-        for value_name in old_values:
-            if value_name not in new_values:
-                changes.append({
-                    'action': 'Delete',
-                    'value_name': value_name,
-                    'old_data': old_values[value_name]['data']
-                })
-        
-        return changes
-    
-    async def _read_initial_state(self):
-        """Read initial state of critical registry keys"""
+    async def _monitor_registry_values(self) -> List[EventData]:
+        """Monitor registry value changes"""
         try:
-            if not self.monitoring_available:
-                return
-                
-            for key_path in self.critical_values.keys():
-                values = self._read_key_values(key_path)
-                if values is not None:
-                    self.previous_values[key_path] = values
+            events = []
             
-            self.logger.info(f"📊 Initial registry state read for {len(self.previous_values)} keys")
+            # This would require integration with Windows API for real-time registry monitoring
+            # For now, we'll monitor specific high-value keys more frequently
+            
+            high_value_keys = [
+                (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run"),
+                (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run"),
+                (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Policies\System"),
+                (winreg.HKEY_LOCAL_MACHINE, r"System\CurrentControlSet\Services")
+            ]
+            
+            for hkey, subkey in high_value_keys:
+                try:
+                    with winreg.OpenKey(hkey, subkey, 0, winreg.KEY_READ) as key:
+                        i = 0
+                        while True:
+                            try:
+                                name, value, type_ = winreg.EnumValue(key, i)
+                                key_path = f"{self._get_hkey_name(hkey)}\\{subkey}"
+                                
+                                # Check for unusual values
+                                if self._is_unusual_registry_value(value):
+                                    event = self._create_registry_event(
+                                        action=EventAction.REGISTRY_ACCESS,
+                                        registry_key=key_path,
+                                        registry_name=name,
+                                        registry_value=str(value),
+                                        registry_type=type_,
+                                        severity=Severity.MEDIUM,
+                                        additional_data={
+                                            'unusual_value': True,
+                                            'value_length': len(str(value))
+                                        }
+                                    )
+                                    events.append(event)
+                                
+                                i += 1
+                            except WindowsError:
+                                break
+                
+                except Exception as e:
+                    self.logger.debug(f"Registry value monitoring failed for {subkey}: {e}")
+            
+            return events
             
         except Exception as e:
-            self.logger.error(f"❌ Failed to read initial registry state: {e}")
+            self.logger.error(f"Registry value monitoring failed: {e}")
+            return []
     
-    def get_registry_stats(self) -> Dict:
-        """Get registry monitoring statistics"""
-        return {
-            'is_windows': self.is_windows,
-            'windows_api_available': WINDOWS_AVAILABLE,
-            'winreg_available': WINREG_AVAILABLE,
-            'win32_available': WIN32_AVAILABLE,
-            'wmi_available': WMI_AVAILABLE,
-            'monitoring_available': self.monitoring_available,
-            'monitoring_enabled': self.registry_monitor is not None,
-            'monitored_keys_count': len(self.registry_monitor.monitored_keys) if self.registry_monitor else 0,
-            'critical_keys_tracked': len(self.previous_values),
-            'monitor_critical_keys': self.monitor_critical_keys,
-            'monitor_startup_keys': self.monitor_startup_keys,
-            'monitor_security_keys': self.monitor_security_keys,
-            'monitor_network_keys': self.monitor_network_keys
-        }
-    
-    def configure_monitoring(self, **kwargs):
-        """Configure registry monitoring options"""
-        if 'monitor_critical_keys' in kwargs:
-            self.monitor_critical_keys = kwargs['monitor_critical_keys']
-        if 'monitor_startup_keys' in kwargs:
-            self.monitor_startup_keys = kwargs['monitor_startup_keys']
-        if 'monitor_security_keys' in kwargs:
-            self.monitor_security_keys = kwargs['monitor_security_keys']
-        if 'monitor_network_keys' in kwargs:
-            self.monitor_network_keys = kwargs['monitor_network_keys']
-        
-        self.logger.info(f"🔧 Registry monitoring configured: {kwargs}")
-
-    def _get_severity(self, key_path):
-        """Get severity for a registry key"""
-        if not WINDOWS_AVAILABLE:
-            return 'INFO'
+    async def _monitor_startup_keys(self) -> List[EventData]:
+        """Monitor startup registry keys"""
+        try:
+            events = []
             
-        # High severity for critical registry changes
-        if any([
-            'run' in key_path.lower(),
-            'startup' in key_path.lower(),
-            'services' in key_path.lower(),
-            'autorun' in key_path.lower()
-        ]):
-            return 'High'
-        
-        # Medium severity for system registry changes
-        if any([
-            'software' in key_path.lower(),
-            'system' in key_path.lower(),
-            'currentversion' in key_path.lower()
-        ]):
-            return 'Medium'
-        
-        # Default to info
-        return 'Info'
+            startup_keys = [
+                (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run"),
+                (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run"),
+                (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\RunOnce"),
+                (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\RunOnce")
+            ]
+            
+            for hkey, subkey in startup_keys:
+                try:
+                    with winreg.OpenKey(hkey, subkey, 0, winreg.KEY_READ) as key:
+                        i = 0
+                        while True:
+                            try:
+                                name, value, type_ = winreg.EnumValue(key, i)
+                                key_path = f"{self._get_hkey_name(hkey)}\\{subkey}"
+                                
+                                # Monitor startup entries
+                                event = self._create_registry_event(
+                                    action=EventAction.STARTUP_ENTRY,
+                                    registry_key=key_path,
+                                    registry_name=name,
+                                    registry_value=str(value),
+                                    registry_type=type_,
+                                    severity=Severity.MEDIUM,
+                                    additional_data={
+                                        'startup_type': 'registry',
+                                        'startup_location': key_path
+                                    }
+                                )
+                                events.append(event)
+                                
+                                i += 1
+                            except WindowsError:
+                                break
+                
+                except Exception as e:
+                    self.logger.debug(f"Startup key monitoring failed for {subkey}: {e}")
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Startup key monitoring failed: {e}")
+            return []
+    
+    def _get_hkey_name(self, hkey) -> str:
+        """Get HKEY name from handle"""
+        hkey_names = {
+            winreg.HKEY_CLASSES_ROOT: "HKEY_CLASSES_ROOT",
+            winreg.HKEY_CURRENT_USER: "HKEY_CURRENT_USER",
+            winreg.HKEY_LOCAL_MACHINE: "HKEY_LOCAL_MACHINE",
+            winreg.HKEY_USERS: "HKEY_USERS",
+            winreg.HKEY_CURRENT_CONFIG: "HKEY_CURRENT_CONFIG"
+        }
+        return hkey_names.get(hkey, "UNKNOWN")
+    
+    def _get_hkey_from_name(self, hkey_name: str):
+        """Get HKEY handle from name"""
+        hkey_handles = {
+            "HKEY_CLASSES_ROOT": winreg.HKEY_CLASSES_ROOT,
+            "HKEY_CURRENT_USER": winreg.HKEY_CURRENT_USER,
+            "HKEY_LOCAL_MACHINE": winreg.HKEY_LOCAL_MACHINE,
+            "HKEY_USERS": winreg.HKEY_USERS,
+            "HKEY_CURRENT_CONFIG": winreg.HKEY_CURRENT_CONFIG
+        }
+        return hkey_handles.get(hkey_name)
+    
+    def _is_suspicious_registry_key(self, key_path: str, name: str, value: Any) -> bool:
+        """Check if registry key is suspicious"""
+        try:
+            key_path_lower = key_path.lower()
+            name_lower = name.lower()
+            value_str = str(value).lower()
+            
+            # Check for suspicious patterns in key path
+            if any(pattern.lower() in key_path_lower for pattern in self.suspicious_key_patterns):
+                return True
+            
+            # Check for suspicious patterns in value
+            if any(pattern.lower() in value_str for pattern in self.suspicious_value_patterns):
+                return True
+            
+            return False
+            
+        except:
+            return False
+    
+    def _is_unusual_registry_value(self, value: Any) -> bool:
+        """Check if registry value is unusual"""
+        try:
+            value_str = str(value)
+            
+            # Check for long values
+            if len(value_str) > 1000:
+                return True
+            
+            # Check for encoded values
+            if any(encoding in value_str.lower() for encoding in ['base64', 'hex', 'encoded']):
+                return True
+            
+            # Check for suspicious patterns
+            if any(pattern in value_str.lower() for pattern in ['http://', 'https://', 'ftp://']):
+                return True
+            
+            return False
+            
+        except:
+            return False
+    
+    def _determine_registry_severity(self, key_path: str, name: str, value: Any) -> Severity:
+        """Determine severity based on registry key characteristics"""
+        if self._is_suspicious_registry_key(key_path, name, value):
+            return Severity.HIGH
+        elif any(pattern.lower() in key_path.lower() for pattern in ['run', 'startup', 'services']):
+            return Severity.MEDIUM
+        else:
+            return Severity.LOW
+    
+    def _create_registry_event(self, action: EventAction, registry_key: str, registry_name: str,
+                             registry_value: str, registry_type: int, severity: Severity,
+                             additional_data: Dict = None) -> EventData:
+        """Create registry event data"""
+        try:
+            return EventData(
+                event_type=EventType.REGISTRY,
+                event_action=action,
+                event_timestamp=datetime.now(),
+                severity=severity,
+                registry_key=registry_key,
+                registry_name=registry_name,
+                registry_value=registry_value,
+                registry_type=registry_type,
+                raw_event_data=additional_data or {}
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Registry event creation failed: {e}")
+            return None

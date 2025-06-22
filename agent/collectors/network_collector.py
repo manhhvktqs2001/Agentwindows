@@ -1,585 +1,567 @@
 # agent/collectors/network_collector.py
 """
-Network Collector - Enhanced network connection monitoring
-Monitors network connections, DNS queries, and suspicious traffic patterns
+Network Activity Collector - ENHANCED
+Thu thập thông tin về hoạt động mạng liên tục với tần suất cao
 """
 
 import asyncio
 import logging
-import psutil
 import socket
-import ipaddress
 import time
-from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple
-from collections import defaultdict, deque
 import json
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Set
+import psutil
+import subprocess
+import platform
+from collections import defaultdict
 
-from .base_collector import BaseCollector
-from ..schemas.events import EventData
-
-class NetworkConnectionTracker:
-    """Track network connections and detect suspicious patterns"""
-    
-    def __init__(self):
-        self.logger = logging.getLogger(__name__)
-        
-        # Connection tracking
-        self.known_connections: Set[Tuple] = set()
-        self.connection_history: deque = deque(maxlen=10000)
-        
-        # Suspicious activity detection
-        self.connection_counts: Dict[str, int] = defaultdict(int)
-        self.port_scan_detection: Dict[str, Set[int]] = defaultdict(set)
-        self.beaconing_detection: Dict[str, List[float]] = defaultdict(list)
-        
-        # Known suspicious ports
-        self.suspicious_ports = {
-            # Common malware ports
-            4444, 5555, 6666, 7777, 8888, 9999,
-            # RAT ports
-            1337, 31337, 12345, 54321,
-            # Backdoor ports
-            2222, 3333, 10101, 20202,
-            # Bitcoin/crypto mining
-            8333, 8332, 9332, 9333,
-            # Tor
-            9050, 9051, 9150, 9151
-        }
-        
-        # Private IP ranges
-        self.private_ranges = [
-            ipaddress.IPv4Network('10.0.0.0/8'),
-            ipaddress.IPv4Network('172.16.0.0/12'),
-            ipaddress.IPv4Network('192.168.0.0/16'),
-            ipaddress.IPv4Network('127.0.0.0/8')
-        ]
-    
-    def add_connection(self, conn_info: Dict) -> Dict:
-        """Add connection and analyze for suspicious patterns"""
-        try:
-            # Create connection tuple for tracking
-            conn_tuple = (
-                conn_info.get('local_ip'),
-                conn_info.get('local_port'),
-                conn_info.get('remote_ip'),
-                conn_info.get('remote_port'),
-                conn_info.get('protocol')
-            )
-            
-            # Check if new connection
-            is_new = conn_tuple not in self.known_connections
-            self.known_connections.add(conn_tuple)
-            
-            # Add to history
-            conn_info['timestamp'] = time.time()
-            self.connection_history.append(conn_info)
-            
-            # Analyze for suspicious patterns
-            analysis_result = {
-                'is_new_connection': is_new,
-                'is_suspicious': False,
-                'risk_score': 0,
-                'suspicious_indicators': []
-            }
-            
-            if is_new:
-                analysis_result.update(self._analyze_connection(conn_info))
-            
-            return analysis_result
-            
-        except Exception as e:
-            self.logger.error(f"❌ Connection tracking error: {e}")
-            return {'is_new_connection': False, 'is_suspicious': False, 'risk_score': 0}
-    
-    def _analyze_connection(self, conn_info: Dict) -> Dict:
-        """Analyze connection for suspicious patterns"""
-        suspicious_indicators = []
-        risk_score = 0
-        
-        try:
-            remote_ip = conn_info.get('remote_ip')
-            remote_port = conn_info.get('remote_port')
-            local_port = conn_info.get('local_port')
-            direction = conn_info.get('direction', '')
-            
-            # Check suspicious ports
-            if remote_port in self.suspicious_ports:
-                suspicious_indicators.append(f"suspicious_port_{remote_port}")
-                risk_score += 40
-            
-            # Check for external connections
-            if remote_ip and self._is_external_ip(remote_ip):
-                risk_score += 10
-                
-                # Check for unusual high ports
-                if remote_port and remote_port > 49152:
-                    suspicious_indicators.append("high_port_external")
-                    risk_score += 20
-            
-            # Check for port scanning behavior
-            if direction == 'Outbound' and remote_ip:
-                self.port_scan_detection[remote_ip].add(remote_port)
-                if len(self.port_scan_detection[remote_ip]) > 10:
-                    suspicious_indicators.append("potential_port_scan")
-                    risk_score += 50
-            
-            # Check for beaconing behavior
-            if remote_ip and direction == 'Outbound':
-                current_time = time.time()
-                self.beaconing_detection[remote_ip].append(current_time)
-                
-                # Keep only recent connections (last 10 minutes)
-                self.beaconing_detection[remote_ip] = [
-                    t for t in self.beaconing_detection[remote_ip] 
-                    if current_time - t < 600
-                ]
-                
-                # Check for regular intervals (beaconing)
-                if len(self.beaconing_detection[remote_ip]) >= 5:
-                    intervals = []
-                    times = sorted(self.beaconing_detection[remote_ip])
-                    for i in range(1, len(times)):
-                        intervals.append(times[i] - times[i-1])
-                    
-                    # Check if intervals are suspiciously regular
-                    if intervals and max(intervals) - min(intervals) < 10:  # Within 10 seconds
-                        suspicious_indicators.append("potential_beaconing")
-                        risk_score += 60
-            
-            # Check for localhost connections on unusual ports
-            if (remote_ip in ['127.0.0.1', '::1'] and 
-                remote_port and remote_port not in [80, 443, 8080, 3389]):
-                suspicious_indicators.append("localhost_unusual_port")
-                risk_score += 15
-            
-            return {
-                'is_suspicious': len(suspicious_indicators) > 0,
-                'risk_score': min(risk_score, 100),
-                'suspicious_indicators': suspicious_indicators
-            }
-            
-        except Exception as e:
-            self.logger.error(f"❌ Connection analysis error: {e}")
-            return {'is_suspicious': False, 'risk_score': 0, 'suspicious_indicators': []}
-    
-    def _is_external_ip(self, ip_str: str) -> bool:
-        """Check if IP address is external (not private)"""
-        try:
-            ip = ipaddress.IPv4Address(ip_str)
-            return not any(ip in private_range for private_range in self.private_ranges)
-        except (ipaddress.AddressValueError, ValueError):
-            return False
-    
-    def cleanup_old_data(self):
-        """Clean up old tracking data"""
-        try:
-            current_time = time.time()
-            
-            # Clean up port scan detection (keep only last 5 minutes)
-            for ip in list(self.port_scan_detection.keys()):
-                # Reset if no recent activity
-                if ip not in [conn.get('remote_ip') for conn in 
-                             list(self.connection_history)[-100:] if conn.get('timestamp', 0) > current_time - 300]:
-                    del self.port_scan_detection[ip]
-            
-            # Clean up beaconing detection
-            for ip in list(self.beaconing_detection.keys()):
-                self.beaconing_detection[ip] = [
-                    t for t in self.beaconing_detection[ip] 
-                    if current_time - t < 600
-                ]
-                if not self.beaconing_detection[ip]:
-                    del self.beaconing_detection[ip]
-            
-        except Exception as e:
-            self.logger.error(f"❌ Cleanup error: {e}")
+from agent.collectors.base_collector import BaseCollector
+from agent.schemas.events import EventData, EventType, EventAction, Severity
+from agent.utils.network_utils import NetworkUtils
 
 class NetworkCollector(BaseCollector):
-    """Enhanced network collector with connection tracking and threat detection"""
+    """Enhanced Network Activity Collector"""
     
     def __init__(self, config_manager):
         super().__init__(config_manager, "NetworkCollector")
         
-        # Network monitoring
-        self.connection_tracker = NetworkConnectionTracker()
+        # Enhanced configuration
+        self.polling_interval = 1  # ENHANCED: Reduced from 5 to 1 second for continuous monitoring
+        self.max_connections_per_batch = 100  # ENHANCED: Increased batch size
+        self.track_connection_history = True
+        self.monitor_suspicious_connections = True
         
-        # Configuration
-        self.monitor_tcp = True
-        self.monitor_udp = True
-        self.monitor_listening = True
-        self.monitor_established = True
-        self.exclude_loopback = True
-        self.exclude_private = False
+        # Network tracking
+        self.known_connections = set()
+        self.connection_history = defaultdict(list)
+        self.suspicious_connections = set()
         
-        # Process name resolution
-        self.resolve_process_names = True
-        self.process_cache: Dict[int, str] = {}
+        # Enhanced monitoring
+        self.monitor_dns_queries = True
+        self.monitor_http_requests = True
+        self.monitor_ssl_connections = True
+        self.monitor_port_scanning = True
         
-        # Performance settings
-        self.max_connections_per_scan = 1000
-        self.connection_scan_interval = 10  # seconds
-        self.last_cleanup_time = time.time()
+        # Suspicious network patterns
+        self.suspicious_ports = {
+            22, 23, 3389, 445, 135, 139, 1433, 1521, 3306, 5432, 6379, 27017
+        }
+        
+        self.suspicious_domains = [
+            'malware.com', 'evil.com', 'hacker.com', 'c2.com', 'backdoor.com'
+        ]
+        
+        self.suspicious_ips = set()
+        
+        # Network statistics
+        self.network_stats = {
+            'total_connections': 0,
+            'suspicious_connections': 0,
+            'dns_queries': 0,
+            'http_requests': 0
+        }
+        
+        self.logger.info("🌐 Enhanced Network Collector initialized")
     
-    async def _collector_specific_init(self):
-        """Initialize network collector"""
+    async def initialize(self):
+        """Initialize network collector with enhanced monitoring"""
         try:
-            # Validate psutil network capabilities
-            test_connections = psutil.net_connections(kind='inet')
-            self.logger.info(f"✅ Network monitoring capability validated: {len(test_connections)} connections")
+            # Get initial network state
+            await self._scan_all_connections()
+            
+            # Set up enhanced monitoring
+            self._setup_network_monitoring()
+            
+            # Load suspicious IPs from threat intelligence
+            await self._load_suspicious_ips()
+            
+            self.logger.info(f"✅ Enhanced Network Collector initialized - Monitoring {len(self.known_connections)} connections")
             
         except Exception as e:
             self.logger.error(f"❌ Network collector initialization failed: {e}")
             raise
     
-    async def _collect_data(self):
-        """Collect network connection data"""
+    def _setup_network_monitoring(self):
+        """Set up enhanced network monitoring"""
+        try:
+            # Set up network event callbacks
+            self._setup_network_callbacks()
+            
+            # Initialize network utilities
+            self.network_utils = NetworkUtils()
+            
+        except Exception as e:
+            self.logger.error(f"Network monitoring setup failed: {e}")
+    
+    def _setup_network_callbacks(self):
+        """Set up network event callbacks for real-time monitoring"""
+        try:
+            # This would integrate with Windows API for real-time network events
+            # For now, we use polling with enhanced frequency
+            pass
+        except Exception as e:
+            self.logger.debug(f"Network callbacks setup failed: {e}")
+    
+    async def collect_data(self) -> List[EventData]:
+        """Collect network data with enhanced monitoring"""
         try:
             events = []
-            connections_processed = 0
             
-            # Get network connections
-            connection_kinds = []
-            if self.monitor_tcp:
-                connection_kinds.extend(['tcp', 'tcp6'])
-            if self.monitor_udp:
-                connection_kinds.extend(['udp', 'udp6'])
+            # ENHANCED: Collect new connections
+            new_connections = await self._detect_new_connections()
+            events.extend(new_connections)
             
-            for kind in connection_kinds:
-                try:
-                    connections = psutil.net_connections(kind=kind)
-                    
-                    for conn in connections:
-                        if connections_processed >= self.max_connections_per_scan:
-                            break
-                        
-                        # Filter connections
-                        if not self._should_monitor_connection(conn):
-                            continue
-                        
-                        # Process connection
-                        event = await self._process_connection(conn)
-                        if event:
-                            events.append(event)
-                            connections_processed += 1
-                
-                except Exception as e:
-                    self.logger.debug(f"Error getting {kind} connections: {e}")
+            # ENHANCED: Collect closed connections
+            closed_connections = await self._detect_closed_connections()
+            events.extend(closed_connections)
             
-            # Periodic cleanup
-            current_time = time.time()
-            if current_time - self.last_cleanup_time > 300:  # Every 5 minutes
-                self.connection_tracker.cleanup_old_data()
-                self._cleanup_process_cache()
-                self.last_cleanup_time = current_time
+            # ENHANCED: Monitor suspicious connections
+            suspicious_events = await self._monitor_suspicious_connections()
+            events.extend(suspicious_events)
+            
+            # ENHANCED: Collect DNS queries
+            dns_events = await self._collect_dns_queries()
+            events.extend(dns_events)
+            
+            # ENHANCED: Monitor HTTP traffic
+            http_events = await self._monitor_http_traffic()
+            events.extend(http_events)
+            
+            # ENHANCED: Monitor SSL connections
+            ssl_events = await self._monitor_ssl_connections()
+            events.extend(ssl_events)
+            
+            # ENHANCED: Detect port scanning
+            port_scan_events = await self._detect_port_scanning()
+            events.extend(port_scan_events)
+            
+            if events:
+                self.logger.debug(f"📊 Collected {len(events)} network events")
             
             return events
             
         except Exception as e:
-            self.logger.error(f"❌ Network data collection error: {e}")
+            self.logger.error(f"❌ Network data collection failed: {e}")
             return []
     
-    def _should_monitor_connection(self, conn) -> bool:
-        """Check if connection should be monitored"""
+    async def _scan_all_connections(self):
+        """Scan all current network connections for baseline"""
         try:
-            # Skip connections without address info
-            if not conn.laddr:
+            connections = psutil.net_connections()
+            
+            for conn in connections:
+                if conn.status == 'ESTABLISHED':
+                    conn_key = self._create_connection_key(conn)
+                    self.known_connections.add(conn_key)
+                    
+                    # Check if suspicious
+                    if self._is_suspicious_connection(conn):
+                        self.suspicious_connections.add(conn_key)
+            
+            self.logger.info(f"📋 Baseline scan: {len(self.known_connections)} connections")
+            
+        except Exception as e:
+            self.logger.error(f"Network scan failed: {e}")
+    
+    async def _detect_new_connections(self) -> List[EventData]:
+        """Detect newly established connections"""
+        try:
+            events = []
+            current_connections = set()
+            
+            connections = psutil.net_connections()
+            
+            for conn in connections:
+                if conn.status == 'ESTABLISHED':
+                    conn_key = self._create_connection_key(conn)
+                    current_connections.add(conn_key)
+                    
+                    # Check if this is a new connection
+                    if conn_key not in self.known_connections:
+                        # New connection detected
+                        event = self._create_network_event(
+                            action=EventAction.CONNECTION,
+                            source_ip=conn.laddr.ip if conn.laddr else '',
+                            source_port=conn.laddr.port if conn.laddr else 0,
+                            destination_ip=conn.raddr.ip if conn.raddr else '',
+                            destination_port=conn.raddr.port if conn.raddr else 0,
+                            protocol=self._get_protocol_name(conn.raddr.port if conn.raddr else 0),
+                            direction='outbound' if conn.raddr else 'inbound',
+                            severity=self._determine_connection_severity(conn)
+                        )
+                        events.append(event)
+                        
+                        # Update tracking
+                        self.known_connections.add(conn_key)
+                        self.connection_history[conn_key].append({
+                            'timestamp': datetime.now(),
+                            'status': 'established'
+                        })
+                        
+                        # Check if suspicious
+                        if self._is_suspicious_connection(conn):
+                            self.suspicious_connections.add(conn_key)
+                            self.logger.warning(f"🚨 Suspicious connection detected: {conn.raddr.ip}:{conn.raddr.port}")
+            
+            # Update known connections
+            self.known_connections = current_connections
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"New connection detection failed: {e}")
+            return []
+    
+    async def _detect_closed_connections(self) -> List[EventData]:
+        """Detect closed connections"""
+        try:
+            events = []
+            current_connections = set()
+            
+            connections = psutil.net_connections()
+            
+            for conn in connections:
+                if conn.status == 'ESTABLISHED':
+                    conn_key = self._create_connection_key(conn)
+                    current_connections.add(conn_key)
+            
+            # Find closed connections
+            closed_connections = self.known_connections - current_connections
+            
+            for conn_key in closed_connections:
+                # Parse connection key
+                parts = conn_key.split('|')
+                if len(parts) >= 4:
+                    source_ip, source_port, dest_ip, dest_port = parts[:4]
+                    
+                    event = self._create_network_event(
+                        action=EventAction.CONNECTION_CLOSED,
+                        source_ip=source_ip,
+                        source_port=int(source_port),
+                        destination_ip=dest_ip,
+                        destination_port=int(dest_port),
+                        protocol='unknown',
+                        direction='unknown',
+                        severity=Severity.LOW
+                    )
+                    events.append(event)
+                    
+                    # Clean up tracking
+                    self.connection_history.pop(conn_key, None)
+                    self.suspicious_connections.discard(conn_key)
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Closed connection detection failed: {e}")
+            return []
+    
+    async def _monitor_suspicious_connections(self) -> List[EventData]:
+        """Monitor activities of suspicious connections"""
+        try:
+            events = []
+            
+            for conn_key in list(self.suspicious_connections):
+                try:
+                    # Parse connection key
+                    parts = conn_key.split('|')
+                    if len(parts) >= 4:
+                        source_ip, source_port, dest_ip, dest_port = parts[:4]
+                        
+                        # Check if connection still exists
+                        connections = psutil.net_connections()
+                        conn_exists = False
+                        
+                        for conn in connections:
+                            if (conn.status == 'ESTABLISHED' and 
+                                conn.laddr and conn.raddr and
+                                conn.laddr.ip == source_ip and
+                                conn.laddr.port == int(source_port) and
+                                conn.raddr.ip == dest_ip and
+                                conn.raddr.port == int(dest_port)):
+                                conn_exists = True
+                                break
+                        
+                        if not conn_exists:
+                            self.suspicious_connections.discard(conn_key)
+                            continue
+                        
+                        # Monitor suspicious activities
+                        event = await self._check_suspicious_network_activity(conn_key)
+                        if event:
+                            events.append(event)
+                
+                except Exception as e:
+                    self.logger.debug(f"Suspicious connection monitoring failed: {e}")
+                    continue
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Suspicious connection monitoring failed: {e}")
+            return []
+    
+    async def _check_suspicious_network_activity(self, conn_key: str) -> Optional[EventData]:
+        """Check for suspicious activities in a network connection"""
+        try:
+            # Parse connection key
+            parts = conn_key.split('|')
+            if len(parts) >= 4:
+                source_ip, source_port, dest_ip, dest_port = parts[:4]
+                
+                # Check for data transfer patterns
+                # This would require integration with network monitoring tools
+                
+                # Check for unusual port usage
+                if int(dest_port) in self.suspicious_ports:
+                    return self._create_network_event(
+                        action=EventAction.SUSPICIOUS_ACTIVITY,
+                        source_ip=source_ip,
+                        source_port=int(source_port),
+                        destination_ip=dest_ip,
+                        destination_port=int(dest_port),
+                        protocol=self._get_protocol_name(int(dest_port)),
+                        direction='outbound',
+                        severity=Severity.HIGH,
+                        additional_data={'suspicious_port': dest_port}
+                    )
+            
+            return None
+            
+        except Exception as e:
+            self.logger.debug(f"Suspicious network activity check failed: {e}")
+            return None
+    
+    async def _collect_dns_queries(self) -> List[EventData]:
+        """Collect DNS queries"""
+        try:
+            events = []
+            
+            # This would require integration with DNS monitoring tools
+            # For now, we'll simulate DNS query collection
+            
+            # Monitor DNS cache
+            try:
+                import subprocess
+                result = subprocess.run(['ipconfig', '/displaydns'], 
+                                      capture_output=True, text=True, timeout=5)
+                
+                if result.returncode == 0:
+                    lines = result.stdout.split('\n')
+                    for line in lines:
+                        if 'Record Name' in line:
+                            domain = line.split(':')[1].strip()
+                            if self._is_suspicious_domain(domain):
+                                event = self._create_network_event(
+                                    action=EventAction.DNS_QUERY,
+                                    source_ip='',
+                                    source_port=0,
+                                    destination_ip='',
+                                    destination_port=53,
+                                    protocol='DNS',
+                                    direction='outbound',
+                                    severity=Severity.HIGH,
+                                    additional_data={'domain': domain}
+                                )
+                                events.append(event)
+            
+            except Exception as e:
+                self.logger.debug(f"DNS query collection failed: {e}")
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"DNS query collection failed: {e}")
+            return []
+    
+    async def _monitor_http_traffic(self) -> List[EventData]:
+        """Monitor HTTP traffic"""
+        try:
+            events = []
+            
+            # Monitor connections on HTTP ports
+            connections = psutil.net_connections()
+            
+            for conn in connections:
+                if (conn.status == 'ESTABLISHED' and conn.raddr and 
+                    conn.raddr.port in [80, 443, 8080, 8443]):
+                    
+                    event = self._create_network_event(
+                        action=EventAction.HTTP_REQUEST,
+                        source_ip=conn.laddr.ip if conn.laddr else '',
+                        source_port=conn.laddr.port if conn.laddr else 0,
+                        destination_ip=conn.raddr.ip,
+                        destination_port=conn.raddr.port,
+                        protocol='HTTP' if conn.raddr.port == 80 else 'HTTPS',
+                        direction='outbound',
+                        severity=Severity.LOW
+                    )
+                    events.append(event)
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"HTTP traffic monitoring failed: {e}")
+            return []
+    
+    async def _monitor_ssl_connections(self) -> List[EventData]:
+        """Monitor SSL connections"""
+        try:
+            events = []
+            
+            # Monitor SSL/TLS connections
+            connections = psutil.net_connections()
+            
+            for conn in connections:
+                if (conn.status == 'ESTABLISHED' and conn.raddr and 
+                    conn.raddr.port in [443, 993, 995, 465, 587]):
+                    
+                    event = self._create_network_event(
+                        action=EventAction.SSL_CONNECTION,
+                        source_ip=conn.laddr.ip if conn.laddr else '',
+                        source_port=conn.laddr.port if conn.laddr else 0,
+                        destination_ip=conn.raddr.ip,
+                        destination_port=conn.raddr.port,
+                        protocol='SSL/TLS',
+                        direction='outbound',
+                        severity=Severity.MEDIUM
+                    )
+                    events.append(event)
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"SSL connection monitoring failed: {e}")
+            return []
+    
+    async def _detect_port_scanning(self) -> List[EventData]:
+        """Detect port scanning activities"""
+        try:
+            events = []
+            
+            # Analyze connection patterns for port scanning
+            connection_counts = defaultdict(int)
+            
+            connections = psutil.net_connections()
+            
+            for conn in connections:
+                if conn.status == 'ESTABLISHED' and conn.raddr:
+                    dest_ip = conn.raddr.ip
+                    connection_counts[dest_ip] += 1
+            
+            # Check for potential port scanning
+            for dest_ip, count in connection_counts.items():
+                if count > 10:  # Threshold for port scanning detection
+                    event = self._create_network_event(
+                        action=EventAction.PORT_SCAN,
+                        source_ip='',
+                        source_port=0,
+                        destination_ip=dest_ip,
+                        destination_port=0,
+                        protocol='unknown',
+                        direction='outbound',
+                        severity=Severity.HIGH,
+                        additional_data={'connection_count': count}
+                    )
+                    events.append(event)
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Port scanning detection failed: {e}")
+            return []
+    
+    async def _load_suspicious_ips(self):
+        """Load suspicious IP addresses from threat intelligence"""
+        try:
+            # This would load from threat intelligence feeds
+            # For now, we'll use a basic list
+            self.suspicious_ips = {
+                '192.168.1.100',  # Example suspicious IP
+                '10.0.0.50'       # Example suspicious IP
+            }
+            
+        except Exception as e:
+            self.logger.debug(f"Suspicious IP loading failed: {e}")
+    
+    def _create_connection_key(self, conn) -> str:
+        """Create unique key for connection tracking"""
+        try:
+            source_ip = conn.laddr.ip if conn.laddr else ''
+            source_port = conn.laddr.port if conn.laddr else 0
+            dest_ip = conn.raddr.ip if conn.raddr else ''
+            dest_port = conn.raddr.port if conn.raddr else 0
+            
+            return f"{source_ip}|{source_port}|{dest_ip}|{dest_port}"
+        except:
+            return ""
+    
+    def _is_suspicious_connection(self, conn) -> bool:
+        """Check if connection is suspicious"""
+        try:
+            if not conn.raddr:
                 return False
             
-            # Filter by status
-            if self.monitor_listening and conn.status == psutil.CONN_LISTEN:
+            # Check suspicious ports
+            if conn.raddr.port in self.suspicious_ports:
                 return True
-            elif self.monitor_established and conn.status == psutil.CONN_ESTABLISHED:
+            
+            # Check suspicious IPs
+            if conn.raddr.ip in self.suspicious_ips:
                 return True
-            elif conn.status in [psutil.CONN_SYN_SENT, psutil.CONN_SYN_RECV]:
+            
+            # Check for unusual protocols
+            if conn.raddr.port not in [80, 443, 22, 21, 25, 110, 143, 993, 995]:
                 return True
-            elif not self.monitor_listening and conn.status == psutil.CONN_LISTEN:
-                return False
             
-            # Exclude loopback if configured
-            if self.exclude_loopback and conn.laddr.ip in ['127.0.0.1', '::1']:
-                return False
+            return False
             
-            # Exclude private IPs if configured
-            if self.exclude_private and conn.raddr:
-                if self.connection_tracker._is_external_ip(conn.raddr.ip):
-                    return False
-            
-            return True
-            
-        except Exception:
+        except:
             return False
     
-    async def _process_connection(self, conn) -> Optional[EventData]:
-        """Process network connection and create event"""
+    def _is_suspicious_domain(self, domain: str) -> bool:
+        """Check if domain is suspicious"""
+        return any(suspicious in domain.lower() for suspicious in self.suspicious_domains)
+    
+    def _get_protocol_name(self, port: int) -> str:
+        """Get protocol name from port number"""
+        protocol_map = {
+            21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'SMTP', 53: 'DNS',
+            80: 'HTTP', 110: 'POP3', 143: 'IMAP', 443: 'HTTPS',
+            993: 'IMAPS', 995: 'POP3S', 1433: 'MSSQL', 3306: 'MySQL',
+            5432: 'PostgreSQL', 6379: 'Redis', 27017: 'MongoDB'
+        }
+        return protocol_map.get(port, 'Unknown')
+    
+    def _determine_connection_severity(self, conn) -> Severity:
+        """Determine severity based on connection details"""
+        if self._is_suspicious_connection(conn):
+            return Severity.HIGH
+        elif conn.raddr and conn.raddr.port in [22, 3389, 445]:
+            return Severity.MEDIUM
+        else:
+            return Severity.LOW
+    
+    def _create_network_event(self, action: EventAction, source_ip: str, source_port: int,
+                            destination_ip: str, destination_port: int, protocol: str,
+                            direction: str, severity: Severity, additional_data: Dict = None) -> EventData:
+        """Create network event data"""
         try:
-            # Extract connection information
-            conn_info = {
-                'local_ip': conn.laddr.ip if conn.laddr else None,
-                'local_port': conn.laddr.port if conn.laddr else None,
-                'remote_ip': conn.raddr.ip if conn.raddr else None,
-                'remote_port': conn.raddr.port if conn.raddr else None,
-                'protocol': 'TCP' if conn.type == socket.SOCK_STREAM else 'UDP',
-                'status': conn.status,
-                'pid': conn.pid,
-                'direction': self._determine_direction(conn)
-            }
-            
-            # Get process name
-            process_name = await self._get_process_name(conn.pid)
-            conn_info['process_name'] = process_name
-            
-            # Analyze connection for suspicious patterns
-            analysis = self.connection_tracker.add_connection(conn_info)
-            
-            # Only create events for new or suspicious connections
-            if not analysis.get('is_new_connection') and not analysis.get('is_suspicious'):
-                return None
-            
-            # Determine event severity
-            severity = self._determine_connection_severity(conn_info, analysis)
-            
-            # Create network event
-            event_data = EventData(
-                event_type='Network',
-                event_action='Connection',
+            return EventData(
+                event_type=EventType.NETWORK,
+                event_action=action,
                 event_timestamp=datetime.now(),
-                source_ip=conn_info['local_ip'],
-                source_port=conn_info['local_port'],
-                destination_ip=conn_info['remote_ip'],
-                destination_port=conn_info['remote_port'],
-                protocol=conn_info['protocol'],
-                direction=conn_info['direction'],
-                process_id=conn.pid,
-                process_name=process_name,
                 severity=severity,
-                raw_event_data=json.dumps({
-                    'status': conn_info['status'],
-                    'analysis': analysis,
-                    'is_external': self.connection_tracker._is_external_ip(conn_info['remote_ip']) if conn_info['remote_ip'] else False
-                })
+                source_ip=source_ip,
+                source_port=source_port,
+                destination_ip=destination_ip,
+                destination_port=destination_port,
+                protocol=protocol,
+                direction=direction,
+                raw_event_data=additional_data or {}
             )
             
-            return event_data
-            
         except Exception as e:
-            self.logger.debug(f"Connection processing error: {e}")
+            self.logger.error(f"Network event creation failed: {e}")
             return None
-    
-    def _determine_direction(self, conn) -> str:
-        """Determine connection direction"""
-        try:
-            if conn.status == psutil.CONN_LISTEN:
-                return 'Listening'
-            elif conn.raddr:
-                # Check if remote IP is external
-                if self.connection_tracker._is_external_ip(conn.raddr.ip):
-                    return 'Outbound'
-                else:
-                    return 'Internal'
-            else:
-                return 'Unknown'
-        except Exception:
-            return 'Unknown'
-    
-    async def _get_process_name(self, pid: Optional[int]) -> Optional[str]:
-        """Get process name for PID with caching"""
-        try:
-            if not pid:
-                return None
-            
-            # Check cache first
-            if pid in self.process_cache:
-                return self.process_cache[pid]
-            
-            # Get process name
-            try:
-                process = psutil.Process(pid)
-                process_name = process.name()
-                
-                # Cache the result
-                self.process_cache[pid] = process_name
-                return process_name
-                
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                return None
-                
-        except Exception:
-            return None
-    
-    def _cleanup_process_cache(self):
-        """Clean up process name cache"""
-        try:
-            # Remove entries for non-existent processes
-            current_pids = set(p.pid for p in psutil.process_iter())
-            cached_pids = set(self.process_cache.keys())
-            
-            for pid in cached_pids - current_pids:
-                self.process_cache.pop(pid, None)
-            
-            self.logger.debug(f"🧹 Process cache cleaned: {len(cached_pids - current_pids)} entries removed")
-            
-        except Exception as e:
-            self.logger.error(f"❌ Process cache cleanup error: {e}")
-    
-    def _determine_connection_severity(self, conn_info: Dict, analysis: Dict) -> str:
-        """Determine connection event severity"""
-        try:
-            risk_score = analysis.get('risk_score', 0)
-            suspicious_indicators = analysis.get('suspicious_indicators', [])
-            remote_ip = conn_info.get('remote_ip', '')
-            remote_port = conn_info.get('remote_port', 0)
-            protocol = conn_info.get('protocol', '')
-            
-            # High severity for suspicious connections
-            if any([
-                remote_port in self.connection_tracker.suspicious_ports,
-                'potential_port_scan' in suspicious_indicators,
-                'potential_beaconing' in suspicious_indicators
-            ]):
-                return 'High'
-            
-            # Medium severity for unusual connections
-            if any([
-                remote_port > 49152,  # Dynamic ports
-                remote_ip.startswith('10.') or remote_ip.startswith('192.168.'),
-                protocol in ['UDP', 'ICMP']
-            ]):
-                return 'Medium'
-            
-            # Default to info
-            return 'Info'
-            
-        except Exception:
-            return 'Info'
-    
-    def get_network_stats(self) -> Dict:
-        """Get network monitoring statistics"""
-        try:
-            stats = {
-                'known_connections': len(self.connection_tracker.known_connections),
-                'connection_history_size': len(self.connection_tracker.connection_history),
-                'process_cache_size': len(self.process_cache),
-                'port_scan_targets': len(self.connection_tracker.port_scan_detection),
-                'beaconing_targets': len(self.connection_tracker.beaconing_detection),
-                'monitor_tcp': self.monitor_tcp,
-                'monitor_udp': self.monitor_udp,
-                'monitor_listening': self.monitor_listening,
-                'monitor_established': self.monitor_established,
-                'exclude_loopback': self.exclude_loopback,
-                'exclude_private': self.exclude_private,
-                'max_connections_per_scan': self.max_connections_per_scan
-            }
-            
-            # Get current network interface statistics
-            try:
-                net_io = psutil.net_io_counters()
-                stats.update({
-                    'bytes_sent': net_io.bytes_sent,
-                    'bytes_recv': net_io.bytes_recv,
-                    'packets_sent': net_io.packets_sent,
-                    'packets_recv': net_io.packets_recv,
-                    'errors_in': net_io.errin,
-                    'errors_out': net_io.errout,
-                    'drops_in': net_io.dropin,
-                    'drops_out': net_io.dropout
-                })
-            except Exception:
-                pass
-            
-            return stats
-            
-        except Exception as e:
-            self.logger.error(f"❌ Network stats error: {e}")
-            return {}
-    
-    def configure_monitoring(self, **kwargs):
-        """Configure network monitoring options"""
-        if 'monitor_tcp' in kwargs:
-            self.monitor_tcp = kwargs['monitor_tcp']
-        if 'monitor_udp' in kwargs:
-            self.monitor_udp = kwargs['monitor_udp']
-        if 'monitor_listening' in kwargs:
-            self.monitor_listening = kwargs['monitor_listening']
-        if 'monitor_established' in kwargs:
-            self.monitor_established = kwargs['monitor_established']
-        if 'exclude_loopback' in kwargs:
-            self.exclude_loopback = kwargs['exclude_loopback']
-        if 'exclude_private' in kwargs:
-            self.exclude_private = kwargs['exclude_private']
-        if 'max_connections_per_scan' in kwargs:
-            self.max_connections_per_scan = kwargs['max_connections_per_scan']
-        
-        self.logger.info(f"🔧 Network monitoring configured: {kwargs}")
-    
-    def get_suspicious_connections(self) -> List[Dict]:
-        """Get list of current suspicious connections"""
-        try:
-            suspicious_connections = []
-            
-            # Analyze recent connections from history
-            recent_time = time.time() - 300  # Last 5 minutes
-            
-            for conn in self.connection_tracker.connection_history:
-                if conn.get('timestamp', 0) > recent_time:
-                    analysis = self.connection_tracker._analyze_connection(conn)
-                    if analysis.get('is_suspicious'):
-                        suspicious_connections.append({
-                            'remote_ip': conn.get('remote_ip'),
-                            'remote_port': conn.get('remote_port'),
-                            'protocol': conn.get('protocol'),
-                            'process_name': conn.get('process_name'),
-                            'risk_score': analysis.get('risk_score'),
-                            'indicators': analysis.get('suspicious_indicators'),
-                            'timestamp': conn.get('timestamp')
-                        })
-            
-            return suspicious_connections
-            
-        except Exception as e:
-            self.logger.error(f"❌ Suspicious connections query error: {e}")
-            return []
-    
-    def check_ip_reputation(self, ip: str) -> Dict:
-        """Check IP address reputation (placeholder for future integration)"""
-        # This could be expanded to integrate with threat intelligence feeds
-        return {
-            'is_known_malicious': False,
-            'reputation_score': 0,
-            'threat_categories': [],
-            'last_seen': None
-        }
-    
-    def detect_data_exfiltration(self) -> List[Dict]:
-        """Detect potential data exfiltration patterns"""
-        try:
-            alerts = []
-            current_time = time.time()
-            
-            # Analyze outbound connections for large data transfers
-            outbound_volumes = defaultdict(int)
-            
-            for conn in self.connection_tracker.connection_history:
-                if (conn.get('timestamp', 0) > current_time - 1800 and  # Last 30 minutes
-                    conn.get('direction') == 'Outbound' and
-                    self.connection_tracker._is_external_ip(conn.get('remote_ip', ''))):
-                    
-                    key = f"{conn.get('remote_ip')}:{conn.get('remote_port')}"
-                    outbound_volumes[key] += 1
-            
-            # Check for suspicious volume patterns
-            for connection, count in outbound_volumes.items():
-                if count > 100:  # More than 100 connections to same external endpoint
-                    alerts.append({
-                        'type': 'potential_data_exfiltration',
-                        'connection': connection,
-                        'connection_count': count,
-                        'severity': 'High',
-                        'description': f'High volume of connections to external endpoint: {connection}'
-                    })
-            
-            return alerts
-            
-        except Exception as e:
-            self.logger.error(f"❌ Data exfiltration detection error: {e}")
-            return []

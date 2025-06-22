@@ -18,6 +18,37 @@ class EventType(str, Enum):
     AUTHENTICATION = "Authentication"
     SYSTEM = "System"
 
+class EventAction(str, Enum):
+    """Event action enumeration"""
+    CREATED = "Created"
+    MODIFIED = "Modified"
+    DELETED = "Deleted"
+    ACCESSED = "Accessed"
+    STARTED = "Started"
+    STOPPED = "Stopped"
+    CONNECTED = "Connected"
+    DISCONNECTED = "Disconnected"
+    LOGIN = "Login"
+    LOGOUT = "Logout"
+    FAILED = "Failed"
+    SUCCESS = "Success"
+    DETECTED = "Detected"
+    BLOCKED = "Blocked"
+    ALLOWED = "Allowed"
+    RESOURCE_USAGE = "ResourceUsage"
+    CPU_SPIKE = "CpuSpike"
+    MEMORY_LEAK = "MemoryLeak"
+    DISK_IO = "DiskIO"
+    NETWORK_ANOMALY = "NetworkAnomaly"
+
+class Severity(str, Enum):
+    """Event severity enumeration - for agent use"""
+    INFO = "Info"
+    LOW = "Low"
+    MEDIUM = "Medium"
+    HIGH = "High"
+    CRITICAL = "Critical"
+
 class EventSeverity(str, Enum):
     """Event severity enumeration - matching server schema"""
     INFO = "INFO"

@@ -29,6 +29,39 @@ agent:
   stealth_mode: false                      # minimize agent footprint
   anti_tamper: true                        # protect agent from modification
   self_protect: true                       # prevent agent termination
+  
+  # ENHANCED: Agent identification and registration
+  agent_name: "Windows EDR Agent"
+  agent_version: "2.0.0"
+  auto_register: true
+  registration_retry_interval: 30  # seconds
+  
+  # ENHANCED: Event processing configuration
+  event_batch_interval: 2  # ENHANCED: Reduced from 5 to 2 seconds for continuous monitoring
+  max_events_per_second: 1000  # ENHANCED: Rate limiting for high-volume monitoring
+  
+  # ENHANCED: Communication settings
+  server_host: "localhost"
+  server_port: 8000
+  server_protocol: "http"
+  connection_timeout: 30
+  request_timeout: 60
+  retry_attempts: 3
+  retry_delay: 5
+  
+  # ENHANCED: Heartbeat configuration
+  heartbeat_interval: 30  # ENHANCED: Reduced from 60 to 30 seconds for better monitoring
+  heartbeat_timeout: 10
+  
+  # ENHANCED: Security settings
+  enable_encryption: true
+  enable_compression: true
+  enable_authentication: true
+  
+  # ENHANCED: Performance monitoring
+  enable_performance_monitoring: true
+  performance_log_interval: 60  # seconds
+  enable_resource_tracking: true
 
 # ============================================================================
 # SERVER CONNECTION CONFIGURATION
@@ -38,6 +71,7 @@ server:
   host: "192.168.20.85"
   port: 5000
   protocol: "http"                         # http, https
+  base_url: "http://192.168.20.85:5000"    # Full server URL
   
   # Authentication
   auth_token: "edr_agent_auth_2024"
@@ -170,6 +204,63 @@ collection:
     monitor_privilege_escalation: false   # FIXED: Disable to reduce complexity
     monitor_account_changes: false        # FIXED: Disable to reduce noise
     failed_attempt_threshold: 5           # trigger alert after N failures
+  
+  # ENHANCED: Process monitoring - HIGH FREQUENCY
+  process_polling_interval: 2  # ENHANCED: Reduced from 5 to 2 seconds
+  process_batch_size: 50       # ENHANCED: Increased batch size
+  monitor_process_creation: true
+  monitor_process_termination: true
+  monitor_process_behavior: true
+  monitor_suspicious_processes: true
+  collect_process_hashes: true
+  collect_process_networks: true
+  collect_process_files: true
+  
+  # ENHANCED: File monitoring - HIGH FREQUENCY
+  file_polling_interval: 3     # ENHANCED: Reduced from 10 to 3 seconds
+  file_batch_size: 100         # ENHANCED: Increased batch size
+  monitor_file_creation: true
+  monitor_file_modification: true
+  monitor_file_deletion: true
+  monitor_file_access: true
+  collect_file_hashes: true
+  monitor_suspicious_files: true
+  
+  # ENHANCED: Network monitoring - HIGH FREQUENCY
+  network_polling_interval: 1  # ENHANCED: Reduced from 5 to 1 second for continuous monitoring
+  network_batch_size: 100      # ENHANCED: Increased batch size
+  monitor_connections: true
+  monitor_dns_queries: true
+  monitor_http_traffic: true
+  monitor_ssl_connections: true
+  monitor_port_scanning: true
+  collect_network_stats: true
+  
+  # ENHANCED: Registry monitoring
+  registry_polling_interval: 5  # ENHANCED: Reduced from 15 to 5 seconds
+  registry_batch_size: 50       # ENHANCED: Increased batch size
+  monitor_registry_changes: true
+  monitor_suspicious_keys: true
+  collect_registry_values: true
+  
+  # ENHANCED: Authentication monitoring
+  auth_polling_interval: 15     # ENHANCED: Reduced from 30 to 15 seconds
+  auth_batch_size: 20           # ENHANCED: Increased batch size
+  monitor_logins: true
+  monitor_logouts: true
+  monitor_failed_attempts: true
+  monitor_privilege_changes: true
+  
+  # ENHANCED: System monitoring - HIGH FREQUENCY
+  system_polling_interval: 3    # ENHANCED: Reduced from 15 to 3 seconds
+  system_batch_size: 10         # ENHANCED: Increased batch size
+  monitor_cpu_usage: true
+  monitor_memory_usage: true
+  monitor_disk_usage: true
+  monitor_network_usage: true
+  monitor_system_events: true
+  monitor_performance: true
+  detect_anomalies: true
 
 # ============================================================================
 # THREAT DETECTION CONFIGURATION - FIXED: Simplified
@@ -208,6 +299,33 @@ detection:
   auto_quarantine_files: false         # manually quarantine malicious files
   auto_kill_processes: false           # manually terminate malicious processes
   send_alerts_immediately: true        # send high-priority alerts immediately
+  
+  # ENHANCED: Detection engine configuration
+  rules_enabled: true
+  threat_intelligence_enabled: true
+  
+  # ENHANCED: Detection thresholds
+  risk_score_threshold: 50
+  severity_threshold: "Medium"
+  confidence_threshold: 0.7
+  
+  # ENHANCED: Detection rules
+  rules:
+    suspicious_processes: true
+    suspicious_files: true
+    suspicious_network: true
+    suspicious_registry: true
+    privilege_escalation: true
+    persistence_mechanisms: true
+    lateral_movement: true
+    data_exfiltration: true
+  
+  # ENHANCED: Threat intelligence
+  threat_intelligence:
+    enabled: true
+    update_interval: 3600  # 1 hour
+    local_cache_enabled: true
+    remote_feeds_enabled: true
 
 # ============================================================================
 # LOGGING CONFIGURATION - FIXED: Reduced verbosity
@@ -247,6 +365,17 @@ logging:
   # Security
   encrypt_logs: false                   # encrypt log files
   log_integrity_check: false           # verify log integrity
+  
+  # ENHANCED: Logging configuration for continuous monitoring
+  performance_logging: true
+  event_logging: true
+  security_logging: true
+  debug_logging: false
+  
+  # ENHANCED: Log rotation
+  rotation_enabled: true
+  rotation_interval: "1 day"
+  compression_enabled: true
 
 # ============================================================================
 # PERFORMANCE OPTIMIZATION - FIXED: Conservative settings
@@ -278,6 +407,22 @@ performance:
   enable_caching: true
   cache_size_mb: 32                     # FIXED: Reduce from 100 to 32MB
   cache_cleanup_interval: 600           # FIXED: Increase from 300 to 600 seconds
+  
+  # ENHANCED: Performance optimization for continuous monitoring
+  enable_caching: true
+  cache_size: 1000
+  cache_ttl: 300  # 5 minutes
+  
+  # ENHANCED: Resource limits
+  max_cpu_usage: 30  # Maximum CPU usage percentage
+  max_memory_usage: 512  # Maximum memory usage in MB
+  max_disk_usage: 100  # Maximum disk usage in MB
+  
+  # ENHANCED: Optimization settings
+  enable_compression: true
+  enable_batching: true
+  enable_rate_limiting: true
+  enable_backpressure: true
 
 # ============================================================================
 # FILTERING CONFIGURATION - FIXED: More aggressive filtering
@@ -351,6 +496,45 @@ filters:
   max_file_size_mb: 100                 # FIXED: Reduce from 500 to 100
   max_command_line_length: 512          # FIXED: Reduce from 2048 to 512
   max_registry_value_size: 256          # FIXED: Reduce from 1024 to 256
+  
+  # ENHANCED: Event filtering for continuous monitoring
+  events:
+    enabled: true
+    allowed_types: ["Process", "File", "Network", "Registry", "Authentication", "System"]
+    min_severity: "Info"
+    exclude_system_processes: false  # ENHANCED: Include system processes for comprehensive monitoring
+    exclude_file_extensions: []
+    exclude_network_ports: []
+    exclude_registry_keys: []
+    
+  # ENHANCED: Process filtering
+  processes:
+    exclude_system_processes: false
+    exclude_process_names: []
+    include_process_names: []
+    monitor_suspicious_patterns: true
+    monitor_high_cpu_processes: true
+    monitor_high_memory_processes: true
+    
+  # ENHANCED: File filtering
+  files:
+    exclude_extensions: []
+    exclude_paths: []
+    include_paths: []
+    monitor_executables: true
+    monitor_documents: true
+    monitor_scripts: true
+    monitor_temp_files: true
+    
+  # ENHANCED: Network filtering
+  network:
+    exclude_ips: []
+    exclude_ports: []
+    include_ips: []
+    include_ports: []
+    monitor_local_connections: true
+    monitor_external_connections: true
+    monitor_suspicious_ports: true
 
 # ============================================================================
 # ALERTING CONFIGURATION - FIXED: Reduced frequency
@@ -501,7 +685,7 @@ security_notifications:
 
 # ============================================================================
 # DETECTION RULE PRIORITIES - FIXED: Minimal set
-# ============================================================================  
+# ============================================================================
 rule_priorities:
   # Critical Rules (always show, longest timeout) - FIXED: Reduced set
   critical_rules:
@@ -552,3 +736,25 @@ threat_intel_notifications:
     - "ransomware_extension"
     
   high_ioc_types: []
+
+# ============================================================================
+# MONITORING CONFIGURATION - ENHANCED for Continuous Monitoring
+# ============================================================================
+monitoring:
+  # ENHANCED: Self-monitoring configuration
+  enabled: true
+  health_check_interval: 30  # seconds
+  performance_monitoring: true
+  resource_monitoring: true
+  
+  # ENHANCED: Alerting thresholds
+  cpu_threshold: 80  # Alert when CPU > 80%
+  memory_threshold: 85  # Alert when memory > 85%
+  disk_threshold: 90  # Alert when disk > 90%
+  queue_threshold: 80  # Alert when queue > 80% full
+  
+  # ENHANCED: Metrics collection
+  collect_metrics: true
+  metrics_interval: 60  # seconds
+  enable_trending: true
+  enable_anomaly_detection: true

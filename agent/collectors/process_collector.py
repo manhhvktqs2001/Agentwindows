@@ -1,7 +1,7 @@
 # agent/collectors/process_collector.py
 """
-Process Collector - Fixed "can only join an iterable" error
-Real-time process creation, termination, and behavior analysis
+Process Activity Collector - ENHANCED
+Thu thập thông tin về hoạt động process liên tục với tần suất cao
 """
 
 import asyncio
@@ -10,6 +10,7 @@ import hashlib
 import os
 import platform
 import psutil
+import time
 try:
     import wmi
     WMI_AVAILABLE = True
@@ -21,258 +22,509 @@ from typing import Dict, List, Optional, Set
 from pathlib import Path
 import json
 
-from .base_collector import BaseCollector
-from ..schemas.events import EventData
-
-class FileCollector(BaseCollector):
-    """File system monitoring collector - Fixed restricted_paths error"""
-    
-    def __init__(self, config_manager):
-        super().__init__(config_manager, "FileCollector")
-        
-        # Initialize restricted_paths BEFORE any path checking
-        self.restricted_paths = []
-        self.accessible_paths = []
-        
-        # Get monitor paths with access checking
-        self.monitor_paths = self._get_monitor_paths()
-        
-        # Other initialization...
-        self.collect_hashes = True
-        self.max_file_size = 100 * 1024 * 1024  # 100MB
-        
-    def _get_monitor_paths(self) -> List[str]:
-        """Get paths to monitor with access checking"""
-        try:
-            # User accessible paths
-            user_paths = [
-                str(Path.home()),
-                str(Path.home() / 'Desktop'),
-                str(Path.home() / 'Documents'), 
-                str(Path.home() / 'Downloads')
-            ]
-            
-            accessible = []
-            for path in user_paths:
-                if self._test_path_access(path):
-                    accessible.append(path)
-                else:
-                    self.restricted_paths.append(path)
-            
-            self.accessible_paths = accessible
-            return accessible
-            
-        except Exception as e:
-            self.logger.error(f"❌ Error getting monitor paths: {e}")
-            return []
-    
-    def _test_path_access(self, path: str) -> bool:
-        """Test if path is accessible"""
-        try:
-            path_obj = Path(path)
-            if path_obj.exists() and path_obj.is_dir():
-                list(path_obj.iterdir())
-                return True
-        except:
-            pass
-        return False
-    
-    async def _collect_data(self):
-        """File collector uses event-driven approach"""
-        return []
+from agent.collectors.base_collector import BaseCollector
+from agent.schemas.events import EventData, EventType, EventAction, Severity
+from agent.utils.process_utils import ProcessUtils
 
 class ProcessCollector(BaseCollector):
-    """Process monitoring and analysis collector - Fixed errors"""
+    """Enhanced Process Activity Collector"""
     
     def __init__(self, config_manager):
-        """Initialize process collector"""
-        super().__init__(config_manager, collector_name="Process")
+        super().__init__(config_manager, "ProcessCollector")
         
-        # Process tracking
-        self.known_processes = set()  # Use set instead of dict
-        self.process_stats = {
-            'total_events': 0,
-            'high_severity_events': 0,
-            'processes_tracked': 0
-        }
-        
-        # Configuration
-        self.collect_hashes = True
-        self.monitor_new_processes = True
-        self.monitor_terminated_processes = True
+        # Enhanced configuration
+        self.polling_interval = 2  # ENHANCED: Reduced from 5 to 2 seconds for continuous monitoring
+        self.max_processes_per_batch = 50  # ENHANCED: Increased batch size
+        self.track_process_tree = True
         self.monitor_suspicious_processes = True
         
-        # System processes to ignore
-        self.system_processes = {
-            'svchost.exe', 'lsass.exe', 'winlogon.exe', 'csrss.exe',
-            'wininit.exe', 'services.exe', 'spoolsv.exe', 'explorer.exe',
-            'dwm.exe', 'taskmgr.exe', 'conhost.exe', 'dllhost.exe'
-        }
+        # Process tracking
+        self.known_processes = set()
+        self.process_start_times = {}
+        self.suspicious_processes = set()
         
-    async def _collector_specific_init(self):
-        """Initialize process-specific components"""
+        # Enhanced monitoring
+        self.monitor_cpu_usage = True
+        self.monitor_memory_usage = True
+        self.monitor_network_connections = True
+        self.monitor_file_operations = True
+        
+        # Suspicious process patterns
+        self.suspicious_patterns = [
+            'cmd.exe', 'powershell.exe', 'wscript.exe', 'cscript.exe',
+            'rundll32.exe', 'regsvr32.exe', 'mshta.exe', 'certutil.exe',
+            'bitsadmin.exe', 'wmic.exe', 'schtasks.exe', 'at.exe',
+            'net.exe', 'netstat.exe', 'ipconfig.exe', 'route.exe',
+            'arp.exe', 'nslookup.exe', 'ping.exe', 'tracert.exe'
+        ]
+        
+        self.logger.info("Enhanced Process Collector initialized")
+    
+    async def initialize(self):
+        """Initialize process collector with enhanced monitoring"""
         try:
-            # Get initial process snapshot
-            await self._get_initial_process_snapshot()
-            self.logger.info("✅ Process collector initialized")
+            # Get initial process list
+            await self._scan_all_processes()
+            
+            # Set up enhanced monitoring
+            self._setup_process_monitoring()
+            
+            self.logger.info(f"Enhanced Process Collector initialized - Monitoring {len(self.known_processes)} processes")
             
         except Exception as e:
-            self.logger.error(f"❌ Process collector initialization failed: {e}")
-            
-    async def start(self):
-        """Start process monitoring"""
+            self.logger.error(f"Process collector initialization failed: {e}")
+            raise
+    
+    def _setup_process_monitoring(self):
+        """Set up enhanced process monitoring"""
         try:
-            await super().start()
-            self.logger.info("🚀 Process collector started")
-        except Exception as e:
-            self.logger.error(f"❌ Failed to start process collector: {e}")
+            # Monitor process creation and termination
+            psutil.Popen = self._monitored_popen
             
-    async def stop(self):
-        """Stop process monitoring"""
+            # Set up process event callbacks
+            self._setup_process_callbacks()
+            
+        except Exception as e:
+            self.logger.error(f"Process monitoring setup failed: {e}")
+    
+    def _setup_process_callbacks(self):
+        """Set up process event callbacks for real-time monitoring"""
         try:
-            await super().stop()
-            self.logger.info("🛑 Process collector stopped")
+            # This would integrate with Windows API for real-time process events
+            # For now, we use polling with enhanced frequency
+            pass
         except Exception as e:
-            self.logger.error(f"❌ Failed to stop process collector: {e}")
-            
+            self.logger.debug(f"Process callbacks setup failed: {e}")
+    
     async def _collect_data(self):
-        """Collect process information and detect new/terminated processes"""
+        """Collect process data with enhanced monitoring - REQUIRED ABSTRACT METHOD"""
         try:
-            current_processes = set()
-            current_time = datetime.now()
             events = []
             
-            # Get current running processes
-            for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'cpu_percent', 'memory_percent', 'create_time']):
-                try:
-                    proc_info = proc.info
-                    if proc_info['pid'] is None or proc_info['name'] is None:
-                        continue
-                        
-                    process_key = f"{proc_info['pid']}_{proc_info['name']}"
-                    current_processes.add(process_key)
-                    
-                    # Check if this is a new process
-                    if process_key not in self.known_processes:
-                        # NEW PROCESS DETECTED
-                        self.known_processes.add(process_key)
-                        
-                        # Fix: Handle cmdline properly - it can be None or a list
-                        cmdline_str = ""
-                        if proc_info.get('cmdline'):
-                            if isinstance(proc_info['cmdline'], list):
-                                # Filter out None values and join
-                                clean_cmdline = [str(arg) for arg in proc_info['cmdline'] if arg is not None]
-                                cmdline_str = ' '.join(clean_cmdline)
-                            else:
-                                cmdline_str = str(proc_info['cmdline'])
-                        
-                        # Create event data
-                        event_data = EventData(
-                            event_type='Process',
-                            event_action='Create',
-                            event_timestamp=current_time,
-                            severity='Info',
-                            description=f'New process started: {proc_info["name"]} (PID: {proc_info["pid"]})',
-                            process_id=proc_info['pid'],
-                            process_name=proc_info['name'],
-                            process_path=proc_info.get('exe', ''),
-                            command_line=cmdline_str,  # Fixed: use proper string
-                            cpu_usage=proc_info.get('cpu_percent', 0),
-                            memory_usage=proc_info.get('memory_percent', 0),
-                            raw_event_data=json.dumps({
-                                'pid': proc_info['pid'],
-                                'name': proc_info['name'],
-                                'exe': proc_info.get('exe', ''),
-                                'cmdline': cmdline_str,
-                                'cpu_percent': proc_info.get('cpu_percent', 0),
-                                'memory_percent': proc_info.get('memory_percent', 0),
-                                'create_time': proc_info.get('create_time'),
-                                'action': 'created'
-                            })
-                        )
-                        
-                        events.append(event_data)
-                        self.logger.debug(f"🆕 New process detected: {proc_info['name']} (PID: {proc_info['pid']})")
-                    
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                    continue
-                except Exception as e:
-                    self.logger.debug(f"Error processing process info: {e}")
-                    continue
+            # ENHANCED: Collect process creation events
+            new_processes = await self._detect_new_processes()
+            events.extend(new_processes)
             
-            # Check for terminated processes
-            terminated_processes = self.known_processes - current_processes
-            for process_key in terminated_processes:
-                try:
-                    # Fix: Handle process_key parsing safely
-                    parts = process_key.split('_', 1)
-                    if len(parts) >= 2:
-                        pid_str, name = parts[0], parts[1]
-                        try:
-                            pid = int(pid_str)
-                        except ValueError:
-                            continue
-                            
-                        event_data = EventData(
-                            event_type='Process',
-                            event_action='Terminate',
-                            event_timestamp=current_time,
-                            severity='Info',
-                            description=f'Process terminated: {name} (PID: {pid})',
-                            process_id=pid,
-                            process_name=name,
-                            raw_event_data=json.dumps({
-                                'pid': pid, 
-                                'name': name, 
-                                'action': 'terminated'
-                            })
-                        )
-                        
-                        events.append(event_data)
-                        self.known_processes.discard(process_key)
-                        self.logger.debug(f"💀 Process terminated: {name} (PID: {pid})")
-                        
-                except Exception as e:
-                    self.logger.debug(f"Error processing terminated process {process_key}: {e}")
-                    # Remove invalid process key
-                    self.known_processes.discard(process_key)
-                    continue
+            # ENHANCED: Collect process termination events
+            terminated_processes = await self._detect_terminated_processes()
+            events.extend(terminated_processes)
             
-            # Clean up old process tracking (keep only reasonable amount)
-            if len(self.known_processes) > 10000:
-                # Keep only the most recent processes
-                processes_list = list(self.known_processes)
-                self.known_processes = set(processes_list[-5000:])
-                self.logger.debug(f"🧹 Cleaned up process tracking: kept {len(self.known_processes)} processes")
+            # ENHANCED: Monitor suspicious process activities
+            suspicious_events = await self._monitor_suspicious_processes()
+            events.extend(suspicious_events)
+            
+            # ENHANCED: Collect process performance data
+            performance_events = await self._collect_performance_data()
+            events.extend(performance_events)
+            
+            # ENHANCED: Monitor process network connections
+            network_events = await self._monitor_process_networks()
+            events.extend(network_events)
+            
+            # ENHANCED: Monitor process file operations
+            file_events = await self._monitor_process_files()
+            events.extend(file_events)
+            
+            if events:
+                self.logger.debug(f"Collected {len(events)} process events")
             
             return events
             
         except Exception as e:
-            self.logger.error(f"❌ Process collection error: {e}")
+            self.logger.error(f"Process data collection failed: {e}")
             return []
-            
-    async def _get_initial_process_snapshot(self):
-        """Get initial snapshot of running processes"""
+    
+    async def collect_data(self) -> List[EventData]:
+        """Collect process data with enhanced monitoring"""
         try:
-            for proc in psutil.process_iter(['pid', 'name']):
-                try:
-                    proc_info = proc.info
-                    if proc_info['pid'] is not None and proc_info['name'] is not None:
-                        process_key = f"{proc_info['pid']}_{proc_info['name']}"
-                        self.known_processes.add(process_key)
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-                    
-            self.logger.info(f"📸 Initial process snapshot: {len(self.known_processes)} processes")
+            events = []
+            
+            # ENHANCED: Collect process creation events
+            new_processes = await self._detect_new_processes()
+            events.extend(new_processes)
+            
+            # ENHANCED: Collect process termination events
+            terminated_processes = await self._detect_terminated_processes()
+            events.extend(terminated_processes)
+            
+            # ENHANCED: Monitor suspicious process activities
+            suspicious_events = await self._monitor_suspicious_processes()
+            events.extend(suspicious_events)
+            
+            # ENHANCED: Collect process performance data
+            performance_events = await self._collect_performance_data()
+            events.extend(performance_events)
+            
+            # ENHANCED: Monitor process network connections
+            network_events = await self._monitor_process_networks()
+            events.extend(network_events)
+            
+            # ENHANCED: Monitor process file operations
+            file_events = await self._monitor_process_files()
+            events.extend(file_events)
+            
+            if events:
+                self.logger.debug(f"Collected {len(events)} process events")
+            
+            return events
             
         except Exception as e:
-            self.logger.error(f"❌ Failed to get initial process snapshot: {e}")
+            self.logger.error(f"❌ Process data collection failed: {e}")
+            return []
+    
+    async def _scan_all_processes(self):
+        """Scan all current processes for baseline"""
+        try:
+            for proc in psutil.process_iter(['pid', 'name', 'create_time', 'cmdline']):
+                try:
+                    proc_info = proc.info
+                    self.known_processes.add(proc_info['pid'])
+                    self.process_start_times[proc_info['pid']] = proc_info['create_time']
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
             
-    def get_process_stats(self) -> Dict:
-        """Get process collection statistics"""
-        return {
-            **self.process_stats,
-            'known_processes': len(self.known_processes),
-            'processes_tracked': self.process_stats['processes_tracked']
-        }
+            self.logger.info(f"Baseline scan: {len(self.known_processes)} processes")
+            
+        except Exception as e:
+            self.logger.error(f"Process scan failed: {e}")
+    
+    async def _detect_new_processes(self) -> List[EventData]:
+        """Detect newly created processes"""
+        try:
+            events = []
+            current_processes = set()
+            
+            for proc in psutil.process_iter(['pid', 'name', 'create_time', 'cmdline', 'ppid', 'username']):
+                try:
+                    proc_info = proc.info
+                    current_processes.add(proc_info['pid'])
+                    
+                    # Check if this is a new process
+                    if proc_info['pid'] not in self.known_processes:
+                        # New process detected
+                        event = self._create_process_event(
+                            action=EventAction.CREATE,
+                            process_id=proc_info['pid'],
+                            process_name=proc_info['name'],
+                            command_line=' '.join(proc_info['cmdline']) if proc_info['cmdline'] else '',
+                            parent_pid=proc_info['ppid'],
+                            process_user=proc_info['username'],
+                            severity=self._determine_process_severity(proc_info['name'])
+                        )
+                        events.append(event)
+                        
+                        # Update tracking
+                        self.known_processes.add(proc_info['pid'])
+                        self.process_start_times[proc_info['pid']] = proc_info['create_time']
+                        
+                        # Check if suspicious
+                        if self._is_suspicious_process(proc_info['name']):
+                            self.suspicious_processes.add(proc_info['pid'])
+                            self.logger.warning(f"Suspicious process detected: {proc_info['name']} (PID: {proc_info['pid']})")
+                
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            
+            # Update known processes
+            self.known_processes = current_processes
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"New process detection failed: {e}")
+            return []
+    
+    async def _detect_terminated_processes(self) -> List[EventData]:
+        """Detect terminated processes"""
+        try:
+            events = []
+            current_processes = set()
+            
+            for proc in psutil.process_iter(['pid']):
+                try:
+                    current_processes.add(proc.info['pid'])
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            
+            # Find terminated processes
+            terminated_pids = self.known_processes - current_processes
+            
+            for pid in terminated_pids:
+                # Create termination event
+                event = self._create_process_event(
+                    action=EventAction.TERMINATE,
+                    process_id=pid,
+                    process_name="Unknown",  # Process already terminated
+                    command_line="",
+                    parent_pid=None,
+                    process_user="Unknown",
+                    severity=Severity.LOW
+                )
+                events.append(event)
+                
+                # Clean up tracking
+                self.process_start_times.pop(pid, None)
+                self.suspicious_processes.discard(pid)
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Terminated process detection failed: {e}")
+            return []
+    
+    async def _monitor_suspicious_processes(self) -> List[EventData]:
+        """Monitor activities of suspicious processes"""
+        try:
+            events = []
+            
+            for pid in list(self.suspicious_processes):
+                try:
+                    proc = psutil.Process(pid)
+                    
+                    # Check if process still exists
+                    if not proc.is_running():
+                        self.suspicious_processes.discard(pid)
+                        continue
+                    
+                    # Monitor suspicious activities
+                    event = await self._check_suspicious_activity(proc)
+                    if event:
+                        events.append(event)
+                
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    self.suspicious_processes.discard(pid)
+                    continue
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Suspicious process monitoring failed: {e}")
+            return []
+    
+    async def _check_suspicious_activity(self, proc) -> Optional[EventData]:
+        """Check for suspicious activities in a process"""
+        try:
+            # Check command line for suspicious patterns
+            cmdline = ' '.join(proc.cmdline()) if proc.cmdline() else ''
+            
+            suspicious_patterns = [
+                'powershell -enc', 'cmd /c', 'wscript', 'cscript',
+                'rundll32', 'regsvr32', 'mshta', 'certutil',
+                'bitsadmin', 'wmic', 'schtasks', 'at ',
+                'net user', 'net group', 'net localgroup'
+            ]
+            
+            for pattern in suspicious_patterns:
+                if pattern.lower() in cmdline.lower():
+                    return self._create_process_event(
+                        action=EventAction.SUSPICIOUS_ACTIVITY,
+                        process_id=proc.pid,
+                        process_name=proc.name(),
+                        command_line=cmdline,
+                        parent_pid=proc.ppid(),
+                        process_user=proc.username(),
+                        severity=Severity.HIGH,
+                        additional_data={'suspicious_pattern': pattern}
+                    )
+            
+            return None
+            
+        except Exception as e:
+            self.logger.debug(f"Suspicious activity check failed: {e}")
+            return None
+    
+    async def _collect_performance_data(self) -> List[EventData]:
+        """Collect process performance data"""
+        try:
+            events = []
+            
+            for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+                try:
+                    proc_info = proc.info
+                    
+                    # Only collect for processes with significant resource usage
+                    if proc_info['cpu_percent'] > 10 or proc_info['memory_percent'] > 5:
+                        event = self._create_process_event(
+                            action=EventAction.RESOURCE_USAGE,
+                            process_id=proc_info['pid'],
+                            process_name=proc_info['name'],
+                            command_line="",
+                            parent_pid=None,
+                            process_user="",
+                            severity=Severity.MEDIUM,
+                            additional_data={
+                                'cpu_percent': proc_info['cpu_percent'],
+                                'memory_percent': proc_info['memory_percent']
+                            }
+                        )
+                        events.append(event)
+                
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Performance data collection failed: {e}")
+            return []
+    
+    async def _monitor_process_networks(self) -> List[EventData]:
+        """Monitor process network connections"""
+        try:
+            events = []
+            
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    connections = proc.connections()
+                    
+                    for conn in connections:
+                        if conn.status == 'ESTABLISHED':
+                            event = self._create_process_event(
+                                action=EventAction.NETWORK_CONNECTION,
+                                process_id=proc.info['pid'],
+                                process_name=proc.info['name'],
+                                command_line="",
+                                parent_pid=None,
+                                process_user="",
+                                severity=Severity.LOW,
+                                additional_data={
+                                    'local_address': f"{conn.laddr.ip}:{conn.laddr.port}",
+                                    'remote_address': f"{conn.raddr.ip}:{conn.raddr.port}",
+                                    'status': conn.status
+                                }
+                            )
+                            events.append(event)
+                
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Process network monitoring failed: {e}")
+            return []
+    
+    async def _monitor_process_files(self) -> List[EventData]:
+        """Monitor process file operations"""
+        try:
+            events = []
+            
+            # This would require integration with Windows API for real-time file monitoring
+            # For now, we'll monitor file handles
+            for proc in psutil.process_iter(['pid', 'name']):
+                try:
+                    open_files = proc.open_files()
+                    
+                    for file in open_files:
+                        if self._is_suspicious_file(file.path):
+                            event = self._create_process_event(
+                                action=EventAction.FILE_ACCESS,
+                                process_id=proc.info['pid'],
+                                process_name=proc.info['name'],
+                                command_line="",
+                                parent_pid=None,
+                                process_user="",
+                                severity=Severity.MEDIUM,
+                                additional_data={
+                                    'file_path': file.path,
+                                    'file_access': 'read'
+                                }
+                            )
+                            events.append(event)
+                
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Process file monitoring failed: {e}")
+            return []
+    
+    def _is_suspicious_process(self, process_name: str) -> bool:
+        """Check if process name matches suspicious patterns"""
+        return any(pattern.lower() in process_name.lower() for pattern in self.suspicious_patterns)
+    
+    def _is_suspicious_file(self, file_path: str) -> bool:
+        """Check if file path is suspicious"""
+        suspicious_extensions = ['.exe', '.dll', '.bat', '.cmd', '.ps1', '.vbs', '.js']
+        suspicious_paths = ['temp', 'downloads', 'desktop', 'recent']
+        
+        file_path_lower = file_path.lower()
+        
+        # Check extension
+        if any(ext in file_path_lower for ext in suspicious_extensions):
+            # Check if in suspicious location
+            if any(path in file_path_lower for path in suspicious_paths):
+                return True
+        
+        return False
+    
+    def _determine_process_severity(self, process_name: str) -> Severity:
+        """Determine severity based on process name"""
+        if self._is_suspicious_process(process_name):
+            return Severity.HIGH
+        elif process_name.lower() in ['svchost.exe', 'lsass.exe', 'winlogon.exe']:
+            return Severity.MEDIUM
+        else:
+            return Severity.LOW
+    
+    def _create_process_event(self, action: EventAction, process_id: int, process_name: str,
+                            command_line: str, parent_pid: Optional[int], process_user: str,
+                            severity: Severity, additional_data: Dict = None) -> EventData:
+        """Create process event data"""
+        try:
+            # Get process hash if available
+            process_hash = None
+            try:
+                proc = psutil.Process(process_id)
+                process_path = proc.exe()
+                if process_path and Path(process_path).exists():
+                    process_hash = ProcessUtils.calculate_file_hash(process_path)
+            except:
+                pass
+            
+            return EventData(
+                event_type=EventType.PROCESS,
+                event_action=action,
+                event_timestamp=datetime.now(),
+                severity=severity,
+                process_id=process_id,
+                process_name=process_name,
+                process_path=proc.exe() if 'proc' in locals() else None,
+                command_line=command_line,
+                parent_pid=parent_pid,
+                parent_process_name=None,  # Would need to look up
+                process_user=process_user,
+                process_hash=process_hash,
+                raw_event_data=additional_data or {}
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Process event creation failed: {e}")
+            return None
+    
+    def _monitored_popen(self, *args, **kwargs):
+        """Monitored version of Popen to track process creation"""
+        try:
+            # This would integrate with Windows API for real-time process creation events
+            return psutil.Popen(*args, **kwargs)
+        except Exception as e:
+            self.logger.debug(f"Monitored Popen failed: {e}")
+            return psutil.Popen(*args, **kwargs)
+
+    async def stop(self):
+        """Stop process collector gracefully"""
+        try:
+            self.logger.info("Stopping ProcessCollector...")
+            self.is_running = False
+            
+            # Clean up process tracking
+            self.known_processes.clear()
+            self.process_start_times.clear()
+            self.suspicious_processes.clear()
+            
+            self.logger.info("ProcessCollector stopped")
+            
+        except Exception as e:
+            self.logger.error(f"Process collector stop error: {e}")

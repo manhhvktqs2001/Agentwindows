@@ -14,16 +14,16 @@ from datetime import datetime
 from typing import Optional, Dict, List, Any
 from pathlib import Path
 
-from .communication import ServerCommunication
-from .config_manager import ConfigManager
-from .event_processor import EventProcessor
-from ..collectors.process_collector import ProcessCollector
-from ..collectors.file_collector import FileCollector
-from ..collectors.network_collector import NetworkCollector
-from ..collectors.registry_collector import RegistryCollector
-from ..collectors.authentication_collector import AuthenticationCollector
-from ..collectors.system_collector import SystemCollector
-from ..schemas.agent_data import AgentRegistrationData, AgentHeartbeatData
+from agent.core.communication import ServerCommunication
+from agent.core.config_manager import ConfigManager
+from agent.core.event_processor import EventProcessor
+from agent.collectors.process_collector import ProcessCollector
+from agent.collectors.file_collector import FileCollector
+from agent.collectors.network_collector import NetworkCollector
+from agent.collectors.registry_collector import RegistryCollector
+from agent.collectors.authentication_collector import AuthenticationCollector
+from agent.collectors.system_collector import SystemCollector
+from agent.schemas.agent_data import AgentRegistrationData, AgentHeartbeatData
 
 class AgentManager:
     """Main agent management class"""
@@ -55,7 +55,7 @@ class AgentManager:
     async def initialize(self):
         """Initialize agent manager and components"""
         try:
-            self.logger.info("🔧 Initializing agent manager...")
+            self.logger.info("Agent manager initialized")
             
             # Initialize server communication
             self.communication = ServerCommunication(self.config_manager)
@@ -67,10 +67,10 @@ class AgentManager:
             # Initialize collectors
             await self._initialize_collectors()
             
-            self.logger.info("✅ Agent manager initialized")
+            self.logger.info("Agent manager initialized")
             
         except Exception as e:
-            self.logger.error(f"❌ Agent manager initialization failed: {e}")
+            self.logger.error(f"Agent manager initialization failed: {e}")
             raise Exception(f"Initialization failed: {e}")
     
     async def _initialize_collectors(self):
@@ -83,26 +83,26 @@ class AgentManager:
             if collection_config.get('collect_processes', True):
                 self.collectors['process'] = ProcessCollector(self.config_manager)
                 await self.collectors['process'].initialize()
-                self.logger.info("✅ Process collector initialized")
+                self.logger.info("Process collector initialized")
             
             # File collector
             if collection_config.get('collect_files', True):
                 self.collectors['file'] = FileCollector(self.config_manager)
                 await self.collectors['file'].initialize()
-                self.logger.info("✅ File collector initialized")
+                self.logger.info("File collector initialized")
             
             # Network collector
             if collection_config.get('collect_network', True):
                 self.collectors['network'] = NetworkCollector(self.config_manager)
                 await self.collectors['network'].initialize()
-                self.logger.info("✅ Network collector initialized")
+                self.logger.info("Network collector initialized")
             
             # Registry collector (Windows only)
             if (collection_config.get('collect_registry', True) and 
                 platform.system().lower() == 'windows'):
                 self.collectors['registry'] = RegistryCollector(self.config_manager)
                 await self.collectors['registry'].initialize()
-                self.logger.info("✅ Registry collector initialized")
+                self.logger.info("Registry collector initialized")
             
             # Authentication collector - FIXED: Optimized
             if collection_config.get('collect_authentication', True):
@@ -110,25 +110,25 @@ class AgentManager:
                 await self.collectors['authentication'].initialize()
                 # FIXED: Increase polling interval for slow collectors
                 self.collectors['authentication'].polling_interval = 15  # Increase from 5 to 15 seconds
-                self.logger.info("✅ Authentication collector initialized (optimized)")
+                self.logger.info("Authentication collector initialized (optimized)")
             
             # System collector - FIXED: Optimized
             self.collectors['system'] = SystemCollector(self.config_manager)
             await self.collectors['system'].initialize()
             # FIXED: Increase polling interval for slow collectors
             self.collectors['system'].polling_interval = 15  # Increase from 5 to 15 seconds
-            self.logger.info("✅ System collector initialized (optimized)")
+            self.logger.info("System collector initialized (optimized)")
             
-            self.logger.info(f"✅ {len(self.collectors)} collectors initialized")
+            self.logger.info(f"{len(self.collectors)} collectors initialized")
             
         except Exception as e:
-            self.logger.error(f"❌ Collector initialization failed: {e}")
+            self.logger.error(f"Collector initialization failed: {e}")
             raise
     
     async def start(self):
         """Start the agent"""
         try:
-            self.logger.info("🚀 Starting agent...")
+            self.logger.info("Starting agent...")
             
             # Register with server
             await self._register_with_server()
@@ -157,16 +157,16 @@ class AgentManager:
                 self.event_processor.set_agent_id(self.agent_id)
                 self.logger.info(f"[EVENT_PROCESSOR] Set AgentID: {self.agent_id}")
             
-            self.logger.info("✅ Agent started successfully")
+            self.logger.info("Agent started successfully")
             
         except Exception as e:
-            self.logger.error(f"❌ Agent start failed: {e}")
+            self.logger.error(f"Agent start failed: {e}")
             raise
     
     async def stop(self):
         """Stop the agent gracefully"""
         try:
-            self.logger.info("🛑 Stopping agent...")
+            self.logger.info("Stopping agent...")
             self.is_monitoring = False
             
             # Stop collectors
@@ -180,15 +180,15 @@ class AgentManager:
             if self.is_registered:
                 await self._send_heartbeat(status='Offline')
             
-            self.logger.info("✅ Agent stopped")
+            self.logger.info("Agent stopped")
             
         except Exception as e:
-            self.logger.error(f"❌ Agent stop error: {e}")
+            self.logger.error(f"Agent stop error: {e}")
     
     async def _register_with_server(self):
         """Register agent with EDR server"""
         try:
-            self.logger.info("📡 Registering with EDR server...")
+            self.logger.info("Registering with EDR server...")
             
             # Get system information
             system_info = self._get_system_info()
@@ -212,7 +212,7 @@ class AgentManager:
             if response and response.get('success'):
                 self.agent_id = response.get('agent_id')
                 self.is_registered = True
-                self.logger.info(f"✅ Agent registered: {self.agent_id}")
+                self.logger.info(f"Agent registered: {self.agent_id}")
                 
                 # Update configuration with server settings
                 if 'heartbeat_interval' in response:
@@ -224,7 +224,7 @@ class AgentManager:
                 raise Exception("Registration failed")
                 
         except Exception as e:
-            self.logger.error(f"❌ Registration failed: {e}")
+            self.logger.error(f"Registration failed: {e}")
             raise
     
     async def _check_alert_endpoints_availability(self):
@@ -238,14 +238,14 @@ class AgentManager:
             
             if test_response is not None:
                 self.alert_endpoints_available = True
-                self.logger.info("✅ Alert endpoints available on server")
+                self.logger.info("Alert endpoints available on server")
             else:
                 self.alert_endpoints_available = False
-                self.logger.info("⚠️ Alert endpoints not available on server (will be disabled)")
+                self.logger.info("Alert endpoints not available on server (will be disabled)")
                 
         except Exception as e:
             self.alert_endpoints_available = False
-            self.logger.info("⚠️ Alert endpoints not available on server (will be disabled)")
+            self.logger.info("Alert endpoints not available on server (will be disabled)")
             self.logger.debug(f"Alert endpoint test failed: {e}")
     
     def _get_system_info(self) -> Dict[str, str]:

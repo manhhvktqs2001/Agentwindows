@@ -1,4 +1,4 @@
-from .local_rules import LocalRules
+from agent.detection.local_rules import LocalRules
 
 class BehaviorAnalyzer:
     """Phân tích hành vi dựa trên event và local rules"""

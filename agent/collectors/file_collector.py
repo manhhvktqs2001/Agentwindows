@@ -1,470 +1,606 @@
-# agent/collectors/file_collector.py - FINAL FIXED VERSION
+# agent/collectors/file_collector.py - ENHANCED
 """
-File Collector - Fixed event loop error in threading
+File Activity Collector - ENHANCED
+Thu thập thông tin về hoạt động file liên tục với tần suất cao
 """
 
 import asyncio
 import logging
-import hashlib
 import os
-import platform
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Dict, List, Optional, Set
+import time
+import hashlib
 import json
-import threading
-import queue
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional, Set
+from pathlib import Path
+from collections import defaultdict
+import shutil
+import stat
+try:
+    import win32file
+    import win32con
+    WIN32_AVAILABLE = True
+except ImportError:
+    WIN32_AVAILABLE = False
 
-from .base_collector import BaseCollector
-from ..schemas.events import EventData
+from agent.collectors.base_collector import BaseCollector
+from agent.schemas.events import EventData, EventType, EventAction, Severity
+from agent.utils.file_utils import FileUtils
 
 class FileCollector(BaseCollector):
-    """File system monitoring collector - Fixed threading issues"""
+    """Enhanced File Activity Collector"""
     
     def __init__(self, config_manager):
         super().__init__(config_manager, "FileCollector")
         
-        # Initialize ALL attributes FIRST
-        self.restricted_paths = []
-        self.accessible_paths = []
-        self.excluded_extensions = {'.tmp', '.log', '.bak', '.swp', '.lock'}
-        self.excluded_directories = set()
-        self.max_file_size = 100 * 1024 * 1024  # 100MB
+        # Enhanced configuration
+        self.polling_interval = 3  # ENHANCED: Reduced from 10 to 3 seconds for continuous monitoring
+        self.max_files_per_batch = 100  # ENHANCED: Increased batch size
+        self.track_file_changes = True
+        self.monitor_suspicious_files = True
         
-        # File monitoring settings
-        self.observer = None
-        self.event_handler = None
-        self.observer_started = False
+        # File tracking
+        self.known_files = set()
+        self.file_hashes = {}
+        self.suspicious_files = set()
+        self.file_changes = defaultdict(list)
         
-        # Configuration
-        self.collect_hashes = True
-        self.monitor_creation = True
-        self.monitor_modification = True
-        self.monitor_deletion = True
-        self.monitor_moves = True
+        # Enhanced monitoring
+        self.monitor_executables = True
+        self.monitor_documents = True
+        self.monitor_scripts = True
+        self.monitor_temp_files = True
+        self.monitor_downloads = True
         
-        # Event tracking
-        self.recent_events = {}
-        self.event_deduplication_window = 1.0  # seconds
+        # Suspicious file patterns
+        self.suspicious_extensions = [
+            '.exe', '.dll', '.bat', '.cmd', '.ps1', '.vbs', '.js', '.jar',
+            '.msi', '.scr', '.pif', '.com', '.hta', '.wsf', '.wsh'
+        ]
         
-        # FIXED: Event queue for thread-safe communication
-        self.file_event_queue = queue.Queue()
-        self.queue_processor_running = False
+        self.suspicious_paths = [
+            'temp', 'downloads', 'desktop', 'recent', 'startup',
+            'appdata', 'local', 'roaming', 'system32', 'windows'
+        ]
         
-        # Get monitor paths
-        self.monitor_paths = self._get_monitor_paths()
+        # File monitoring paths
+        self.monitor_paths = [
+            os.path.expanduser('~/Desktop'),
+            os.path.expanduser('~/Downloads'),
+            os.path.expanduser('~/Documents'),
+            os.path.expanduser('~/AppData/Local/Temp'),
+            os.path.expanduser('~/AppData/Roaming'),
+            'C:/Windows/Temp',
+            'C:/ProgramData'
+        ]
         
-        # Setup filters
-        self._setup_filters()
+        self.logger.info("Enhanced File Collector initialized")
     
-    def _get_monitor_paths(self) -> List[str]:
-        """Get paths to monitor with access checking"""
+    async def initialize(self):
+        """Initialize file collector with enhanced monitoring"""
         try:
-            self.accessible_paths = []
-            self.restricted_paths = []
+            # Get initial file state
+            await self._scan_all_files()
             
-            # User-accessible paths
-            user_home = str(Path.home())
-            potential_paths = [
-                user_home,
-                os.path.join(user_home, 'Desktop'),
-                os.path.join(user_home, 'Documents'),
-                os.path.join(user_home, 'Downloads'),
-            ]
+            # Set up enhanced monitoring
+            self._setup_file_monitoring()
             
-            # Test each path
-            for path in potential_paths:
-                if self._test_path_access(path):
-                    self.accessible_paths.append(path)
-                    self.logger.debug(f"✅ Accessible path: {path}")
-                else:
-                    self.restricted_paths.append(path)
-                    self.logger.debug(f"❌ Restricted path: {path}")
-            
-            if not self.accessible_paths:
-                self.logger.warning("⚠️ No accessible paths found for file monitoring")
-            else:
-                self.logger.info(f"📁 Found {len(self.accessible_paths)} accessible paths")
-            
-            return self.accessible_paths
+            self.logger.info(f"Enhanced File Collector initialized - Monitoring {len(self.known_files)} files")
             
         except Exception as e:
-            self.logger.error(f"❌ Error getting monitor paths: {e}")
-            return []
+            self.logger.error(f"File collector initialization failed: {e}")
+            raise
     
-    def _test_path_access(self, path: str) -> bool:
-        """Test if path is accessible for monitoring"""
+    def _setup_file_monitoring(self):
+        """Set up enhanced file monitoring"""
         try:
-            path_obj = Path(path)
+            # Set up file event callbacks
+            self._setup_file_callbacks()
             
-            if not path_obj.exists():
-                return False
-            
-            if path_obj.is_dir():
-                try:
-                    list(path_obj.iterdir())
-                    return True
-                except (PermissionError, OSError):
-                    return False
-            
-            return False
-                
-        except Exception:
-            return False
-    
-    def _setup_filters(self):
-        """Setup file filters from configuration"""
-        try:
-            filters_config = self.config.get('filters', {})
-            
-            # File extensions to exclude
-            exclude_extensions = filters_config.get('exclude_file_extensions', [])
-            self.excluded_extensions.update(ext.lower() for ext in exclude_extensions)
-            
-            # File size limit
-            self.max_file_size = filters_config.get('max_file_size_mb', 100) * 1024 * 1024
-            
-            self.logger.debug(f"🔧 File filters configured: {len(self.excluded_extensions)} excluded extensions")
+            # Initialize file utilities
+            self.file_utils = FileUtils()
             
         except Exception as e:
-            self.logger.error(f"❌ Error setting up filters: {e}")
+            self.logger.error(f"File monitoring setup failed: {e}")
     
-    async def _collector_specific_init(self):
-        """Initialize file collector with FIXED threading approach"""
+    def _setup_file_callbacks(self):
+        """Set up file event callbacks for real-time monitoring"""
         try:
-            if self.accessible_paths:
-                try:
-                    from watchdog.observers import Observer
-                    from watchdog.events import FileSystemEventHandler
-                    
-                    # Create observer
-                    self.observer = Observer()
-                    
-                    # Create THREAD-SAFE event handler
-                    self.event_handler = self._create_thread_safe_handler()
-                    
-                    # Schedule monitoring for accessible paths
-                    for path in self.accessible_paths:
-                        try:
-                            self.observer.schedule(
-                                self.event_handler,
-                                path,
-                                recursive=False  # Start with non-recursive
-                            )
-                            self.logger.debug(f"📁 Scheduled monitoring for: {path}")
-                        except Exception as e:
-                            self.logger.warning(f"⚠️ Cannot monitor path {path}: {e}")
-                    
-                    self.logger.info(f"✅ File monitoring setup for {len(self.accessible_paths)} paths")
-                    
-                except ImportError:
-                    self.logger.warning("⚠️ Watchdog not available - file monitoring disabled")
-                except Exception as e:
-                    self.logger.warning(f"⚠️ File monitoring setup failed: {e}")
-            else:
-                self.logger.warning("⚠️ No accessible paths - file monitoring disabled")
-            
+            # This would integrate with Windows API for real-time file events
+            # For now, we use polling with enhanced frequency
+            pass
         except Exception as e:
-            self.logger.error(f"❌ File collector initialization failed: {e}")
-    
-    def _create_thread_safe_handler(self):
-        """Create thread-safe event handler that uses queue"""
-        try:
-            from watchdog.events import FileSystemEventHandler
-            
-            class ThreadSafeFileHandler(FileSystemEventHandler):
-                def __init__(self, collector):
-                    super().__init__()
-                    self.collector = collector
-                    self.logger = logging.getLogger(__name__)
-                
-                def on_created(self, event):
-                    if not event.is_directory:
-                        self._queue_event(event.src_path, 'Create')
-                
-                def on_modified(self, event):
-                    if not event.is_directory:
-                        self._queue_event(event.src_path, 'Modify')
-                
-                def on_deleted(self, event):
-                    if not event.is_directory:
-                        self._queue_event(event.src_path, 'Delete')
-                
-                def on_moved(self, event):
-                    if not event.is_directory:
-                        dest_path = getattr(event, 'dest_path', event.src_path)
-                        self._queue_event(dest_path, 'Move')
-                
-                def _queue_event(self, file_path: str, action: str):
-                    """FIXED: Queue event instead of calling async directly"""
-                    try:
-                        # Put event in queue for main thread to process
-                        self.collector.file_event_queue.put({
-                            'file_path': file_path,
-                            'action': action,
-                            'timestamp': datetime.now()
-                        })
-                        self.logger.debug(f"📋 Queued file event: {action} - {Path(file_path).name}")
-                        
-                    except Exception as e:
-                        self.logger.error(f"❌ File event queueing error: {e}")
-            
-            return ThreadSafeFileHandler(self)
-            
-        except ImportError:
-            self.logger.warning("⚠️ Cannot create watchdog handler")
-            return None
-    
-    async def start(self):
-        """Start file monitoring with queue processor"""
-        try:
-            await super().start()
-            
-            # Start queue processor
-            self.queue_processor_running = True
-            asyncio.create_task(self._process_file_event_queue())
-            
-            if self.observer and self.accessible_paths:
-                try:
-                    self.observer.start()
-                    self.observer_started = True
-                    self.logger.info("✅ File system monitoring started")
-                except Exception as e:
-                    self.logger.warning(f"⚠️ File monitoring failed to start: {e}")
-            else:
-                self.logger.info("📁 File monitoring disabled - no accessible paths")
-            
-        except Exception as e:
-            self.logger.error(f"❌ File collector start failed: {e}")
-    
-    async def stop(self):
-        """Stop file monitoring"""
-        try:
-            # Stop queue processor
-            self.queue_processor_running = False
-            
-            if self.observer and self.observer_started:
-                try:
-                    self.observer.stop()
-                    self.observer.join(timeout=5)
-                    self.observer_started = False
-                    self.logger.info("🛑 File system monitoring stopped")
-                except Exception as e:
-                    self.logger.error(f"❌ Error stopping file observer: {e}")
-            
-            await super().stop()
-            
-        except Exception as e:
-            self.logger.error(f"❌ File collector stop error: {e}")
-    
-    async def _process_file_event_queue(self):
-        """FIXED: Process file events from queue in main async loop"""
-        self.logger.info("🔄 File event queue processor started")
-        
-        while self.queue_processor_running and self.is_running:
-            try:
-                # Process all queued events
-                processed_count = 0
-                
-                while not self.file_event_queue.empty() and processed_count < 50:
-                    try:
-                        # Get event from queue (non-blocking)
-                        event_data = self.file_event_queue.get_nowait()
-                        
-                        # Process the event
-                        await self.handle_file_event(
-                            event_data['file_path'], 
-                            event_data['action']
-                        )
-                        
-                        processed_count += 1
-                        
-                    except queue.Empty:
-                        break
-                    except Exception as e:
-                        self.logger.error(f"❌ Event processing error: {e}")
-                
-                if processed_count > 0:
-                    self.logger.debug(f"📋 Processed {processed_count} file events")
-                
-                # Wait before next check
-                await asyncio.sleep(0.5)
-                
-            except Exception as e:
-                self.logger.error(f"❌ Queue processor error: {e}")
-                await asyncio.sleep(1)
-        
-        self.logger.info("🔄 File event queue processor stopped")
+            self.logger.debug(f"File callbacks setup failed: {e}")
     
     async def _collect_data(self):
-        """File collector uses event-driven approach, no polling needed"""
-        # Clean up old event tracking data
-        await self._cleanup_recent_events()
-        return []
-    
-    async def _cleanup_recent_events(self):
-        """Clean up old event tracking data"""
+        """Collect file data with enhanced monitoring - REQUIRED ABSTRACT METHOD"""
         try:
-            current_time = datetime.now()
-            cutoff_time = current_time - timedelta(minutes=5)
+            events = []
             
-            old_events = [
-                event_id for event_id, timestamp in self.recent_events.items()
-                if timestamp < cutoff_time
-            ]
+            # ENHANCED: Collect new files
+            new_files = await self._detect_new_files()
+            events.extend(new_files)
             
-            for event_id in old_events:
-                del self.recent_events[event_id]
-                
+            # ENHANCED: Collect modified files
+            modified_files = await self._detect_modified_files()
+            events.extend(modified_files)
+            
+            # ENHANCED: Collect deleted files
+            deleted_files = await self._detect_deleted_files()
+            events.extend(deleted_files)
+            
+            # ENHANCED: Monitor suspicious files
+            suspicious_events = await self._monitor_suspicious_files()
+            events.extend(suspicious_events)
+            
+            # ENHANCED: Monitor file access patterns
+            access_events = await self._monitor_file_access()
+            events.extend(access_events)
+            
+            # ENHANCED: Monitor file size changes
+            size_events = await self._monitor_file_sizes()
+            events.extend(size_events)
+            
+            if events:
+                self.logger.debug(f"Collected {len(events)} file events")
+            
+            return events
+            
         except Exception as e:
-            self.logger.error(f"❌ Recent events cleanup error: {e}")
+            self.logger.error(f"File data collection failed: {e}")
+            return []
     
-    async def handle_file_event(self, file_path: str, action: str):
-        """Handle file system event (called by queue processor)"""
+    async def collect_data(self) -> List[EventData]:
+        """Collect file data with enhanced monitoring"""
         try:
-            # Basic validation
-            if not self._should_monitor_file(file_path):
-                return
+            events = []
             
-            # Deduplication check
-            if self._is_duplicate_event(file_path, action):
-                return
+            # ENHANCED: Collect new files
+            new_files = await self._detect_new_files()
+            events.extend(new_files)
             
-            # Get file information
-            file_info = await self._get_file_info(file_path, action)
-            if not file_info:
-                return
+            # ENHANCED: Collect modified files
+            modified_files = await self._detect_modified_files()
+            events.extend(modified_files)
             
-            # Create event data
-            event_data = EventData(
-                event_type='File',
+            # ENHANCED: Collect deleted files
+            deleted_files = await self._detect_deleted_files()
+            events.extend(deleted_files)
+            
+            # ENHANCED: Monitor suspicious files
+            suspicious_events = await self._monitor_suspicious_files()
+            events.extend(suspicious_events)
+            
+            # ENHANCED: Monitor file access patterns
+            access_events = await self._monitor_file_access()
+            events.extend(access_events)
+            
+            # ENHANCED: Monitor file size changes
+            size_events = await self._monitor_file_sizes()
+            events.extend(size_events)
+            
+            if events:
+                self.logger.debug(f"📊 Collected {len(events)} file events")
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"❌ File data collection failed: {e}")
+            return []
+    
+    async def _scan_all_files(self):
+        """Scan all files in monitored paths for baseline"""
+        try:
+            for path in self.monitor_paths:
+                if os.path.exists(path):
+                    await self._scan_directory(path)
+            
+            self.logger.info(f"Baseline scan: {len(self.known_files)} files")
+            
+        except Exception as e:
+            self.logger.error(f"File scan failed: {e}")
+    
+    async def _scan_directory(self, directory_path: str):
+        """Scan directory for files"""
+        try:
+            for root, dirs, files in os.walk(directory_path):
+                for file in files:
+                    try:
+                        file_path = os.path.join(root, file)
+                        file_key = self._create_file_key(file_path)
+                        self.known_files.add(file_key)
+                        
+                        # Get file hash if possible
+                        if os.path.exists(file_path):
+                            try:
+                                file_hash = await self._get_file_hash(file_path)
+                                self.file_hashes[file_key] = file_hash
+                            except:
+                                pass
+                        
+                        # Check if suspicious
+                        if self._is_suspicious_file(file_path):
+                            self.suspicious_files.add(file_key)
+                    
+                    except (OSError, PermissionError):
+                        continue
+                        
+        except Exception as e:
+            self.logger.debug(f"Directory scan failed for {directory_path}: {e}")
+    
+    async def _detect_new_files(self) -> List[EventData]:
+        """Detect newly created files"""
+        try:
+            events = []
+            current_files = set()
+            
+            for path in self.monitor_paths:
+                if os.path.exists(path):
+                    await self._scan_directory_for_new_files(path, current_files, events)
+            
+            # Update known files
+            self.known_files = current_files
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"New file detection failed: {e}")
+            return []
+    
+    async def _scan_directory_for_new_files(self, directory_path: str, current_files: set, events: List[EventData]):
+        """Scan directory for new files"""
+        try:
+            for root, dirs, files in os.walk(directory_path):
+                for file in files:
+                    try:
+                        file_path = os.path.join(root, file)
+                        file_key = self._create_file_key(file_path)
+                        current_files.add(file_key)
+                        
+                        # Check if this is a new file
+                        if file_key not in self.known_files:
+                            # New file detected
+                            event = self._create_file_event(
+                                action=EventAction.CREATE,
+                                file_path=file_path,
+                                file_name=file,
+                                file_size=os.path.getsize(file_path) if os.path.exists(file_path) else 0,
+                                file_hash=await self._get_file_hash(file_path) if os.path.exists(file_path) else None,
+                                severity=self._determine_file_severity(file_path)
+                            )
+                            events.append(event)
+                            
+                            # Update tracking
+                            if os.path.exists(file_path):
+                                try:
+                                    file_hash = await self._get_file_hash(file_path)
+                                    self.file_hashes[file_key] = file_hash
+                                except:
+                                    pass
+                            
+                            # Check if suspicious
+                            if self._is_suspicious_file(file_path):
+                                self.suspicious_files.add(file_key)
+                                self.logger.warning(f"🚨 Suspicious file detected: {file_path}")
+                    
+                    except (OSError, PermissionError):
+                        continue
+                        
+        except Exception as e:
+            self.logger.debug(f"New file scan failed for {directory_path}: {e}")
+    
+    async def _detect_modified_files(self) -> List[EventData]:
+        """Detect modified files"""
+        try:
+            events = []
+            
+            for file_key in list(self.known_files):
+                try:
+                    file_path = self._get_file_path_from_key(file_key)
+                    if not file_path or not os.path.exists(file_path):
+                        continue
+                    
+                    # Check if file was modified
+                    current_hash = await self._get_file_hash(file_path)
+                    original_hash = self.file_hashes.get(file_key)
+                    
+                    if original_hash and current_hash != original_hash:
+                        # File modified
+                        event = self._create_file_event(
+                            action=EventAction.MODIFY,
+                            file_path=file_path,
+                            file_name=os.path.basename(file_path),
+                            file_size=os.path.getsize(file_path),
+                            file_hash=current_hash,
+                            severity=Severity.MEDIUM,
+                            additional_data={
+                                'original_hash': original_hash,
+                                'new_hash': current_hash
+                            }
+                        )
+                        events.append(event)
+                        
+                        # Update hash
+                        self.file_hashes[file_key] = current_hash
+                        
+                        # Check if suspicious
+                        if self._is_suspicious_file(file_path):
+                            self.suspicious_files.add(file_key)
+                
+                except (OSError, PermissionError):
+                    continue
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Modified file detection failed: {e}")
+            return []
+    
+    async def _detect_deleted_files(self) -> List[EventData]:
+        """Detect deleted files"""
+        try:
+            events = []
+            
+            for file_key in list(self.known_files):
+                try:
+                    file_path = self._get_file_path_from_key(file_key)
+                    if file_path and not os.path.exists(file_path):
+                        # File deleted
+                        event = self._create_file_event(
+                            action=EventAction.DELETE,
+                            file_path=file_path,
+                            file_name=os.path.basename(file_path),
+                            file_size=0,
+                            file_hash=None,
+                            severity=Severity.LOW
+                        )
+                        events.append(event)
+                        
+                        # Clean up tracking
+                        self.file_hashes.pop(file_key, None)
+                        self.suspicious_files.discard(file_key)
+                
+                except Exception:
+                    continue
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Deleted file detection failed: {e}")
+            return []
+    
+    async def _monitor_suspicious_files(self) -> List[EventData]:
+        """Monitor activities of suspicious files"""
+        try:
+            events = []
+            
+            for file_key in list(self.suspicious_files):
+                try:
+                    file_path = self._get_file_path_from_key(file_key)
+                    if not file_path or not os.path.exists(file_path):
+                        self.suspicious_files.discard(file_key)
+                        continue
+                    
+                    # Monitor suspicious activities
+                    event = await self._check_suspicious_file_activity(file_path)
+                    if event:
+                        events.append(event)
+                
+                except Exception:
+                    continue
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"Suspicious file monitoring failed: {e}")
+            return []
+    
+    async def _check_suspicious_file_activity(self, file_path: str) -> Optional[EventData]:
+        """Check for suspicious activities in a file"""
+        try:
+            # Check file attributes
+            if os.path.exists(file_path):
+                stat = os.stat(file_path)
+                
+                # Check if file is executable
+                if os.access(file_path, os.X_OK):
+                    return self._create_file_event(
+                        action=EventAction.SUSPICIOUS_ACTIVITY,
+                        file_path=file_path,
+                        file_name=os.path.basename(file_path),
+                        file_size=stat.st_size,
+                        file_hash=await self._get_file_hash(file_path),
+                        severity=Severity.HIGH,
+                        additional_data={
+                            'suspicious_activity': 'executable_file',
+                            'file_permissions': oct(stat.st_mode)[-3:]
+                        }
+                    )
+                
+                # Check if file is in suspicious location
+                if self._is_suspicious_location(file_path):
+                    return self._create_file_event(
+                        action=EventAction.SUSPICIOUS_ACTIVITY,
+                        file_path=file_path,
+                        file_name=os.path.basename(file_path),
+                        file_size=stat.st_size,
+                        file_hash=await self._get_file_hash(file_path),
+                        severity=Severity.MEDIUM,
+                        additional_data={
+                            'suspicious_activity': 'suspicious_location',
+                            'location': file_path
+                        }
+                    )
+            
+            return None
+            
+        except Exception as e:
+            self.logger.debug(f"Suspicious file activity check failed: {e}")
+            return None
+    
+    async def _monitor_file_access(self) -> List[EventData]:
+        """Monitor file access patterns"""
+        try:
+            events = []
+            
+            # This would require integration with Windows API for real-time file access monitoring
+            # For now, we'll monitor file timestamps
+            for file_key in list(self.known_files):
+                try:
+                    file_path = self._get_file_path_from_key(file_key)
+                    if not file_path or not os.path.exists(file_path):
+                        continue
+                    
+                    stat = os.stat(file_path)
+                    current_time = time.time()
+                    
+                    # Check if file was accessed recently
+                    if current_time - stat.st_atime < 60:  # Accessed within last minute
+                        event = self._create_file_event(
+                            action=EventAction.ACCESS,
+                            file_path=file_path,
+                            file_name=os.path.basename(file_path),
+                            file_size=stat.st_size,
+                            file_hash=await self._get_file_hash(file_path),
+                            severity=Severity.LOW,
+                            additional_data={
+                                'access_time': stat.st_atime,
+                                'modification_time': stat.st_mtime
+                            }
+                        )
+                        events.append(event)
+                
+                except (OSError, PermissionError):
+                    continue
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"File access monitoring failed: {e}")
+            return []
+    
+    async def _monitor_file_sizes(self) -> List[EventData]:
+        """Monitor file size changes"""
+        try:
+            events = []
+            
+            for file_key in list(self.known_files):
+                try:
+                    file_path = self._get_file_path_from_key(file_key)
+                    if not file_path or not os.path.exists(file_path):
+                        continue
+                    
+                    current_size = os.path.getsize(file_path)
+                    
+                    # Check for significant size changes
+                    if current_size > 10 * 1024 * 1024:  # Files larger than 10MB
+                        event = self._create_file_event(
+                            action=EventAction.RESOURCE_USAGE,
+                            file_path=file_path,
+                            file_name=os.path.basename(file_path),
+                            file_size=current_size,
+                            file_hash=await self._get_file_hash(file_path),
+                            severity=Severity.MEDIUM,
+                            additional_data={
+                                'file_size_mb': current_size / (1024 * 1024)
+                            }
+                        )
+                        events.append(event)
+                
+                except (OSError, PermissionError):
+                    continue
+            
+            return events
+            
+        except Exception as e:
+            self.logger.error(f"File size monitoring failed: {e}")
+            return []
+    
+    def _create_file_key(self, file_path: str) -> str:
+        """Create unique key for file tracking"""
+        return file_path.lower()
+    
+    def _get_file_path_from_key(self, file_key: str) -> Optional[str]:
+        """Get file path from key"""
+        try:
+            # This is a simple implementation - in practice, you'd want a more robust mapping
+            return file_key
+        except:
+            return None
+    
+    async def _get_file_hash(self, file_path: str) -> Optional[str]:
+        """Get file hash"""
+        try:
+            if not os.path.exists(file_path):
+                return None
+            
+            # Use file utils for hash calculation
+            if hasattr(self, 'file_utils'):
+                return self.file_utils.calculate_file_hash(file_path)
+            else:
+                # Fallback hash calculation
+                hash_md5 = hashlib.md5()
+                with open(file_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(4096), b""):
+                        hash_md5.update(chunk)
+                return hash_md5.hexdigest()
+                
+        except Exception:
+            return None
+    
+    def _is_suspicious_file(self, file_path: str) -> bool:
+        """Check if file is suspicious"""
+        try:
+            file_path_lower = file_path.lower()
+            
+            # Check extension
+            if any(ext in file_path_lower for ext in self.suspicious_extensions):
+                return True
+            
+            # Check location
+            if self._is_suspicious_location(file_path):
+                return True
+            
+            return False
+            
+        except:
+            return False
+    
+    def _is_suspicious_location(self, file_path: str) -> bool:
+        """Check if file is in suspicious location"""
+        try:
+            file_path_lower = file_path.lower()
+            return any(path in file_path_lower for path in self.suspicious_paths)
+        except:
+            return False
+    
+    def _determine_file_severity(self, file_path: str) -> Severity:
+        """Determine severity based on file characteristics"""
+        if self._is_suspicious_file(file_path):
+            return Severity.HIGH
+        elif any(ext in file_path.lower() for ext in ['.exe', '.dll', '.bat', '.cmd']):
+            return Severity.MEDIUM
+        else:
+            return Severity.LOW
+    
+    def _create_file_event(self, action: EventAction, file_path: str, file_name: str,
+                          file_size: int, file_hash: Optional[str], severity: Severity,
+                          additional_data: Dict = None) -> EventData:
+        """Create file event data"""
+        try:
+            return EventData(
+                event_type=EventType.FILE,
                 event_action=action,
                 event_timestamp=datetime.now(),
-                severity='Info',
-                description=f'File {action.lower()}: {file_info["name"]}',
-                file_path=file_info['path'],
-                file_name=file_info['name'],
-                file_size=file_info['size'],
-                file_hash=file_info['hash'],
-                file_extension=file_info['extension'],
-                file_operation=action,
-                raw_event_data=json.dumps(file_info)
+                severity=severity,
+                file_path=file_path,
+                file_name=file_name,
+                file_size=file_size,
+                file_hash=file_hash,
+                file_extension=Path(file_path).suffix if file_path else None,
+                raw_event_data=additional_data or {}
             )
             
-            # Add to event queue
-            await self.add_event(event_data)
-            
-            self.logger.debug(f"📄 File {action.lower()}: {file_info['name']}")
-            
         except Exception as e:
-            self.logger.error(f"❌ File event handling error: {e}")
-    
-    def _should_monitor_file(self, file_path: str) -> bool:
-        """Check if file should be monitored"""
-        try:
-            path_obj = Path(file_path)
-            
-            # Check file extension
-            if path_obj.suffix.lower() in self.excluded_extensions:
-                return False
-            
-            # Check file size (if file exists)
-            try:
-                if path_obj.exists() and path_obj.stat().st_size > self.max_file_size:
-                    return False
-            except (OSError, PermissionError):
-                pass
-            
-            return True
-            
-        except Exception:
-            return False
-    
-    def _is_duplicate_event(self, file_path: str, action: str) -> bool:
-        """Check if this is a duplicate event"""
-        try:
-            event_key = f"{file_path}:{action}"
-            now = datetime.now()
-            
-            if event_key in self.recent_events:
-                time_diff = (now - self.recent_events[event_key]).total_seconds()
-                if time_diff < self.event_deduplication_window:
-                    return True
-            
-            # Update recent events
-            self.recent_events[event_key] = now
-            return False
-            
-        except Exception:
-            return False
-    
-    async def _get_file_info(self, file_path: str, action: str) -> Optional[Dict]:
-        """Get detailed file information"""
-        try:
-            path_obj = Path(file_path)
-            
-            file_info = {
-                'path': str(path_obj),
-                'name': path_obj.name,
-                'extension': path_obj.suffix.lower() if path_obj.suffix else None,
-                'size': None,
-                'hash': None,
-                'exists': False,
-                'action': action
-            }
-            
-            # For delete events, file won't exist
-            if action == 'Delete':
-                return file_info
-            
-            # Get file details if file exists
-            try:
-                if path_obj.exists() and path_obj.is_file():
-                    file_info['exists'] = True
-                    stat_info = path_obj.stat()
-                    file_info['size'] = stat_info.st_size
-                    
-                    # Calculate hash for small files only
-                    if (self.collect_hashes and 
-                        file_info['size'] and 
-                        file_info['size'] < 10 * 1024 * 1024):  # 10MB limit
-                        file_info['hash'] = await self._calculate_file_hash(file_path)
-                    
-            except (OSError, PermissionError) as e:
-                self.logger.debug(f"Cannot access file {file_path}: {e}")
-            
-            return file_info
-            
-        except Exception as e:
-            self.logger.error(f"❌ Error getting file info for {file_path}: {e}")
+            self.logger.error(f"File event creation failed: {e}")
             return None
-    
-    async def _calculate_file_hash(self, file_path: str) -> Optional[str]:
-        """Calculate SHA256 hash of file"""
-        try:
-            hash_sha256 = hashlib.sha256()
-            
-            with open(file_path, 'rb') as f:
-                for chunk in iter(lambda: f.read(4096), b""):
-                    hash_sha256.update(chunk)
-            
-            return hash_sha256.hexdigest()
-            
-        except Exception as e:
-            self.logger.debug(f"Hash calculation failed for {file_path}: {e}")
-            return None
-    
-    def get_file_stats(self) -> Dict:
-        """Get file monitoring statistics"""
-        return {
-            'accessible_paths': self.accessible_paths,
-            'restricted_paths': self.restricted_paths,
-            'excluded_extensions': list(self.excluded_extensions),
-            'max_file_size_mb': self.max_file_size / (1024 * 1024),
-            'collect_hashes': self.collect_hashes,
-            'recent_events_count': len(self.recent_events),
-            'observer_running': self.observer_started,
-            'monitor_paths_count': len(self.accessible_paths),
-            'queue_size': self.file_event_queue.qsize(),
-            'queue_processor_running': self.queue_processor_running
-        }

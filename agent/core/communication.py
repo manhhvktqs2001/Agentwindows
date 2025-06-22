@@ -11,10 +11,10 @@ import json
 from typing import Optional, Dict, List, Any
 from datetime import datetime
 
-from .config_manager import ConfigManager
-from ..schemas.agent_data import AgentRegistrationData, AgentHeartbeatData
-from ..schemas.events import EventData
-from ..schemas.server_responses import ServerResponse
+from agent.core.config_manager import ConfigManager
+from agent.schemas.agent_data import AgentRegistrationData, AgentHeartbeatData
+from agent.schemas.events import EventData
+from agent.schemas.server_responses import ServerResponse
 
 class ServerCommunication:
     """Handle communication with EDR server - Enhanced with Alert Acknowledgment"""
@@ -78,11 +78,30 @@ class ServerCommunication:
             )
             self._session_closed = False
             
-            self.logger.info(f"✅ Communication initialized: {self.base_url}")
+            # Test connection to server
+            await self._test_connection()
+            
+            self.logger.info(f"Communication initialized: {self.base_url}")
             
         except Exception as e:
-            self.logger.error(f"❌ Communication initialization failed: {e}")
+            self.logger.error(f"Communication initialization failed: {e}")
             raise
+    
+    async def _test_connection(self):
+        """Test connection to server"""
+        try:
+            # Test basic connectivity to server
+            url = f"{self.base_url}/health"
+            response = await self._make_request('GET', url)
+            
+            if response:
+                self.logger.debug("Server connection test successful")
+            else:
+                self.logger.warning("Server connection test failed - server may be unavailable")
+                
+        except Exception as e:
+            self.logger.warning(f"Server connection test failed: {e}")
+            # Don't raise exception - allow agent to continue with retry logic
     
     async def close(self):
         """Close communication session properly"""
@@ -90,9 +109,9 @@ class ServerCommunication:
             if self.session and not self._session_closed:
                 await self.session.close()
                 self._session_closed = True
-                self.logger.info("🔌 Communication session closed")
+                self.logger.info("Communication session closed")
         except Exception as e:
-            self.logger.error(f"❌ Error closing session: {e}")
+            self.logger.error(f"Error closing session: {e}")
     
     async def __aenter__(self):
         """Async context manager entry"""
@@ -131,19 +150,19 @@ class ServerCommunication:
                 'install_path': registration_data.install_path
             }
             
-            self.logger.info(f"📡 Registering agent: {registration_data.hostname}")
+            self.logger.info(f"Registering agent: {registration_data.hostname}")
             
             response = await self._make_request('POST', url, payload)
             
             if response and response.get('agent_id'):
                 self.agent_id = response['agent_id']  # Store agent ID for alert acknowledgment
-                self.logger.info("✅ Agent registration successful")
+                self.logger.info("Agent registration successful")
                 return response
             else:
                 raise Exception("Registration failed - no response")
                 
         except Exception as e:
-            self.logger.error(f"❌ Agent registration failed: {e}")
+            self.logger.error(f"Agent registration failed: {e}")
             raise
     
     async def send_heartbeat(self, heartbeat_data: AgentHeartbeatData) -> Optional[Dict]:
@@ -164,7 +183,7 @@ class ServerCommunication:
             return response
             
         except Exception as e:
-            self.logger.error(f"❌ Heartbeat failed: {e}")
+            self.logger.error(f"Heartbeat failed: {e}")
             return None
     
     async def submit_event(self, event_data: EventData) -> Optional[Dict]:
@@ -177,14 +196,14 @@ class ServerCommunication:
             response = await self._make_request('POST', url, payload)
             
             if response:
-                self.logger.debug(f"📤 Event submitted: {event_data.event_type}")
+                self.logger.debug(f"Event submitted: {event_data.event_type}")
                 return response
             else:
-                self.logger.warning("⚠️ Event submission failed")
+                self.logger.warning("Event submission failed")
                 return None
                 
         except Exception as e:
-            self.logger.error(f"❌ Event submission error: {e}")
+            self.logger.error(f"Event submission error: {e}")
             return None
     
     async def submit_event_batch(self, agent_id: str, events: List[EventData]) -> Optional[Dict]:
@@ -202,14 +221,14 @@ class ServerCommunication:
             response = await self._make_request('POST', url, payload)
             
             if response:
-                self.logger.info(f"📤 Event batch submitted: {len(events)} events")
+                self.logger.info(f"Event batch submitted: {len(events)} events")
                 return response
             else:
-                self.logger.warning("⚠️ Event batch submission failed")
+                self.logger.warning("Event batch submission failed")
                 return None
                 
         except Exception as e:
-            self.logger.error(f"❌ Event batch submission error: {e}")
+            self.logger.error(f"Event batch submission error: {e}")
             return None
     
     def _convert_event_to_payload(self, event_data: EventData) -> Dict:
@@ -292,7 +311,7 @@ class ServerCommunication:
             response = await self._make_request('GET', url)
             return response
         except Exception as e:
-            self.logger.error(f"❌ Get agent config failed: {e}")
+            self.logger.error(f"Get agent config failed: {e}")
             return None
 
     async def get_pending_alerts(self, agent_id: str) -> Optional[Dict]:
@@ -304,14 +323,14 @@ class ServerCommunication:
             if response and response.get('success'):
                 alert_count = response.get('alert_count', 0)
                 if alert_count > 0:
-                    self.logger.warning(f"🚨 Received {alert_count} pending alerts from server")
+                    self.logger.warning(f"Received {alert_count} pending alerts from server")
                 return response
             else:
                 self.logger.debug("No pending alerts from server")
                 return None
                 
         except Exception as e:
-            self.logger.error(f"❌ Get pending alerts failed: {e}")
+            self.logger.error(f"Get pending alerts failed: {e}")
             return None
     
     # ============================================================================
@@ -334,19 +353,19 @@ class ServerCommunication:
                 'client_timestamp': datetime.now().isoformat()
             }
             
-            self.logger.info(f"📤 Acknowledging alert: {alert_id} - {status}")
+            self.logger.info(f"Acknowledging alert: {alert_id} - {status}")
             
             response = await self._make_request('POST', url, payload)
             
             if response and response.get('success'):
-                self.logger.debug(f"✅ Alert acknowledged: {alert_id}")
+                self.logger.debug(f"Alert acknowledged: {alert_id}")
                 return response
             else:
-                self.logger.warning(f"⚠️ Alert acknowledgment failed: {alert_id}")
+                self.logger.warning(f"Alert acknowledgment failed: {alert_id}")
                 return None
                 
         except Exception as e:
-            self.logger.error(f"❌ Alert acknowledgment error: {e}")
+            self.logger.error(f"Alert acknowledgment error: {e}")
             return None
     
     async def update_alert_status(self, alert_id: str, new_status: str, 
@@ -363,19 +382,19 @@ class ServerCommunication:
                 'details': details or {}
             }
             
-            self.logger.info(f"📊 Updating alert status: {alert_id} → {new_status}")
+            self.logger.info(f"Updating alert status: {alert_id} → {new_status}")
             
             response = await self._make_request('PUT', url, payload)
             
             if response and response.get('success'):
-                self.logger.debug(f"✅ Alert status updated: {alert_id}")
+                self.logger.debug(f"Alert status updated: {alert_id}")
                 return response
             else:
-                self.logger.warning(f"⚠️ Alert status update failed: {alert_id}")
+                self.logger.warning(f"Alert status update failed: {alert_id}")
                 return None
                 
         except Exception as e:
-            self.logger.error(f"❌ Alert status update error: {e}")
+            self.logger.error(f"Alert status update error: {e}")
             return None
     
     async def send_alert_feedback(self, alert_id: str, feedback_type: str, 
@@ -396,14 +415,14 @@ class ServerCommunication:
             response = await self._make_request('POST', url, payload)
             
             if response and response.get('success'):
-                self.logger.debug(f"✅ Alert feedback sent: {alert_id}")
+                self.logger.debug(f"Alert feedback sent: {alert_id}")
                 return response
             else:
-                self.logger.debug(f"⚠️ Alert feedback failed: {alert_id}")
+                self.logger.debug(f"Alert feedback failed: {alert_id}")
                 return None
                 
         except Exception as e:
-            self.logger.error(f"❌ Alert feedback error: {e}")
+            self.logger.error(f"Alert feedback error: {e}")
             return None
     
     async def mark_alerts_as_retrieved(self, alert_ids: List[str]) -> Optional[Dict]:
@@ -420,14 +439,14 @@ class ServerCommunication:
             response = await self._make_request('POST', url, payload)
             
             if response and response.get('success'):
-                self.logger.info(f"✅ Marked {len(alert_ids)} alerts as retrieved")
+                self.logger.info(f"Marked {len(alert_ids)} alerts as retrieved")
                 return response
             else:
-                self.logger.warning(f"⚠️ Failed to mark alerts as retrieved")
+                self.logger.warning(f"Failed to mark alerts as retrieved")
                 return None
                 
         except Exception as e:
-            self.logger.error(f"❌ Mark alerts retrieved error: {e}")
+            self.logger.error(f"Mark alerts retrieved error: {e}")
             return None
     
     # ============================================================================
@@ -458,7 +477,7 @@ class ServerCommunication:
             return response
             
         except Exception as e:
-            self.logger.error(f"❌ Server discovery failed: {e}")
+            self.logger.error(f"Server discovery failed: {e}")
             return None
     
     async def _make_request(self, method: str, url: str, payload: Optional[Dict] = None) -> Optional[Dict]:
@@ -481,7 +500,7 @@ class ServerCommunication:
                     raise Exception(f"Unsupported HTTP method: {method}")
                     
             except aiohttp.ClientError as e:
-                self.logger.warning(f"⚠️ Request failed (attempt {attempt + 1}/{self.max_retries}): {e}")
+                self.logger.warning(f"Request failed (attempt {attempt + 1}/{self.max_retries}): {e}")
                 
                 if attempt < self.max_retries - 1:
                     await asyncio.sleep(self.retry_delay)
@@ -489,7 +508,7 @@ class ServerCommunication:
                     raise Exception(f"Request failed after {self.max_retries} attempts: {e}")
                     
             except Exception as e:
-                self.logger.error(f"❌ Unexpected request error: {e}")
+                self.logger.error(f"Unexpected request error: {e}")
                 raise
         
         return None
@@ -504,7 +523,7 @@ class ServerCommunication:
                     return data
                 except json.JSONDecodeError:
                     text = await response.text()
-                    self.logger.warning(f"⚠️ Invalid JSON response: {text}")
+                    self.logger.warning(f"Invalid JSON response: {text}")
                     return None
                     
             elif response.status == 401:
@@ -514,7 +533,7 @@ class ServerCommunication:
             elif response.status == 404:
                 raise Exception("Server endpoint not found")
             elif response.status == 429:
-                self.logger.warning("⚠️ Rate limit exceeded")
+                self.logger.warning("Rate limit exceeded")
                 await asyncio.sleep(self.retry_delay)
                 return None
             elif response.status >= 500:
@@ -522,11 +541,11 @@ class ServerCommunication:
                 raise Exception(f"Server error {response.status}: {text}")
             else:
                 text = await response.text()
-                self.logger.warning(f"⚠️ Unexpected response {response.status}: {text}")
+                self.logger.warning(f"Unexpected response {response.status}: {text}")
                 return None
                 
         except Exception as e:
-            self.logger.error(f"❌ Response handling error: {e}")
+            self.logger.error(f"Response handling error: {e}")
             raise
     
     def get_server_info(self) -> Dict[str, Any]:

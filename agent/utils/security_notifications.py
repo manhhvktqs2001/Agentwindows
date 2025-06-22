@@ -99,16 +99,16 @@ class SecurityAlertNotifier:
         if WIN10_TOAST_AVAILABLE:
             try:
                 self.toast_notifier = ToastNotifier()
-                self.logger.info("✅ Win10Toast notifier initialized")
+                self.logger.info("Win10Toast notifier initialized")
             except Exception as e:
                 self.logger.debug(f"Win10Toast init failed: {e}")
         
-        self.logger.info("🔒 Enhanced Security Alert Notifier with Acknowledgment initialized")
+        self.logger.info("Enhanced Security Alert Notifier with Acknowledgment initialized")
     
     def set_communication(self, communication):
         """Set communication reference for alert acknowledgment"""
         self.communication = communication
-        self.logger.info("🔗 Communication linked for alert acknowledgment")
+        self.logger.info("Communication linked for alert acknowledgment")
     
     def _get_app_icon_path(self) -> str:
         """Get path to application icon"""
@@ -225,7 +225,7 @@ class SecurityAlertNotifier:
             self.logger.error(f"❌ Error processing single alert: {e}")
     
     async def _acknowledge_alert_to_server(self, alert_info: Dict[str, Any]):
-        """Send alert acknowledgment to server"""
+        """Send alert acknowledgment to server - Enhanced with detailed information"""
         try:
             alert_id = alert_info.get('server_alert_id') or alert_info.get('alert_id')
             
@@ -233,17 +233,26 @@ class SecurityAlertNotifier:
                 self.logger.warning("⚠️ No alert ID for acknowledgment")
                 return
             
-            # Send acknowledgment
+            # Prepare detailed acknowledgment information
             acknowledgment_details = {
                 'notification_displayed': True,
-                'display_method': 'toast_notification',
+                'display_method': 'plyer_toast' if PLYER_AVAILABLE else 'fallback',
                 'severity': alert_info.get('severity'),
                 'rule_name': alert_info.get('rule_name'),
                 'agent_version': '2.0.0',
                 'display_timestamp': datetime.now().isoformat(),
-                'priority': alert_info.get('priority')
+                'priority': alert_info.get('priority'),
+                'notification_timeout': self._get_notification_timeout(alert_info.get('priority', 'MEDIUM')),
+                'user_interaction_tracking': self.track_user_interactions,
+                'sound_played': self.play_sound,
+                'notification_position': 'bottom-right',
+                'notification_style': 'toast',
+                'agent_hostname': self._get_hostname(),
+                'agent_os': 'Windows',
+                'notification_success': True
             }
             
+            # Send acknowledgment to server
             response = await self.communication.acknowledge_alert(
                 alert_id=alert_id,
                 status="acknowledged",
@@ -261,7 +270,11 @@ class SecurityAlertNotifier:
                         'display_method': 'plyer_toast' if PLYER_AVAILABLE else 'fallback',
                         'notification_timeout': self._get_notification_timeout(alert_info.get('priority', 'MEDIUM')),
                         'user_interaction_tracking': self.track_user_interactions,
-                        'sound_played': self.play_sound
+                        'sound_played': self.play_sound,
+                        'notification_position': 'bottom-right',
+                        'notification_style': 'toast',
+                        'acknowledgment_success': True,
+                        'server_response': response.get('message', 'Acknowledged')
                     }
                 )
                 
@@ -270,6 +283,14 @@ class SecurityAlertNotifier:
                 
         except Exception as e:
             self.logger.error(f"❌ Alert acknowledgment failed: {e}")
+    
+    def _get_hostname(self) -> str:
+        """Get current hostname"""
+        try:
+            import socket
+            return socket.gethostname()
+        except Exception:
+            return "Unknown"
     
     def _determine_alert_priority(self, alert_info: Dict[str, Any]) -> str:
         """Determine alert priority"""
@@ -376,20 +397,56 @@ class SecurityAlertNotifier:
             return False
     
     async def _show_plyer_notification_async(self, title: str, message: str, alert_info: Dict[str, Any], timeout: int) -> bool:
-        """Show notification using Plyer - Async version"""
+        """Show notification using Plyer - Enhanced version with better positioning and styling"""
         try:
             def show():
                 try:
+                    # Enhanced notification with better parameters
                     notification.notify(
                         title=title,
                         message=message,
                         timeout=timeout,
-                        app_icon=self.app_icon
+                        app_icon=self.app_icon,
+                        # Additional parameters for better positioning (if supported)
+                        app_name=self.app_name,
+                        # Try to position in bottom-right corner
+                        toast=True  # Use Windows toast notification if available
                     )
+                    
+                    # Log notification display
+                    self.logger.info(f"🔔 Plyer notification displayed: {alert_info.get('rule_name', 'Unknown')}")
+                    
                 except Exception as e:
                     self.logger.debug(f"Plyer notification error: {e}")
+                    # Fallback to basic notification
+                    try:
+                        notification.notify(
+                            title=title,
+                            message=message,
+                            timeout=timeout
+                        )
+                    except Exception as fallback_error:
+                        self.logger.debug(f"Plyer fallback also failed: {fallback_error}")
+                        raise
             
+            # Run in executor to avoid blocking
             await asyncio.get_event_loop().run_in_executor(None, show)
+            
+            # Send notification display feedback
+            if self.communication and alert_info.get('server_alert_id'):
+                await self.communication.send_alert_feedback(
+                    alert_id=alert_info['server_alert_id'],
+                    feedback_type="notification_displayed_successfully",
+                    feedback_data={
+                        'display_method': 'plyer_toast',
+                        'notification_timeout': timeout,
+                        'title': title,
+                        'message_length': len(message),
+                        'priority': alert_info.get('priority'),
+                        'user_interaction_tracking': self.track_user_interactions
+                    }
+                )
+            
             return True
             
         except Exception as e:

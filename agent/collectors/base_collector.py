@@ -4,15 +4,21 @@ Base Collector - Abstract base class for all data collectors
 FIXED: Enhanced performance and error handling
 """
 
+from abc import ABC, abstractmethod
 import asyncio
 import logging
 import time
-from abc import ABC, abstractmethod
-from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Dict, List, Optional, Any
+from datetime import datetime, timedelta
+import json
+import hashlib
+import os
+import platform
+import psutil
+from pathlib import Path
 
-from ..core.config_manager import ConfigManager
-from ..schemas.events import EventData
+from agent.core.config_manager import ConfigManager
+from agent.schemas.events import EventData
 
 class BaseCollector(ABC):
     """Abstract base class for data collectors - FIXED: Performance optimized"""
