@@ -1,7 +1,6 @@
-# agent/core/event_processor.py - ENHANCED
+# agent/core/event_processor.py - MODIFIED FOR ZERO DELAY
 """
-Event Processor với Security Alert Notification System - ENHANCED
-Tăng cường khả năng xử lý và gửi dữ liệu liên tục
+Event Processor với ZERO DELAY - Gửi dữ liệu ngay lập tức
 """
 
 import asyncio
@@ -31,11 +30,11 @@ class EventStats:
     security_notifications_sent: int = 0
     last_batch_sent: Optional[datetime] = None
     batch_count: int = 0
-    processing_rate: float = 0.0  # Events per second
+    processing_rate: float = 0.0
     queue_size_history: List[int] = None
 
 class EventProcessor:
-    """Event Processor with Security Alert Notifications - ENHANCED for continuous monitoring"""
+    """Event Processor with ZERO DELAY - Immediate transmission"""
     
     def __init__(self, config_manager: ConfigManager, communication: ServerCommunication):
         self.config_manager = config_manager
@@ -49,44 +48,36 @@ class EventProcessor:
         self.config = self.config_manager.get_config()
         self.agent_config = self.config.get('agent', {})
         
-        # ENHANCED: Event queue with larger capacity
-        self.event_queue: deque = deque()
-        self.max_queue_size = self.agent_config.get('event_queue_size', 5000)  # ENHANCED: Increased from 1000
-        self.batch_size = self.agent_config.get('event_batch_size', 200)  # ENHANCED: Increased from 100
+        # ZERO DELAY: Immediate processing
+        self.immediate_send = True  # NEW: Send events immediately
+        self.batch_size = 1  # MODIFIED: Send one event at a time for zero delay
+        self.batch_interval = 0.1  # MODIFIED: Minimal interval for immediate processing
         
-        # ENHANCED: Processing state with continuous monitoring
+        # Event queue with minimal size for immediate processing
+        self.event_queue: deque = deque()
+        self.max_queue_size = 10  # MODIFIED: Very small queue for immediate processing
+        
+        # Processing state
         self.is_running = False
         self.agent_id: Optional[str] = None
         
-        # ENHANCED: Statistics with enhanced tracking
+        # Statistics
         self.stats = EventStats()
         self.stats.queue_size_history = []
         
-        # ENHANCED: Batch processing with higher frequency
-        self.batch_interval = 2  # ENHANCED: Reduced from 5 to 2 seconds for continuous monitoring
-        self.last_batch_time = time.time()
-        
-        # ENHANCED: Event filtering with enhanced rules
-        self.filters = self.config.get('filters', {})
-        
-        # ENHANCED: Security Alert Notification System
-        self.security_notifier = SecurityAlertNotifier(config_manager)
-        self.security_notifier.set_communication(communication)
-        
-        # ENHANCED: Performance monitoring
+        # Processing tracking
         self.processing_start_time = time.time()
         self.last_processing_stats = time.time()
         
-        # ENHANCED: Queue monitoring
-        self.queue_monitoring_enabled = True
-        self.queue_alert_threshold = 0.8  # Alert when queue is 80% full
+        # Security Alert Notification System
+        self.security_notifier = SecurityAlertNotifier(config_manager)
+        self.security_notifier.set_communication(communication)
         
-        self._safe_log("info", "Enhanced Event Processor with Security Notifications initialized")
+        # ZERO DELAY: Immediate processing flags
+        self._immediate_processing = True
+        self._processing_lock = asyncio.Lock()
         
-        # Performance tracking
-        self._last_stats_time = time.time()
-        self._last_batch_time = time.time()
-        self._batch_count = 0
+        self._safe_log("info", "🚀 ZERO DELAY Event Processor initialized - Immediate transmission enabled")
     
     def _safe_log(self, level: str, message: str):
         """Thread-safe logging to prevent reentrant calls"""
@@ -94,24 +85,20 @@ class EventProcessor:
             with self._log_lock:
                 getattr(self.logger, level)(message)
         except:
-            # If logging fails, fail silently to prevent cascading errors
             pass
     
     async def start(self):
-        """Start event processor with enhanced monitoring"""
+        """Start event processor with ZERO DELAY processing"""
         try:
             self.is_running = True
             self.processing_start_time = time.time()
-            self._safe_log("info", "Enhanced event processor started with security notifications")
+            self._safe_log("info", "🚀 ZERO DELAY Event Processor started - Immediate transmission active")
             
-            # Start batch processing task with higher frequency
-            asyncio.create_task(self._batch_processing_loop())
+            # Start immediate processing task
+            asyncio.create_task(self._immediate_processing_loop())
             
-            # Start statistics logging task with enhanced monitoring
+            # Start statistics logging task
             asyncio.create_task(self._stats_logging_loop())
-            
-            # Start queue monitoring task
-            asyncio.create_task(self._queue_monitoring_loop())
             
         except Exception as e:
             self._safe_log("error", f"Event processor start error: {e}")
@@ -120,24 +107,13 @@ class EventProcessor:
     async def stop(self):
         """Stop event processor gracefully"""
         try:
-            self._safe_log("info", "Stopping enhanced event processor...")
+            self._safe_log("info", "Stopping ZERO DELAY Event Processor...")
             self.is_running = False
             
-            # Wait for current processing to finish
-            max_wait = 10  # seconds
-            wait_count = 0
-            while self._processing and wait_count < max_wait:
-                await asyncio.sleep(0.1)
-                wait_count += 0.1
+            # Process any remaining events immediately
+            await self._process_remaining_events()
             
-            # Stop background tasks
-            if self._batch_task and not self._batch_task.done():
-                self._batch_task.cancel()
-            
-            if self._alert_task and not self._alert_task.done():
-                self._alert_task.cancel()
-            
-            self._safe_log("info", "Enhanced event processor stopped")
+            self._safe_log("info", "ZERO DELAY Event Processor stopped")
             
         except Exception as e:
             self._safe_log("error", f"Event processor stop error: {e}")
@@ -148,93 +124,85 @@ class EventProcessor:
         self._safe_log("info", f"Agent ID set: {agent_id}")
     
     async def add_event(self, event_data: EventData):
-        """Add event to processing queue"""
+        """Add event and process IMMEDIATELY - ZERO DELAY"""
         try:
-            # Check queue size limit
-            if len(self.event_queue) >= self.max_queue_size:
-                # Remove oldest events to make room
-                events_to_remove = len(self.event_queue) - self.max_queue_size + 1
-                for _ in range(events_to_remove):
+            # ZERO DELAY: Process event immediately instead of queuing
+            if self.immediate_send and self.agent_id and self.communication:
+                await self._send_event_immediately(event_data)
+            else:
+                # Fallback to queue if immediate processing not available
+                if len(self.event_queue) >= self.max_queue_size:
+                    # Remove oldest event to make room
                     self.event_queue.popleft()
+                    self._safe_log("warning", "Queue full, dropped oldest event for immediate processing")
                 
-                self._safe_log("warning", f"Event queue full, dropped {events_to_remove} oldest events")
+                self.event_queue.append(event_data)
             
-            # Add event to queue
-            self.event_queue.append(event_data)
             self.stats.events_collected += 1
-            
-            # Update statistics
             self._update_stats()
             
         except Exception as e:
-            self._safe_log("error", f"Failed to add event: {e}")
+            self._safe_log("error", f"Failed to add/process event: {e}")
             self.stats.events_failed += 1
     
-    async def _process_batch(self):
-        """Process events in batches"""
-        while self.is_running:
-            try:
-                # Wait for events or timeout
-                if len(self.event_queue) == 0:
-                    await asyncio.sleep(self.batch_interval)
-                    continue
+    async def _send_event_immediately(self, event_data: EventData):
+        """Send single event immediately - ZERO DELAY"""
+        try:
+            async with self._processing_lock:
+                # Set agent ID
+                event_data.agent_id = self.agent_id
                 
-                # Collect batch of events
-                batch_events = []
-                batch_start_time = time.time()
+                # Send single event immediately
+                response = await self.communication.submit_event(event_data)
                 
-                while (len(batch_events) < self.batch_size and 
-                       len(self.event_queue) > 0 and 
-                       time.time() - batch_start_time < self.batch_timeout):
+                if response:
+                    self.stats.events_sent += 1
+                    self.stats.last_batch_sent = datetime.now()
+                    self.stats.batch_count += 1
                     
-                    event = self.event_queue.popleft()
-                    batch_events.append(event)
-                
-                if not batch_events:
-                    continue
-                
-                # Send batch to server
-                self._processing = True
+                    self._safe_log("debug", f"🚀 Event sent immediately: {event_data.event_type}")
+                    
+                    # Process server response for alerts immediately
+                    await self._process_server_response(response)
+                else:
+                    # If immediate send fails, add to queue for retry
+                    if len(self.event_queue) < self.max_queue_size:
+                        self.event_queue.append(event_data)
+                    self.stats.events_failed += 1
+                    self._safe_log("warning", "Immediate send failed, event queued for retry")
+        
+        except Exception as e:
+            self._safe_log("error", f"Immediate event send failed: {e}")
+            self.stats.events_failed += 1
+            
+            # Add to queue for retry if immediate send fails
+            if len(self.event_queue) < self.max_queue_size:
+                self.event_queue.append(event_data)
+    
+    async def _immediate_processing_loop(self):
+        """Process queued events immediately - ZERO DELAY backup processing"""
+        try:
+            while self.is_running:
                 try:
-                    response = await self.communication.submit_event_batch(
-                        agent_id=self.agent_id,
-                        events=batch_events
-                    )
+                    # Process any queued events immediately
+                    if self.event_queue:
+                        async with self._processing_lock:
+                            while self.event_queue and self.is_running:
+                                event = self.event_queue.popleft()
+                                await self._send_event_immediately(event)
                     
-                    if response:
-                        self.stats.events_sent += len(batch_events)
-                        self.stats.last_batch_sent = datetime.now()
-                        self.stats.batch_count += 1
-                        
-                        self._safe_log("info", f"Batch sent successfully: {len(batch_events)} events")
-                        
-                        # Process server response for alerts
-                        await self._process_server_response(response)
-                        
-                    else:
-                        # Return events to queue on failure
-                        for event in batch_events:
-                            self.event_queue.appendleft(event)
-                        self._safe_log("error", f"Batch send failed: {len(batch_events)} events returned to queue")
-                        
+                    # Very short sleep to prevent CPU overload
+                    await asyncio.sleep(0.01)  # 10ms check interval for immediate processing
+                    
                 except Exception as e:
-                    # Return events to queue on error
-                    for event in batch_events:
-                        self.event_queue.appendleft(event)
-                    self._safe_log("error", f"Batch send error: {e}")
-                
-                finally:
-                    self._processing = False
-                
-                # Update batch statistics
-                self.stats.events_queued = len(self.event_queue)
-                
-            except Exception as e:
-                self._safe_log("error", f"Batch processing error: {e}")
-                await asyncio.sleep(self.batch_interval)
+                    self._safe_log("error", f"Immediate processing error: {e}")
+                    await asyncio.sleep(0.1)
+                    
+        except Exception as e:
+            self._safe_log("error", f"Immediate processing loop failed: {e}")
     
     async def _process_server_response(self, server_response: Dict[str, Any]):
-        """Process server response for alerts and notifications"""
+        """Process server response for alerts and notifications - IMMEDIATE"""
         try:
             # Check for alerts in response
             alerts = []
@@ -245,62 +213,47 @@ class EventProcessor:
             
             if alerts:
                 self.stats.alerts_received += len(alerts)
-                self._safe_log("warning", f"Received {len(alerts)} alerts from server")
+                self._safe_log("warning", f"🚨 Received {len(alerts)} alerts from server - Processing immediately")
                 
-                # Process alerts through security notifier
+                # Process alerts through security notifier IMMEDIATELY
                 if self.security_notifier:
                     # Get related events for context
                     related_events = []
                     if 'related_events' in server_response:
                         related_events = server_response['related_events']
                     
-                    # Process alerts
+                    # Process alerts immediately
                     self.security_notifier.process_server_alerts(server_response, related_events)
                     
-                    # Log threat detection
+                    # Log threat detection immediately
                     if server_response.get('threat_detected', False):
-                        self._safe_log("warning", f"Threat detected by server - Risk Score: {server_response.get('risk_score', 0)}")
+                        self._safe_log("critical", f"🚨 IMMEDIATE THREAT DETECTED - Risk Score: {server_response.get('risk_score', 0)}")
             
             # Update statistics
             self.stats.security_notifications_sent += len(alerts)
             
         except Exception as e:
-            self._safe_log("error", f"Security alert handling error: {e}")
+            self._safe_log("error", f"Server response processing error: {e}")
     
-    async def _check_alerts(self):
-        """Check for pending alerts from server"""
-        while self.is_running:
-            try:
-                if not self.agent_id or not self.communication:
-                    await asyncio.sleep(self.alert_check_interval)
-                    continue
+    async def _process_remaining_events(self):
+        """Process any remaining events before shutdown"""
+        try:
+            if self.event_queue:
+                self._safe_log("info", f"Processing {len(self.event_queue)} remaining events immediately...")
                 
-                # Get pending alerts from server
-                response = await self.communication.get_pending_alerts(self.agent_id)
-                
-                if response and response.get('alerts'):
-                    alerts = response['alerts']
-                    self._safe_log("warning", f"Received {len(alerts)} pending alerts from server")
+                while self.event_queue:
+                    event = self.event_queue.popleft()
+                    await self._send_event_immediately(event)
                     
-                    # Process alerts through security notifier
-                    if self.security_notifier:
-                        self.security_notifier.process_server_alerts(response)
-                    
-                    # Update statistics
-                    self.stats.alerts_received += len(alerts)
-                
-                await asyncio.sleep(self.alert_check_interval)
-                
-            except Exception as e:
-                self._safe_log("error", f"Alert check error: {e}")
-                await asyncio.sleep(self.alert_check_interval)
+        except Exception as e:
+            self._safe_log("error", f"Failed to process remaining events: {e}")
     
     def _update_stats(self):
         """Update processing statistics"""
         current_time = time.time()
         
         # Update processing rate
-        if current_time - self.last_processing_stats >= 1.0:  # Every second
+        if current_time - self.last_processing_stats >= 1.0:
             time_diff = current_time - self.last_processing_stats
             self.stats.processing_rate = self.stats.events_collected / time_diff if time_diff > 0 else 0
             self.last_processing_stats = current_time
@@ -321,32 +274,27 @@ class EventProcessor:
             # Calculate uptime
             uptime = current_time - self.processing_start_time if self.processing_start_time else 0
             
-            # Calculate batch processing rate
-            batch_rate = self.stats.batch_count / (uptime / 60) if uptime > 0 else 0  # batches per minute
+            # Calculate processing rate
+            processing_rate = self.stats.events_sent / uptime if uptime > 0 else 0
             
             stats = {
                 'events_collected': self.stats.events_collected,
                 'events_sent': self.stats.events_sent,
                 'events_failed': self.stats.events_failed,
-                'events_queued': self.stats.events_queued,
+                'events_queued': len(self.event_queue),
                 'alerts_received': self.stats.alerts_received,
                 'security_notifications_sent': self.stats.security_notifications_sent,
                 'batch_count': self.stats.batch_count,
-                'processing_rate': self.stats.processing_rate,
+                'processing_rate': processing_rate,
                 'queue_utilization': queue_utilization,
                 'uptime_seconds': uptime,
                 'last_batch_sent': self.stats.last_batch_sent.isoformat() if self.stats.last_batch_sent else None,
-                'queue_size_history': self.stats.queue_size_history[-20:],  # Last 20 readings
+                'queue_size_history': self.stats.queue_size_history[-20:],
                 'is_running': self.is_running,
-                'agent_id': self.agent_id
+                'agent_id': self.agent_id,
+                'immediate_mode': self.immediate_send,  # NEW: Show immediate mode status
+                'zero_delay_enabled': True  # NEW: Confirm zero delay mode
             }
-            
-            # Log performance warnings
-            if queue_utilization > self.queue_alert_threshold:
-                self._safe_log("warning", f"Event queue utilization high: {queue_utilization:.1%}")
-            
-            if self.stats.processing_rate < 1.0:  # Less than 1 event per second
-                self._safe_log("warning", f"Low processing rate: {self.stats.processing_rate:.2f} events/sec")
             
             return stats
             
@@ -354,69 +302,23 @@ class EventProcessor:
             self._safe_log("error", f"Stats calculation error: {e}")
             return {}
     
-    async def _batch_processing_loop(self):
-        """ENHANCED: Batch processing loop with higher frequency"""
-        try:
-            while self.is_running:
-                try:
-                    # Check if we should send a batch
-                    current_time = time.time()
-                    queue_size = len(self.event_queue)
-                    
-                    # Send batch if queue is full or time interval reached
-                    if (queue_size >= self.batch_size or 
-                        (queue_size > 0 and current_time - self.last_batch_time >= self.batch_interval)):
-                        await self._process_batch()
-                    
-                    # ENHANCED: Shorter sleep interval for more responsive processing
-                    await asyncio.sleep(0.5)  # Reduced from 1 second to 0.5 seconds
-                    
-                except Exception as e:
-                    self._safe_log("error", f"Batch processing loop error: {e}")
-                    await asyncio.sleep(1)
-                    
-        except Exception as e:
-            self._safe_log("error", f"Batch processing loop failed: {e}")
-    
-    async def _send_remaining_events(self):
-        """Send remaining events in queue"""
-        try:
-            if self.event_queue:
-                self._safe_log("info", f"Sending {len(self.event_queue)} remaining events...")
-                await self._process_batch()
-                
-        except Exception as e:
-            self._safe_log("error", f"Failed to send remaining events: {e}")
-    
     async def _stats_logging_loop(self):
-        """ENHANCED: Statistics logging loop with performance monitoring"""
+        """Statistics logging loop"""
         try:
             while self.is_running:
                 try:
-                    # Calculate processing rate
-                    current_time = time.time()
-                    time_diff = current_time - self.last_processing_stats
-                    
-                    if time_diff > 0:
-                        self.stats.processing_rate = self.stats.events_collected / time_diff
-                    
-                    # Update queue size history
-                    self.stats.queue_size_history.append(len(self.event_queue))
-                    if len(self.stats.queue_size_history) > 100:
-                        self.stats.queue_size_history.pop(0)
-                    
                     # Log enhanced statistics every 30 seconds
+                    current_time = time.time()
                     if int(current_time) % 30 == 0:
-                        self._safe_log("info", f"📊 Enhanced Stats - "
+                        self._safe_log("info", f"🚀 ZERO DELAY Stats - "
                                            f"Collected: {self.stats.events_collected}, "
                                            f"Sent: {self.stats.events_sent}, "
                                            f"Failed: {self.stats.events_failed}, "
                                            f"Queue: {len(self.event_queue)}, "
-                                           f"Rate: {self.stats.processing_rate:.2f} events/sec, "
+                                           f"Immediate Mode: {self.immediate_send}, "
                                            f"Alerts: {self.stats.alerts_received}")
                     
-                    self.last_processing_stats = current_time
-                    await asyncio.sleep(10)  # Update every 10 seconds
+                    await asyncio.sleep(10)
                     
                 except Exception as e:
                     self._safe_log("error", f"Stats logging error: {e}")
@@ -424,33 +326,6 @@ class EventProcessor:
                     
         except Exception as e:
             self._safe_log("error", f"Stats logging loop failed: {e}")
-    
-    async def _queue_monitoring_loop(self):
-        """ENHANCED: Queue monitoring loop for performance alerts"""
-        try:
-            while self.is_running:
-                try:
-                    queue_size = len(self.event_queue)
-                    queue_utilization = queue_size / self.max_queue_size
-                    
-                    # Alert if queue is getting full
-                    if queue_utilization > self.queue_alert_threshold:
-                        self._safe_log("warning", f"⚠️ Event queue utilization high: "
-                                               f"{queue_utilization:.1%} ({queue_size}/{self.max_queue_size})")
-                    
-                    # Alert if queue is empty for too long (potential issue)
-                    if queue_size == 0 and self.is_running:
-                        # This could indicate collectors are not working
-                        pass
-                    
-                    await asyncio.sleep(15)  # Check every 15 seconds
-                    
-                except Exception as e:
-                    self._safe_log("error", f"Queue monitoring error: {e}")
-                    await asyncio.sleep(15)
-                    
-        except Exception as e:
-            self._safe_log("error", f"Queue monitoring loop failed: {e}")
     
     def get_queue_size(self) -> int:
         """Get current queue size"""
@@ -461,10 +336,16 @@ class EventProcessor:
         self.event_queue.clear()
         self._safe_log("info", "Event queue cleared")
     
+    def enable_immediate_mode(self, enabled: bool = True):
+        """Enable/disable immediate processing mode"""
+        self.immediate_send = enabled
+        self._safe_log("info", f"🚀 Immediate mode {'enabled' if enabled else 'disabled'}")
+    
     def get_performance_metrics(self) -> Dict[str, float]:
         """Get performance metrics"""
         return {
             'queue_utilization': len(self.event_queue) / self.max_queue_size if self.max_queue_size > 0 else 0,
             'processing_rate': self.stats.processing_rate,
-            'batch_rate': self.stats.batch_count / ((time.time() - self.processing_start_time) / 60) if self.processing_start_time else 0
+            'immediate_processing': self.immediate_send,
+            'zero_delay_mode': True
         }

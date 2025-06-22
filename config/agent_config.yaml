@@ -1,760 +1,380 @@
-# config/agent_config.yaml
-# EDR Agent Enhanced Configuration - FIXED: Performance Optimized
+# config/agent_config.yaml - ZERO DELAY CONFIGURATION
+# EDR Agent ZERO DELAY Configuration - Immediate Data Transmission
 
 # ============================================================================
-# AGENT CORE CONFIGURATION - FIXED: Optimized for performance
+# AGENT CORE CONFIGURATION - ZERO DELAY OPTIMIZED
 # ============================================================================
 agent:
-  name: "EDR-SecurityAgent-v2"
-  version: "2.0.0"
-  environment: "production"                # development, staging, production
+  name: "EDR-SecurityAgent-ZeroDelay"
+  version: "2.0.0-ZeroDelay"
+  environment: "production"
   
-  # Heartbeat and Communication - FIXED: Optimized intervals
-  heartbeat_interval: 45                   # FIXED: Increase from 30 to 45 seconds
-  heartbeat_timeout: 120                   # FIXED: Increase from 90 to 120 seconds
-  max_heartbeat_failures: 3               # before marking agent offline
+  # ZERO DELAY: Immediate transmission settings
+  immediate_transmission: true           # NEW: Enable immediate transmission
+  zero_delay_mode: true                 # NEW: Enable zero delay processing
   
-  # Event Processing - FIXED: Optimized batch sizes
-  event_batch_size: 50                     # FIXED: Reduce from 100 to 50 events per batch
-  event_queue_size: 2000                   # FIXED: Reduce from 5000 to 2000 maximum events in memory
-  max_memory_usage: 512                    # FIXED: Reduce from 1024 to 512 MB
+  # Heartbeat and Communication - ZERO DELAY OPTIMIZED
+  heartbeat_interval: 10                # REDUCED: From 45 to 10 seconds for immediate feedback
+  heartbeat_timeout: 30                 # REDUCED: From 120 to 30 seconds
+  max_heartbeat_failures: 2             # REDUCED: Faster failure detection
   
-  # Performance Settings - FIXED: More conservative limits
-  max_cpu_usage: 15                        # FIXED: Reduce from 25 to 15 percent
-  auto_throttle: true                      # reduce activity if high CPU
-  adaptive_polling: true                   # adjust polling based on load
+  # Event Processing - ZERO DELAY OPTIMIZED
+  event_batch_size: 1                   # ZERO DELAY: Send one event immediately
+  event_queue_size: 10                  # ZERO DELAY: Minimal queue for immediate processing
+  max_memory_usage: 256                 # REDUCED: Minimal memory for immediate processing
   
-  # Agent Behavior
-  debug_mode: false
-  stealth_mode: false                      # minimize agent footprint
-  anti_tamper: true                        # protect agent from modification
-  self_protect: true                       # prevent agent termination
+  # Performance Settings - ZERO DELAY OPTIMIZED
+  max_cpu_usage: 25                     # INCREASED: Allow more CPU for immediate processing
+  auto_throttle: false                  # DISABLED: No throttling for immediate response
+  adaptive_polling: false               # DISABLED: Fixed minimal polling for consistency
   
-  # ENHANCED: Agent identification and registration
-  agent_name: "Windows EDR Agent"
-  agent_version: "2.0.0"
-  auto_register: true
-  registration_retry_interval: 30  # seconds
+  # ZERO DELAY: Processing configuration
+  immediate_processing: true            # NEW: Enable immediate event processing
+  immediate_send_threshold_ms: 1        # NEW: Send within 1 millisecond
+  minimal_polling_interval_ms: 1        # NEW: 1ms polling for immediate detection
   
-  # ENHANCED: Event processing configuration
-  event_batch_interval: 2  # ENHANCED: Reduced from 5 to 2 seconds for continuous monitoring
-  max_events_per_second: 1000  # ENHANCED: Rate limiting for high-volume monitoring
-  
-  # ENHANCED: Communication settings
-  server_host: "localhost"
-  server_port: 8000
-  server_protocol: "http"
-  connection_timeout: 30
-  request_timeout: 60
-  retry_attempts: 3
-  retry_delay: 5
-  
-  # ENHANCED: Heartbeat configuration
-  heartbeat_interval: 30  # ENHANCED: Reduced from 60 to 30 seconds for better monitoring
-  heartbeat_timeout: 10
-  
-  # ENHANCED: Security settings
-  enable_encryption: true
-  enable_compression: true
-  enable_authentication: true
-  
-  # ENHANCED: Performance monitoring
-  enable_performance_monitoring: true
-  performance_log_interval: 60  # seconds
-  enable_resource_tracking: true
+  # ZERO DELAY: Communication optimization
+  connection_pool_size: 20              # NEW: More connections for immediate requests
+  keep_alive_timeout: 30                # NEW: Keep connections alive
+  request_timeout: 2                    # NEW: Fast request timeout
+  immediate_retry_disabled: true        # NEW: No retries for immediate processing
 
 # ============================================================================
-# SERVER CONNECTION CONFIGURATION
+# SERVER CONNECTION CONFIGURATION - ZERO DELAY OPTIMIZED
 # ============================================================================
 server:
   # Primary Server
   host: "192.168.20.85"
   port: 5000
-  protocol: "http"                         # http, https
-  base_url: "http://192.168.20.85:5000"    # Full server URL
+  protocol: "http"
+  base_url: "http://192.168.20.85:5000"
   
   # Authentication
   auth_token: "edr_agent_auth_2024"
-  api_key: ""                              # optional API key
-  certificate_path: ""                     # for SSL/TLS
   
-  # Connection Settings - FIXED: More patient timeouts
-  timeout: 45                              # FIXED: Increase from 30 to 45 seconds
-  max_retries: 3                           # FIXED: Reduce from 5 to 3
-  retry_delay: 15                          # FIXED: Increase from 10 to 15 seconds
-  retry_backoff: 2.0                       # exponential backoff multiplier
-  keep_alive: true
-  connection_pool_size: 5                  # FIXED: Reduce from 10 to 5
+  # ZERO DELAY: Connection Settings
+  timeout: 2                            # ZERO DELAY: Very fast timeout
+  connect_timeout: 1                    # ZERO DELAY: Fast connection timeout
+  read_timeout: 1                       # ZERO DELAY: Fast read timeout
+  max_retries: 0                        # ZERO DELAY: No retries for immediate processing
+  retry_delay: 0                        # ZERO DELAY: No retry delay
+  
+  # ZERO DELAY: Connection optimization
+  keep_alive: true                      # Keep connections alive
+  connection_pool_size: 20              # More connections for immediate processing
+  pool_maxsize: 20                      # Maximum pool size
+  pool_block: false                     # Don't block on pool exhaustion
   
   # SSL/TLS Settings
   ssl_enabled: false
-  ssl_verify: true
+  ssl_verify: false                     # DISABLED: Skip SSL verification for speed
 
 # ============================================================================
-# DATA COLLECTION CONFIGURATION - FIXED: Performance optimized
+# DATA COLLECTION CONFIGURATION - ZERO DELAY OPTIMIZED
 # ============================================================================
 collection:
   enabled: true
   
-  # Global Collection Settings - FIXED: Reduced frequency
+  # ZERO DELAY: Global Collection Settings
   real_time_monitoring: true
-  polling_interval: 15                     # FIXED: Increase from 5 to 15 seconds
-  max_events_per_interval: 100             # FIXED: Reduce from 2000 to 100
-  event_deduplication: true
-  deduplication_window: 15                 # FIXED: Increase from 10 to 15 seconds
+  immediate_processing: true            # NEW: Enable immediate processing
+  zero_delay_enabled: true              # NEW: Enable zero delay mode
+  polling_interval: 0.001               # ZERO DELAY: 1ms polling interval
+  max_events_per_interval: 1            # ZERO DELAY: One event at a time
+  event_deduplication: false            # DISABLED: No deduplication for immediate processing
   
-  # Event Types
+  # Event Types - All enabled for immediate monitoring
   collect_processes: true
   collect_files: true
   collect_network: true
-  collect_registry: true                   # Windows only
+  collect_registry: true
   collect_authentication: true
   collect_system_events: true
-  collect_dns_queries: false              # FIXED: Disable high-overhead features
-  collect_web_traffic: false              # FIXED: Disable high-overhead features
   
-  # Process Monitoring - FIXED: Reduced overhead
+  # ZERO DELAY: Process Monitoring
   process_monitoring:
+    immediate_detection: true           # NEW: Immediate process detection
+    polling_interval_ms: 1              # NEW: 1ms polling
     monitor_creation: true
     monitor_termination: true
-    monitor_modification: false            # FIXED: Disable to reduce load
+    monitor_modification: true
     collect_command_lines: true
-    collect_environment_vars: false       # FIXED: Disable to reduce load
-    collect_process_hashes: false         # FIXED: Disable to reduce load (expensive)
-    hash_size_limit_mb: 10                # FIXED: Reduce from 50 to 10MB
-    monitor_dll_loads: false              # FIXED: Keep disabled (high overhead)
+    collect_hashes: false               # DISABLED: Skip expensive operations
     monitor_child_processes: true
-    track_process_tree: false             # FIXED: Disable to reduce complexity
   
-  # File Monitoring - FIXED: Reduced scope
+  # ZERO DELAY: File Monitoring
   file_monitoring:
     enabled: true
+    immediate_detection: true           # NEW: Immediate file detection
+    polling_interval_ms: 1              # NEW: 1ms polling
     paths_to_monitor:
-      - "C:\\Users\\manhh\\Desktop"           # User's desktop
-      - "C:\\Users\\manhh\\Documents"        # User's documents
-      - "C:\\Users\\manhh\\Downloads"        # User's downloads
-      # FIXED: Remove high-traffic directories
-      # - "C:\\Users\\manhh\\AppData\\Local\\Temp"
-      # - "C:\\Windows\\Temp"
+      - "C:\\Users\\manhh\\Desktop"
+      - "C:\\Users\\manhh\\Documents"
+      - "C:\\Users\\manhh\\Downloads"
     file_extensions:
       - ".exe"
       - ".dll"
       - ".bat"
       - ".cmd"
       - ".ps1"
-      - ".vbs"
-      - ".js"
-      # FIXED: Remove less critical extensions to reduce noise
-      # - ".jar"
-      # - ".msi"
-      # - ".zip"
-      # - ".rar"
-      # - ".7z"
-    max_file_size: 50MB                   # FIXED: Reduce from 100MB to 50MB
-    collect_hashes: false                 # FIXED: Disable to improve performance
+    max_file_size: 10MB                 # REDUCED: Smaller files for immediate processing
+    collect_hashes: false               # DISABLED: Skip expensive operations
     monitor_creation: true
-    monitor_modification: false           # FIXED: Disable to reduce noise
+    monitor_modification: true
     monitor_deletion: true
-    monitor_access: false
+    monitor_access: false               # DISABLED: Reduce noise for immediate processing
   
-  # Network Monitoring - FIXED: Reduced complexity
+  # ZERO DELAY: Network Monitoring
   network_monitoring:
+    immediate_detection: true           # NEW: Immediate network detection
+    polling_interval_ms: 1              # NEW: 1ms polling
     monitor_tcp: true
-    monitor_udp: false                    # FIXED: Disable UDP to reduce noise
-    monitor_icmp: false
+    monitor_udp: false                  # DISABLED: Reduce noise
     monitor_listening_ports: true
     monitor_established_connections: true
-    monitor_outbound_only: true           # FIXED: Focus on outbound only
-    
-    # Traffic Analysis - FIXED: Simplified
-    analyze_patterns: false               # FIXED: Disable complex analysis
-    detect_beaconing: false               # FIXED: Disable to reduce CPU
-    detect_port_scanning: false           # FIXED: Disable to reduce CPU
-    detect_data_exfiltration: false       # FIXED: Disable to reduce CPU
-    connection_timeout: 300                # seconds
-    max_connections_tracked: 1000          # FIXED: Reduce from 10000 to 1000
-    
-    # DNS Monitoring
-    monitor_dns: false
-    suspicious_domains_check: false       # FIXED: Disable to reduce overhead
+    monitor_outbound_only: true
+    analyze_patterns: false             # DISABLED: Skip analysis for immediate processing
+    max_connections_tracked: 100        # REDUCED: Smaller tracking for immediate processing
   
-  # Registry Monitoring (Windows) - FIXED: Reduced scope
+  # ZERO DELAY: Registry Monitoring
   registry_monitoring:
+    immediate_detection: true           # NEW: Immediate registry detection
+    polling_interval_ms: 10             # NEW: 10ms polling (registry is slower)
     monitor_startup_keys: true
-    monitor_security_keys: false          # FIXED: Disable to reduce overhead
-    monitor_network_keys: false           # FIXED: Disable to reduce overhead
-    monitor_service_keys: false           # FIXED: Disable to reduce overhead
-    monitor_policy_keys: false            # FIXED: Disable to reduce overhead
-    real_time_monitoring: false           # FIXED: Disable real-time to reduce CPU
-    
-    # Critical Registry Paths - FIXED: Minimal set
+    real_time_monitoring: true
     critical_paths:
       - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
       - "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
-      # FIXED: Remove less critical paths
-      # - "HKLM\\SYSTEM\\CurrentControlSet\\Services"
-      # - "HKLM\\SOFTWARE\\Microsoft\\Windows Defender"
-      # - "HKLM\\SOFTWARE\\Policies"
   
-  # Authentication Monitoring - FIXED: Reduced frequency
+  # ZERO DELAY: Authentication Monitoring
   authentication_monitoring:
+    immediate_detection: true           # NEW: Immediate auth detection
+    polling_interval_ms: 100            # NEW: 100ms polling (auth events are less frequent)
     monitor_logons: true
-    monitor_logoffs: false                # FIXED: Disable to reduce noise
     monitor_failed_attempts: true
-    monitor_privilege_escalation: false   # FIXED: Disable to reduce complexity
-    monitor_account_changes: false        # FIXED: Disable to reduce noise
-    failed_attempt_threshold: 5           # trigger alert after N failures
+    failed_attempt_threshold: 3         # REDUCED: Lower threshold for immediate alerting
   
-  # ENHANCED: Process monitoring - HIGH FREQUENCY
-  process_polling_interval: 2  # ENHANCED: Reduced from 5 to 2 seconds
-  process_batch_size: 50       # ENHANCED: Increased batch size
-  monitor_process_creation: true
-  monitor_process_termination: true
-  monitor_process_behavior: true
-  monitor_suspicious_processes: true
-  collect_process_hashes: true
-  collect_process_networks: true
-  collect_process_files: true
-  
-  # ENHANCED: File monitoring - HIGH FREQUENCY
-  file_polling_interval: 3     # ENHANCED: Reduced from 10 to 3 seconds
-  file_batch_size: 100         # ENHANCED: Increased batch size
-  monitor_file_creation: true
-  monitor_file_modification: true
-  monitor_file_deletion: true
-  monitor_file_access: true
-  collect_file_hashes: true
-  monitor_suspicious_files: true
-  
-  # ENHANCED: Network monitoring - HIGH FREQUENCY
-  network_polling_interval: 1  # ENHANCED: Reduced from 5 to 1 second for continuous monitoring
-  network_batch_size: 100      # ENHANCED: Increased batch size
-  monitor_connections: true
-  monitor_dns_queries: true
-  monitor_http_traffic: true
-  monitor_ssl_connections: true
-  monitor_port_scanning: true
-  collect_network_stats: true
-  
-  # ENHANCED: Registry monitoring
-  registry_polling_interval: 5  # ENHANCED: Reduced from 15 to 5 seconds
-  registry_batch_size: 50       # ENHANCED: Increased batch size
-  monitor_registry_changes: true
-  monitor_suspicious_keys: true
-  collect_registry_values: true
-  
-  # ENHANCED: Authentication monitoring
-  auth_polling_interval: 15     # ENHANCED: Reduced from 30 to 15 seconds
-  auth_batch_size: 20           # ENHANCED: Increased batch size
-  monitor_logins: true
-  monitor_logouts: true
-  monitor_failed_attempts: true
-  monitor_privilege_changes: true
-  
-  # ENHANCED: System monitoring - HIGH FREQUENCY
-  system_polling_interval: 3    # ENHANCED: Reduced from 15 to 3 seconds
-  system_batch_size: 10         # ENHANCED: Increased batch size
-  monitor_cpu_usage: true
-  monitor_memory_usage: true
-  monitor_disk_usage: true
-  monitor_network_usage: true
-  monitor_system_events: true
-  monitor_performance: true
-  detect_anomalies: true
+  # ZERO DELAY: System Monitoring
+  system_monitoring:
+    immediate_detection: true           # NEW: Immediate system detection
+    polling_interval_ms: 10             # NEW: 10ms polling
+    monitor_cpu_usage: true
+    monitor_memory_usage: true
+    monitor_performance: true
+    cpu_threshold: 90                   # INCREASED: Higher threshold to reduce noise
+    memory_threshold: 90                # INCREASED: Higher threshold to reduce noise
 
 # ============================================================================
-# THREAT DETECTION CONFIGURATION - FIXED: Simplified
+# THREAT DETECTION CONFIGURATION - ZERO DELAY OPTIMIZED
 # ============================================================================
 detection:
   enabled: true
+  immediate_detection: true             # NEW: Immediate threat detection
   
-  # Detection Engines - FIXED: Minimal set
-  local_rules_enabled: false             # FIXED: Disable to reduce CPU
-  behavioral_analysis: false             # FIXED: Disable to reduce CPU
-  machine_learning: false               # requires ML models
-  threat_intelligence: false            # FIXED: Disable to reduce network calls
-  yara_scanning: false                  # requires YARA rules
+  # ZERO DELAY: Detection Engines
+  local_rules_enabled: true
+  behavioral_analysis: false           # DISABLED: Skip slow analysis
+  threat_intelligence: false          # DISABLED: Skip slow lookups
   
-  # Threat Intelligence - FIXED: Disabled
-  threat_cache_enabled: false           # FIXED: Disable caching
-  cache_size: 1000                      # FIXED: Reduce from 50000 to 1000
-  cache_ttl: 7200                       # FIXED: Increase from 3600 to 7200 seconds
-  auto_update_feeds: false              # FIXED: Disable auto updates
-  update_interval: 86400                # FIXED: Increase to daily
+  # ZERO DELAY: Detection Thresholds
+  suspicious_threshold: 80             # INCREASED: Higher threshold for immediate alerts
+  malicious_threshold: 90              # INCREASED: Higher threshold for immediate alerts
+  alert_threshold: 85                  # INCREASED: Higher threshold for immediate alerts
   
-  # Detection Thresholds
-  suspicious_threshold: 70              # FIXED: Increase from 60 to 70
-  malicious_threshold: 85               # FIXED: Increase from 80 to 85
-  alert_threshold: 75                   # FIXED: Increase from 70 to 75
-  
-  # Behavioral Analysis - FIXED: All disabled
-  baseline_learning_period: 168        # FIXED: Increase to 1 week
-  anomaly_detection: false              # FIXED: Disable
-  user_behavior_analysis: false         # FIXED: Disable
-  process_behavior_analysis: false      # FIXED: Disable
-  network_behavior_analysis: false      # FIXED: Disable
-  
-  # Response Actions - FIXED: Manual only
-  auto_isolate_threats: false          # manually isolate infected systems
-  auto_quarantine_files: false         # manually quarantine malicious files
-  auto_kill_processes: false           # manually terminate malicious processes
-  send_alerts_immediately: true        # send high-priority alerts immediately
-  
-  # ENHANCED: Detection engine configuration
-  rules_enabled: true
-  threat_intelligence_enabled: true
-  
-  # ENHANCED: Detection thresholds
-  risk_score_threshold: 50
-  severity_threshold: "Medium"
-  confidence_threshold: 0.7
-  
-  # ENHANCED: Detection rules
-  rules:
-    suspicious_processes: true
-    suspicious_files: true
-    suspicious_network: true
-    suspicious_registry: true
-    privilege_escalation: true
-    persistence_mechanisms: true
-    lateral_movement: true
-    data_exfiltration: true
-  
-  # ENHANCED: Threat intelligence
-  threat_intelligence:
-    enabled: true
-    update_interval: 3600  # 1 hour
-    local_cache_enabled: true
-    remote_feeds_enabled: true
+  # ZERO DELAY: Response Actions
+  send_alerts_immediately: true        # NEW: Send alerts immediately
+  immediate_response: true             # NEW: Immediate response actions
 
 # ============================================================================
-# LOGGING CONFIGURATION - FIXED: Reduced verbosity
+# LOGGING CONFIGURATION - ZERO DELAY OPTIMIZED
 # ============================================================================
 logging:
-  # Log Levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  level: "WARNING"                      # FIXED: Increase from INFO to WARNING
+  level: "INFO"
   
   # Output Destinations
   console_enabled: true
   file_enabled: true
-  syslog_enabled: false                 # Linux/Unix syslog
-  event_log_enabled: false             # FIXED: Disable Windows Event Log
   
-  # File Logging - FIXED: Smaller files
+  # ZERO DELAY: File Logging
   log_directory: "logs"
-  log_file_name: "edr_agent.log"
-  max_file_size: "10MB"                 # FIXED: Reduce from 50MB to 10MB
-  backup_count: 3                       # FIXED: Reduce from 10 to 3
-  compress_backups: true
+  log_file_name: "edr_agent_zero_delay.log"
+  max_file_size: "5MB"                 # REDUCED: Smaller files for immediate processing
+  backup_count: 2                      # REDUCED: Fewer backups for immediate processing
   
-  # Log Rotation
-  rotate_daily: true
-  rotate_on_startup: false
-  
-  # Advanced Logging - FIXED: Simplified
-  log_format: "simple"                  # FIXED: Change from detailed to simple
+  # ZERO DELAY: Log Settings
+  log_format: "simple"                 # Simple format for immediate logging
   include_timestamps: true
-  include_thread_info: false            # FIXED: Disable to reduce overhead
-  include_process_info: false           # FIXED: Disable to reduce overhead
+  include_thread_info: false           # DISABLED: Reduce logging overhead
   
-  # Component-specific Logging - FIXED: Increased levels
-  collectors_log_level: "WARNING"       # FIXED: Increase from INFO to WARNING
-  communication_log_level: "WARNING"    # FIXED: Increase from INFO to WARNING
-  detection_log_level: "WARNING"        # FIXED: Increase from INFO to WARNING
-  
-  # Security
-  encrypt_logs: false                   # encrypt log files
-  log_integrity_check: false           # verify log integrity
-  
-  # ENHANCED: Logging configuration for continuous monitoring
-  performance_logging: true
-  event_logging: true
-  security_logging: true
-  debug_logging: false
-  
-  # ENHANCED: Log rotation
-  rotation_enabled: true
-  rotation_interval: "1 day"
-  compression_enabled: true
+  # ZERO DELAY: Component-specific Logging
+  collectors_log_level: "INFO"
+  communication_log_level: "INFO"
+  detection_log_level: "INFO"
+  immediate_processing_log_level: "DEBUG"  # NEW: Debug immediate processing
 
 # ============================================================================
-# PERFORMANCE OPTIMIZATION - FIXED: Conservative settings
+# PERFORMANCE OPTIMIZATION - ZERO DELAY OPTIMIZED
 # ============================================================================
 performance:
-  # CPU Management - FIXED: More conservative
-  max_cpu_usage: 15                     # FIXED: Reduce from 20 to 15 percent
-  cpu_throttling: true
-  priority_class: "below_normal"        # FIXED: Lower from normal to below_normal
+  # ZERO DELAY: CPU Management
+  max_cpu_usage: 30                    # INCREASED: Allow more CPU for immediate processing
+  cpu_throttling: false                # DISABLED: No throttling for immediate response
+  priority_class: "high"               # INCREASED: High priority for immediate processing
   
-  # Memory Management - FIXED: Reduced limits
-  max_memory_usage: 512                 # FIXED: Reduce from 1024 to 512 MB
+  # ZERO DELAY: Memory Management
+  max_memory_usage: 256                # REDUCED: Minimal memory for immediate processing
   memory_optimization: true
-  garbage_collection: true
-  memory_pressure_handling: true
+  garbage_collection: false           # DISABLED: Skip GC for immediate processing
   
-  # I/O Optimization - FIXED: Reduced activity
+  # ZERO DELAY: I/O Optimization
   async_processing: true
-  batch_processing: true
-  compression_enabled: false
-  buffer_size: 32768                    # FIXED: Reduce from 65536 to 32768 bytes
+  batch_processing: false             # DISABLED: No batching for immediate processing
+  compression_enabled: false         # DISABLED: Skip compression for speed
+  buffer_size: 1024                  # REDUCED: Minimal buffer for immediate processing
   
-  # Threading - FIXED: Reduced threads
-  max_worker_threads: 4                 # FIXED: Reduce from 10 to 4
-  thread_pool_size: 2                   # FIXED: Reduce from 5 to 2
+  # ZERO DELAY: Threading
+  max_worker_threads: 8               # INCREASED: More threads for immediate processing
+  thread_pool_size: 8                # INCREASED: Larger pool for immediate processing
   async_event_processing: true
   
-  # Caching - FIXED: Smaller cache
-  enable_caching: true
-  cache_size_mb: 32                     # FIXED: Reduce from 100 to 32MB
-  cache_cleanup_interval: 600           # FIXED: Increase from 300 to 600 seconds
-  
-  # ENHANCED: Performance optimization for continuous monitoring
-  enable_caching: true
-  cache_size: 1000
-  cache_ttl: 300  # 5 minutes
-  
-  # ENHANCED: Resource limits
-  max_cpu_usage: 30  # Maximum CPU usage percentage
-  max_memory_usage: 512  # Maximum memory usage in MB
-  max_disk_usage: 100  # Maximum disk usage in MB
-  
-  # ENHANCED: Optimization settings
-  enable_compression: true
-  enable_batching: true
-  enable_rate_limiting: true
-  enable_backpressure: true
+  # ZERO DELAY: Caching
+  enable_caching: false               # DISABLED: No caching for immediate processing
+  immediate_mode_optimizations: true  # NEW: Enable immediate mode optimizations
 
 # ============================================================================
-# FILTERING CONFIGURATION - FIXED: More aggressive filtering
+# FILTERING CONFIGURATION - ZERO DELAY OPTIMIZED
 # ============================================================================
 filters:
-  # Global Filters
-  exclude_system_processes: true
-  exclude_agent_activity: true          # exclude agent's own activity
+  # ZERO DELAY: Minimal Filtering for immediate processing
+  exclude_system_processes: false     # DISABLED: Monitor everything for immediate detection
+  exclude_agent_activity: true
   
-  # Process Filtering - FIXED: Expanded exclusions
-  exclude_process_names:
-    - "svchost.exe"
-    - "dwm.exe"
-    - "winlogon.exe"
-    - "csrss.exe"
-    - "smss.exe"
-    - "wininit.exe"                     # FIXED: Add more system processes
-    - "services.exe"
-    - "lsass.exe"
-    - "spoolsv.exe"
-    - "explorer.exe"
-    - "taskmgr.exe"
-    - "conhost.exe"
+  # ZERO DELAY: Process Filtering - Minimal exclusions
+  exclude_process_names: []           # EMPTY: Monitor all processes for immediate detection
+  exclude_process_paths: []           # EMPTY: Monitor all paths for immediate detection
   
-  exclude_process_paths:
-    - "C:\\Windows\\System32"
-    - "C:\\Windows\\SysWOW64"
-    - "C:\\Windows\\WinSxS"             # FIXED: Add more paths
-    - "C:\\Windows\\servicing"
+  # ZERO DELAY: File Filtering - Minimal exclusions
+  exclude_file_extensions: []         # EMPTY: Monitor all files for immediate detection
+  exclude_file_paths: []              # EMPTY: Monitor all paths for immediate detection
   
-  # File Filtering - FIXED: More exclusions
-  exclude_file_extensions:
-    - ".tmp"
-    - ".log"
-    - ".bak"
-    - ".swp"
-    - ".lock"
-    - ".cache"
-    - ".thumbs"
-    - ".db"
-    - ".dat"                            # FIXED: Add more extensions
-    - ".temp"
-    - ".old"
+  # ZERO DELAY: Network Filtering - Minimal exclusions
+  exclude_loopback: false             # DISABLED: Monitor everything for immediate detection
+  exclude_ports: []                   # EMPTY: Monitor all ports for immediate detection
   
-  exclude_file_paths:
-    - "C:\\Windows\\System32"
-    - "C:\\Windows\\SysWOW64"
-    - "C:\\Windows\\WinSxS"
-    - "C:\\Windows\\servicing"
-    - "C:\\Windows\\Logs"
-    - "C:\\ProgramData\\Microsoft"
-    - "C:\\Users\\*\\AppData\\Local\\Temp"
-    - "C:\\Users\\*\\AppData\\Local\\Microsoft"  # FIXED: Add more paths
-    - "C:\\Users\\*\\AppData\\Roaming\\Microsoft"
-  
-  # Network Filtering - FIXED: More exclusions
-  exclude_loopback: true
-  exclude_multicast: true
-  exclude_broadcast: true
-  exclude_link_local: true
-  
-  exclude_ports:
-    - 135      # RPC
-    - 445      # SMB
-    - 139      # NetBIOS
-    - 5355     # LLMNR
-    - 137      # FIXED: Add NetBIOS Name Service
-    - 138      # FIXED: Add NetBIOS Datagram Service
-  
-  # Size Limits - FIXED: Smaller limits
-  max_file_size_mb: 100                 # FIXED: Reduce from 500 to 100
-  max_command_line_length: 512          # FIXED: Reduce from 2048 to 512
-  max_registry_value_size: 256          # FIXED: Reduce from 1024 to 256
-  
-  # ENHANCED: Event filtering for continuous monitoring
-  events:
-    enabled: true
-    allowed_types: ["Process", "File", "Network", "Registry", "Authentication", "System"]
-    min_severity: "Info"
-    exclude_system_processes: false  # ENHANCED: Include system processes for comprehensive monitoring
-    exclude_file_extensions: []
-    exclude_network_ports: []
-    exclude_registry_keys: []
-    
-  # ENHANCED: Process filtering
-  processes:
-    exclude_system_processes: false
-    exclude_process_names: []
-    include_process_names: []
-    monitor_suspicious_patterns: true
-    monitor_high_cpu_processes: true
-    monitor_high_memory_processes: true
-    
-  # ENHANCED: File filtering
-  files:
-    exclude_extensions: []
-    exclude_paths: []
-    include_paths: []
-    monitor_executables: true
-    monitor_documents: true
-    monitor_scripts: true
-    monitor_temp_files: true
-    
-  # ENHANCED: Network filtering
-  network:
-    exclude_ips: []
-    exclude_ports: []
-    include_ips: []
-    include_ports: []
-    monitor_local_connections: true
-    monitor_external_connections: true
-    monitor_suspicious_ports: true
+  # ZERO DELAY: Size Limits - Minimal limits
+  max_file_size_mb: 50                # REDUCED: Smaller files for immediate processing
+  max_command_line_length: 1024       # INCREASED: Allow longer command lines
+  max_registry_value_size: 512        # INCREASED: Allow larger registry values
 
 # ============================================================================
-# ALERTING CONFIGURATION - FIXED: Reduced frequency
+# ALERTING CONFIGURATION - ZERO DELAY OPTIMIZED
 # ============================================================================
 alerting:
   enabled: true
+  immediate_alerting: true             # NEW: Enable immediate alerting
   
-  # Alert Levels - FIXED: Only important alerts
-  send_info_alerts: false
-  send_low_alerts: false                # FIXED: Disable low alerts
-  send_medium_alerts: false             # FIXED: Disable medium alerts
+  # ZERO DELAY: Alert Levels - All enabled for immediate alerting
+  send_info_alerts: true              # ENABLED: Send all alerts immediately
+  send_low_alerts: true               # ENABLED: Send all alerts immediately
+  send_medium_alerts: true            # ENABLED: Send all alerts immediately
   send_high_alerts: true
   send_critical_alerts: true
   
-  # Alert Throttling - FIXED: More aggressive throttling
-  throttle_duplicate_alerts: true
-  duplicate_window: 600                 # FIXED: Increase from 300 to 600 seconds
-  max_alerts_per_minute: 10             # FIXED: Reduce from 50 to 10
+  # ZERO DELAY: Alert Throttling - Minimal throttling
+  throttle_duplicate_alerts: false    # DISABLED: No throttling for immediate alerting
+  duplicate_window: 0                 # ZERO DELAY: No duplicate window
+  max_alerts_per_minute: 1000         # INCREASED: Allow more alerts for immediate processing
   
-  # Alert Delivery - FIXED: Batch more
-  immediate_delivery: false             # FIXED: Disable immediate delivery
-  batch_delivery: true                  # for all alerts
-  batch_interval: 300                   # FIXED: Increase from 60 to 300 seconds
-  
-  # Alert Enrichment - FIXED: Minimal enrichment
-  include_context: false                # FIXED: Disable context to reduce overhead
-  include_system_info: false            # FIXED: Disable system info
-  include_process_tree: false           # FIXED: Disable process tree
+  # ZERO DELAY: Alert Delivery
+  immediate_delivery: true            # ENABLED: Immediate alert delivery
+  batch_delivery: false              # DISABLED: No batching for immediate alerting
+  batch_interval: 0                  # ZERO DELAY: No batch interval
 
 # ============================================================================
-# MAINTENANCE AND UPDATES - FIXED: Reduced frequency
-# ============================================================================
-maintenance:
-  # Automatic Updates
-  auto_update_enabled: false            # automatically update agent
-  update_check_interval: 172800         # FIXED: Increase to 2 days
-  
-  # Cleanup Tasks - FIXED: Less frequent cleanup
-  cleanup_enabled: true
-  cleanup_interval: 7200                # FIXED: Increase from 3600 to 7200 seconds
-  
-  # Data Retention - FIXED: Shorter retention
-  event_retention_days: 7               # FIXED: Reduce from 30 to 7 days
-  log_retention_days: 30                # FIXED: Reduce from 90 to 30 days
-  cache_retention_hours: 12             # FIXED: Reduce from 24 to 12 hours
-  
-  # Health Monitoring - FIXED: Less frequent monitoring
-  health_check_interval: 600            # FIXED: Increase from 300 to 600 seconds
-  send_health_reports: false            # FIXED: Disable to reduce network traffic
-  health_report_interval: 7200          # FIXED: Increase from 3600 to 7200 seconds
-  
-  # Diagnostics - FIXED: Minimal diagnostics
-  enable_diagnostics: false             # FIXED: Disable to reduce overhead
-  diagnostic_log_level: "ERROR"         # FIXED: Only errors
-  performance_monitoring: false         # FIXED: Disable to reduce overhead
-  resource_usage_tracking: false        # FIXED: Disable to reduce overhead
-
-# ============================================================================
-# COMPLIANCE AND REPORTING - FIXED: Disabled
-# ============================================================================
-compliance:
-  # Regulatory Compliance - FIXED: All disabled
-  gdpr_compliance: false
-  hipaa_compliance: false
-  pci_compliance: false
-  
-  # Data Handling - FIXED: Minimal processing
-  anonymize_user_data: false
-  encrypt_pii: false
-  data_retention_policy: "minimal"      # FIXED: Change from standard to minimal
-  
-  # Audit Logging - FIXED: Disabled
-  audit_all_actions: false
-  audit_log_file: ""                    # FIXED: Disable audit logging
-  audit_log_format: ""
-
-# ============================================================================
-# ADVANCED FEATURES - FIXED: All disabled
-# ============================================================================
-advanced:
-  # Experimental Features - FIXED: All disabled
-  experimental_features: false
-  
-  # Integration Capabilities - FIXED: All disabled
-  siem_integration: false
-  sandbox_integration: false
-  threat_sharing: false
-  
-  # Advanced Analysis - FIXED: All disabled
-  memory_analysis: false
-  network_traffic_analysis: false
-  code_injection_detection: false       # FIXED: Disable to reduce CPU
-  rootkit_detection: false              # FIXED: Disable to reduce CPU
-  
-  # Cloud Features - FIXED: All disabled
-  cloud_backup: false
-  cloud_analysis: false
-  cloud_threat_feeds: false
-
-# ============================================================================
-# SECURITY NOTIFICATION CONFIGURATION - FIXED: Simplified
+# SECURITY NOTIFICATION CONFIGURATION - ZERO DELAY OPTIMIZED
 # ============================================================================
 security_notifications:
-  enabled: true                         # Enable/disable security notifications
+  enabled: true
+  immediate_notifications: true       # NEW: Enable immediate notifications
   
-  # Display Settings
-  show_on_screen: true                  # Show popup notifications
-  position: "bottom-right"              # Notification position
+  # ZERO DELAY: Display Settings
+  show_on_screen: true
+  position: "bottom-right"
   
-  # Alert Filtering - FIXED: Only critical alerts
-  show_low_alerts: false
-  show_medium_alerts: false
-  show_high_alerts: true                # FIXED: Only high and critical
+  # ZERO DELAY: Alert Filtering - All enabled for immediate alerting
+  show_low_alerts: true               # ENABLED: Show all alerts immediately
+  show_medium_alerts: true            # ENABLED: Show all alerts immediately
+  show_high_alerts: true
   show_critical_alerts: true
   
-  # Notification Behavior - FIXED: Longer timeouts
-  auto_dismiss_timeout: 60              # FIXED: Increase from 30 to 60 seconds
-  play_sound: false                     # FIXED: Disable sound to reduce distraction
+  # ZERO DELAY: Notification Behavior
+  auto_dismiss_timeout: 10            # REDUCED: Faster dismissal for immediate processing
+  play_sound: true                    # ENABLED: Audio alerts for immediate notification
   persistent_critical: true
-  click_action: "focus_agent"
   
-  # Rate Limiting - FIXED: More restrictive
-  max_security_alerts_per_minute: 3     # FIXED: Reduce from 10 to 3
-  duplicate_suppression_window: 600     # FIXED: Increase from 300 to 600 seconds
+  # ZERO DELAY: Rate Limiting - Minimal limiting
+  max_security_alerts_per_minute: 100 # INCREASED: Allow more alerts for immediate processing
+  duplicate_suppression_window: 0     # ZERO DELAY: No suppression window
   
-  # Priority-based Timeouts - FIXED: Longer timeouts
-  critical_alert_timeout: 120           # FIXED: Increase to 2 minutes
-  high_alert_timeout: 60                # FIXED: Increase to 1 minute
-  medium_alert_timeout: 30
-  low_alert_timeout: 15
+  # ZERO DELAY: Priority-based Timeouts
+  critical_alert_timeout: 30          # REDUCED: Faster timeout for immediate processing
+  high_alert_timeout: 20              # REDUCED: Faster timeout for immediate processing
+  medium_alert_timeout: 15            # REDUCED: Faster timeout for immediate processing
+  low_alert_timeout: 10               # REDUCED: Faster timeout for immediate processing
   
-  # Content Settings - FIXED: Minimal content
+  # ZERO DELAY: Content Settings
   include_rule_name: true
-  include_mitre_info: false             # FIXED: Disable to reduce complexity
   include_risk_score: true
-  include_event_details: false          # FIXED: Disable to reduce noise
-  max_description_length: 100           # FIXED: Reduce from 200 to 100
+  include_event_details: true         # ENABLED: Full details for immediate alerts
+  max_description_length: 500         # INCREASED: More details for immediate alerts
   
-  # Advanced Features - FIXED: Simplified
-  group_similar_alerts: true
-  escalation_enabled: false
-  integration_mode: "standalone"
-  
-  # Fallback Options
-  use_messagebox_fallback: true         # FIXED: Enable fallback
-  log_all_alerts: true
-  send_to_syslog: false
+  # ZERO DELAY: Advanced Features
+  group_similar_alerts: false         # DISABLED: No grouping for immediate alerts
+  escalation_enabled: true            # ENABLED: Immediate escalation
+  integration_mode: "immediate"       # NEW: Immediate integration mode
 
 # ============================================================================
-# DETECTION RULE PRIORITIES - FIXED: Minimal set
+# MAINTENANCE AND UPDATES - ZERO DELAY OPTIMIZED
 # ============================================================================
-rule_priorities:
-  # Critical Rules (always show, longest timeout) - FIXED: Reduced set
-  critical_rules:
-    - "Mimikatz Credential Dumping"
-    - "Ransomware Activity"
-    - "System File Modification"
-    
-  # High Priority Rules - FIXED: Essential only
-  high_priority_rules:
-    - "Suspicious PowerShell Encoded"
-    - "Code Injection Detected"
-    - "Privilege Escalation"
-    
-  # Medium Priority Rules - FIXED: Disabled (not shown)
-  medium_priority_rules: []
-    
-  # Low Priority Rules - FIXED: Disabled (not shown)
-  low_priority_rules: []
+maintenance:
+  # ZERO DELAY: Automatic Updates
+  auto_update_enabled: false          # DISABLED: No updates during immediate processing
+  
+  # ZERO DELAY: Cleanup Tasks
+  cleanup_enabled: false              # DISABLED: No cleanup during immediate processing
+  
+  # ZERO DELAY: Data Retention
+  event_retention_days: 1             # REDUCED: Minimal retention for immediate processing
+  log_retention_days: 7               # REDUCED: Minimal retention for immediate processing
+  
+  # ZERO DELAY: Health Monitoring
+  health_check_interval: 10           # REDUCED: Frequent health checks for immediate processing
+  send_health_reports: true           # ENABLED: Immediate health reporting
 
 # ============================================================================
-# MITRE ATT&CK INTEGRATION - FIXED: Simplified
+# ZERO DELAY SPECIFIC CONFIGURATION
 # ============================================================================
-mitre_integration:
-  enabled: false                        # FIXED: Disable to reduce complexity
-  show_tactic: false
-  show_technique: false
-  show_description: false
+zero_delay:
+  # Core Settings
+  enabled: true                       # Enable ZERO DELAY mode
+  mode: "immediate"                   # Immediate processing mode
   
-  # Priority by MITRE Tactic - FIXED: Minimal set
-  high_priority_tactics:
-    - "Execution" 
-    - "Impact"
-    
-  medium_priority_tactics: []
-
-# ============================================================================
-# THREAT INTELLIGENCE INTEGRATION - FIXED: Disabled
-# ============================================================================
-threat_intel_notifications:
-  enabled: false                        # FIXED: Disable to reduce network calls
-  show_ioc_matches: false
-  show_threat_actor: false
-  confidence_threshold: 0.9             # FIXED: Increase threshold
+  # Performance Settings
+  immediate_send_threshold_ms: 1      # Send within 1 millisecond
+  minimal_polling_interval_ms: 1     # 1ms polling interval
+  immediate_queue_size: 1             # Minimal queue size
   
-  # IoC Type Priorities - FIXED: Critical only
-  critical_ioc_types:
-    - "known_malware_hash"
-    - "ransomware_extension"
-    
-  high_ioc_types: []
-
-# ============================================================================
-# MONITORING CONFIGURATION - ENHANCED for Continuous Monitoring
-# ============================================================================
-monitoring:
-  # ENHANCED: Self-monitoring configuration
-  enabled: true
-  health_check_interval: 30  # seconds
-  performance_monitoring: true
-  resource_monitoring: true
+  # Network Settings
+  immediate_connection_pool: 20       # Connection pool for immediate requests
+  immediate_timeout_ms: 2000          # 2 second timeout for immediate requests
+  immediate_retry_disabled: true     # No retries for immediate processing
   
-  # ENHANCED: Alerting thresholds
-  cpu_threshold: 80  # Alert when CPU > 80%
-  memory_threshold: 85  # Alert when memory > 85%
-  disk_threshold: 90  # Alert when disk > 90%
-  queue_threshold: 80  # Alert when queue > 80% full
+  # Processing Settings
+  skip_expensive_operations: true    # Skip hash calculations, etc.
+  prioritize_speed: true             # Prioritize speed over accuracy
+  minimal_validation: true           # Minimal validation for speed
   
-  # ENHANCED: Metrics collection
-  collect_metrics: true
-  metrics_interval: 60  # seconds
-  enable_trending: true
-  enable_anomaly_detection: true
+  # Monitoring Settings
+  track_performance: true            # Track immediate processing performance
+  log_response_times: true           # Log response times for optimization
+  alert_on_delays: true              # Alert if delays detected

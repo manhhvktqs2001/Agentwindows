@@ -1,563 +1,407 @@
-# agent/core/communication.py
+# agent/collectors/base_collector.py - MODIFIED FOR ZERO DELAY
 """
-Server Communication - Handle all communication with EDR server
-Enhanced with Alert Acknowledgment System
+Base Collector - ZERO DELAY Support
+Immediate event processing and transmission
 """
 
-import aiohttp
+from abc import ABC, abstractmethod
 import asyncio
 import logging
+import time
+from typing import Dict, List, Optional, Any
+from datetime import datetime, timedelta
 import json
-from typing import Optional, Dict, List, Any
-from datetime import datetime
+import hashlib
+import os
+import platform
+import psutil
+from pathlib import Path
 
 from agent.core.config_manager import ConfigManager
-from agent.schemas.agent_data import AgentRegistrationData, AgentHeartbeatData
 from agent.schemas.events import EventData
-from agent.schemas.server_responses import ServerResponse
 
-class ServerCommunication:
-    """Handle communication with EDR server - Enhanced with Alert Acknowledgment"""
+class BaseCollector(ABC):
+    """Abstract base class for data collectors - ZERO DELAY Support"""
     
-    def __init__(self, config_manager: ConfigManager):
+    def __init__(self, config_manager: ConfigManager, collector_name: str):
         self.config_manager = config_manager
-        self.logger = logging.getLogger(__name__)
+        self.collector_name = collector_name
+        self.logger = logging.getLogger(f"collector.{collector_name}")
         
         # Configuration
         self.config = self.config_manager.get_config()
-        self.server_config = self.config.get('server', {})
+        self.collection_config = self.config.get('collection', {})
         
-        # Server settings
-        self.server_host = self.server_config.get('host', '192.168.20.85')
-        self.server_port = self.server_config.get('port', 5000)
-        self.base_url = f"http://{self.server_host}:{self.server_port}"
+        # Collector state
+        self.is_running = False
+        self.is_initialized = False
+        self.start_time: Optional[datetime] = None
         
-        # Authentication
-        self.auth_token = self.server_config.get('auth_token', 'edr_agent_auth_2024')
+        # ZERO DELAY: Immediate processing settings
+        self.immediate_processing = True  # NEW: Enable immediate processing
+        self.polling_interval = 0.1  # MODIFIED: Minimal polling for immediate detection
+        self.max_events_per_interval = 1  # MODIFIED: Process one event immediately
+        self.real_time_monitoring = True
         
-        # HTTP session
-        self.session: Optional[aiohttp.ClientSession] = None
-        self._session_closed = False
+        # Statistics
+        self.events_collected = 0
+        self.events_sent = 0
+        self.collection_errors = 0
+        self.last_collection_time: Optional[datetime] = None
         
-        # Connection settings
-        self.timeout = self.server_config.get('timeout', 30)
-        self.max_retries = self.server_config.get('max_retries', 3)
-        self.retry_delay = self.server_config.get('retry_delay', 5)
+        # ZERO DELAY: Performance optimization flags
+        self._collecting = False
+        self._last_performance_log = 0
+        self._immediate_send_threshold = 0.001  # Send within 1ms
         
-        # Agent ID for alert acknowledgment
-        self.agent_id = None
+        # Event processor reference (will be set by parent)
+        self.event_processor = None
         
+        # ZERO DELAY: Event queue for immediate processing
+        self._immediate_events = asyncio.Queue(maxsize=1)  # Very small queue for immediate processing
+    
     async def initialize(self):
-        """Initialize communication session"""
+        """Initialize the collector with ZERO DELAY support"""
         try:
-            # Close existing session if any
-            await self.close()
+            self.logger.info(f"🚀 Initializing {self.collector_name} with ZERO DELAY...")
             
-            # Create new session with timeout
-            timeout = aiohttp.ClientTimeout(total=self.timeout)
+            # Validate configuration
+            await self._validate_config()
             
-            # Setup headers
-            headers = {
-                'Content-Type': 'application/json',
-                'X-Agent-Token': self.auth_token,
-                'User-Agent': 'EDR-Agent/2.0'
-            }
+            # Perform collector-specific initialization
+            await self._collector_specific_init()
             
-            # Create connector with proper cleanup
-            connector = aiohttp.TCPConnector(
-                limit=10,
-                limit_per_host=5,
-                ttl_dns_cache=300,
-                use_dns_cache=True,
-            )
-            
-            self.session = aiohttp.ClientSession(
-                timeout=timeout,
-                headers=headers,
-                connector=connector
-            )
-            self._session_closed = False
-            
-            # Test connection to server
-            await self._test_connection()
-            
-            self.logger.info(f"Communication initialized: {self.base_url}")
+            self.is_initialized = True
+            self.logger.info(f"✅ {self.collector_name} initialized with ZERO DELAY support")
             
         except Exception as e:
-            self.logger.error(f"Communication initialization failed: {e}")
-            raise
+            self.logger.error(f"❌ {self.collector_name} initialization failed: {e}")
+            raise Exception(f"Initialization failed: {e}")
     
-    async def _test_connection(self):
-        """Test connection to server"""
+    async def start(self):
+        """Start the collector with ZERO DELAY processing"""
         try:
-            # Test basic connectivity to server
-            url = f"{self.base_url}/health"
-            response = await self._make_request('GET', url)
+            if not self.is_initialized:
+                await self.initialize()
             
-            if response:
-                self.logger.debug("Server connection test successful")
-            else:
-                self.logger.warning("Server connection test failed - server may be unavailable")
-                
+            self.is_running = True
+            self.start_time = datetime.now()
+            
+            self.logger.info(f"🚀 Starting collector with ZERO DELAY: {self.collector_name}")
+            
+            # Start immediate processing loop
+            asyncio.create_task(self._immediate_processing_loop())
+            
+            # Start minimal polling loop for detection
+            asyncio.create_task(self._minimal_polling_loop())
+            
+            self.logger.info(f"✅ ZERO DELAY Collector started: {self.collector_name}")
+            
         except Exception as e:
-            self.logger.warning(f"Server connection test failed: {e}")
-            # Don't raise exception - allow agent to continue with retry logic
+            self.logger.error(f"❌ {self.collector_name} start failed: {e}")
+            self.is_running = False
+            raise Exception(f"Start failed: {e}")
     
-    async def close(self):
-        """Close communication session properly"""
+    async def stop(self):
+        """Stop the collector"""
         try:
-            if self.session and not self._session_closed:
-                await self.session.close()
-                self._session_closed = True
-                self.logger.info("Communication session closed")
+            self.logger.info(f"🛑 Stopping ZERO DELAY {self.collector_name}...")
+            self.is_running = False
+            
+            # Wait for current collection to finish
+            max_wait = 2  # Reduced wait time for immediate processing
+            wait_count = 0
+            while self._collecting and wait_count < max_wait:
+                await asyncio.sleep(0.01)  # 10ms check interval
+                wait_count += 0.01
+            
+            # Process any remaining immediate events
+            await self._process_remaining_immediate_events()
+            
+            # Perform collector-specific cleanup
+            await self._collector_specific_cleanup()
+            
+            self.logger.info(f"✅ ZERO DELAY {self.collector_name} stopped")
+            
         except Exception as e:
-            self.logger.error(f"Error closing session: {e}")
+            self.logger.error(f"❌ {self.collector_name} stop error: {e}")
     
-    async def __aenter__(self):
-        """Async context manager entry"""
-        await self.initialize()
-        return self
-    
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit"""
-        await self.close()
-    
-    def __del__(self):
-        """Destructor - ensure session is closed"""
-        if self.session and not self._session_closed:
+    async def _immediate_processing_loop(self):
+        """Immediate processing loop for ZERO DELAY events"""
+        while self.is_running:
             try:
-                # Try to close session in event loop
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(self.close())
-            except Exception:
-                pass
-    
-    async def register_agent(self, registration_data: AgentRegistrationData) -> Optional[Dict]:
-        """Register agent with server"""
-        try:
-            url = f"{self.base_url}/api/v1/agents/register"
-            
-            payload = {
-                'hostname': registration_data.hostname,
-                'ip_address': registration_data.ip_address,
-                'operating_system': registration_data.operating_system,
-                'os_version': registration_data.os_version,
-                'architecture': registration_data.architecture,
-                'agent_version': registration_data.agent_version,
-                'mac_address': registration_data.mac_address,
-                'domain': registration_data.domain,
-                'install_path': registration_data.install_path
-            }
-            
-            self.logger.info(f"Registering agent: {registration_data.hostname}")
-            
-            response = await self._make_request('POST', url, payload)
-            
-            if response and response.get('agent_id'):
-                self.agent_id = response['agent_id']  # Store agent ID for alert acknowledgment
-                self.logger.info("Agent registration successful")
-                return response
-            else:
-                raise Exception("Registration failed - no response")
-                
-        except Exception as e:
-            self.logger.error(f"Agent registration failed: {e}")
-            raise
-    
-    async def send_heartbeat(self, heartbeat_data: AgentHeartbeatData) -> Optional[Dict]:
-        """Send heartbeat to server"""
-        try:
-            url = f"{self.base_url}/api/v1/agents/heartbeat"
-            
-            payload = {
-                'hostname': heartbeat_data.hostname,
-                'status': heartbeat_data.status,
-                'cpu_usage': heartbeat_data.cpu_usage,
-                'memory_usage': heartbeat_data.memory_usage,
-                'disk_usage': heartbeat_data.disk_usage,
-                'network_latency': heartbeat_data.network_latency
-            }
-            
-            response = await self._make_request('POST', url, payload)
-            return response
-            
-        except Exception as e:
-            self.logger.error(f"Heartbeat failed: {e}")
-            return None
-    
-    async def submit_event(self, event_data: EventData) -> Optional[Dict]:
-        """Submit single event to server"""
-        try:
-            url = f"{self.base_url}/api/v1/events/submit"
-            
-            payload = self._convert_event_to_payload(event_data)
-            
-            response = await self._make_request('POST', url, payload)
-            
-            if response:
-                self.logger.debug(f"Event submitted: {event_data.event_type}")
-                return response
-            else:
-                self.logger.warning("Event submission failed")
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"Event submission error: {e}")
-            return None
-    
-    async def submit_event_batch(self, agent_id: str, events: List[EventData]) -> Optional[Dict]:
-        """Submit batch of events to server"""
-        try:
-            url = f"{self.base_url}/api/v1/events/batch"
-            
-            event_payloads = [self._convert_event_to_payload(event) for event in events]
-            
-            payload = {
-                'agent_id': agent_id,
-                'events': event_payloads
-            }
-            
-            response = await self._make_request('POST', url, payload)
-            
-            if response:
-                self.logger.info(f"Event batch submitted: {len(events)} events")
-                return response
-            else:
-                self.logger.warning("Event batch submission failed")
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"Event batch submission error: {e}")
-            return None
-    
-    def _convert_event_to_payload(self, event_data: EventData) -> Dict:
-        """Convert event data to API payload"""
-        payload = {
-            'agent_id': event_data.agent_id,
-            'event_type': event_data.event_type,
-            'event_action': event_data.event_action,
-            'event_timestamp': event_data.event_timestamp.isoformat(),
-            'severity': event_data.severity
-        }
-        
-        # Add event-specific fields
-        if event_data.event_type == 'Process':
-            payload.update({
-                'process_id': event_data.process_id,
-                'process_name': event_data.process_name,
-                'process_path': event_data.process_path,
-                'command_line': event_data.command_line,
-                'parent_pid': event_data.parent_pid,
-                'parent_process_name': event_data.parent_process_name,
-                'process_user': event_data.process_user,
-                'process_hash': event_data.process_hash
-            })
-        elif event_data.event_type == 'File':
-            payload.update({
-                'file_path': event_data.file_path,
-                'file_name': event_data.file_name,
-                'file_size': event_data.file_size,
-                'file_hash': event_data.file_hash,
-                'file_extension': event_data.file_extension,
-                'file_operation': event_data.file_operation
-            })
-        elif event_data.event_type == 'Network':
-            payload.update({
-                'source_ip': event_data.source_ip,
-                'destination_ip': event_data.destination_ip,
-                'source_port': event_data.source_port,
-                'destination_port': event_data.destination_port,
-                'protocol': event_data.protocol,
-                'direction': event_data.direction
-            })
-        elif event_data.event_type == 'Registry':
-            payload.update({
-                'registry_key': event_data.registry_key,
-                'registry_value_name': event_data.registry_value_name,
-                'registry_value_data': event_data.registry_value_data,
-                'registry_operation': event_data.registry_operation
-            })
-        elif event_data.event_type == 'Authentication':
-            payload.update({
-                'login_user': event_data.login_user,
-                'login_type': event_data.login_type,
-                'login_result': event_data.login_result
-            })
-        
-        # Add raw data if present
-        if hasattr(event_data, 'raw_event_data') and event_data.raw_event_data:
-            # Ensure raw_event_data is a dictionary
-            if isinstance(event_data.raw_event_data, str):
+                # Process events from immediate queue
                 try:
-                    import json
-                    payload['raw_event_data'] = json.loads(event_data.raw_event_data)
-                except json.JSONDecodeError:
-                    # If it's not valid JSON, send as string in a dict
-                    payload['raw_event_data'] = {'data': event_data.raw_event_data}
-            elif isinstance(event_data.raw_event_data, dict):
-                payload['raw_event_data'] = event_data.raw_event_data
-            else:
-                # Convert other types to dict
-                payload['raw_event_data'] = {'data': str(event_data.raw_event_data)}
-        
-        # Remove None values
-        return {k: v for k, v in payload.items() if v is not None}
-    
-    async def get_agent_config(self, agent_id: str) -> Optional[Dict]:
-        """Get agent configuration from server"""
-        try:
-            url = f"{self.base_url}/api/v1/agents/{agent_id}/config"
-            response = await self._make_request('GET', url)
-            return response
-        except Exception as e:
-            self.logger.error(f"Get agent config failed: {e}")
-            return None
-
-    async def get_pending_alerts(self, agent_id: str) -> Optional[Dict]:
-        """Get pending alert notifications from server"""
-        try:
-            url = f"{self.base_url}/api/v1/agents/{agent_id}/pending-alerts"
-            response = await self._make_request('GET', url)
-            
-            if response and response.get('success'):
-                alert_count = response.get('alert_count', 0)
-                if alert_count > 0:
-                    self.logger.warning(f"Received {alert_count} pending alerts from server")
-                return response
-            else:
-                self.logger.debug("No pending alerts from server")
-                return None
+                    # Wait for immediate events with very short timeout
+                    while not self._immediate_events.empty():
+                        event = await asyncio.wait_for(self._immediate_events.get(), timeout=0.001)
+                        await self._send_event_immediately(event)
+                except asyncio.TimeoutError:
+                    pass  # No immediate events to process
                 
-        except Exception as e:
-            self.logger.error(f"Get pending alerts failed: {e}")
-            return None
-    
-    # ============================================================================
-    # ALERT ACKNOWLEDGMENT METHODS - NEW
-    # ============================================================================
-    
-    async def acknowledge_alert(self, alert_id: str, status: str = "acknowledged", 
-                              details: Dict[str, Any] = None) -> Optional[Dict]:
-        """Acknowledge alert receipt and processing to server"""
-        try:
-            url = f"{self.base_url}/api/v1/alerts/{alert_id}/acknowledge"
-            
-            payload = {
-                'alert_id': alert_id,
-                'status': status,  # acknowledged, dismissed, investigating, resolved
-                'acknowledged_at': datetime.now().isoformat(),
-                'acknowledged_by': 'agent',
-                'agent_id': self.agent_id,
-                'details': details or {},
-                'client_timestamp': datetime.now().isoformat()
-            }
-            
-            self.logger.info(f"Acknowledging alert: {alert_id} - {status}")
-            
-            response = await self._make_request('POST', url, payload)
-            
-            if response and response.get('success'):
-                self.logger.debug(f"Alert acknowledged: {alert_id}")
-                return response
-            else:
-                self.logger.warning(f"Alert acknowledgment failed: {alert_id}")
-                return None
+                # Minimal sleep to prevent CPU overload
+                await asyncio.sleep(0.001)  # 1ms sleep for immediate processing
                 
-        except Exception as e:
-            self.logger.error(f"Alert acknowledgment error: {e}")
-            return None
-    
-    async def update_alert_status(self, alert_id: str, new_status: str, 
-                                details: Dict[str, Any] = None) -> Optional[Dict]:
-        """Update alert status on server"""
-        try:
-            url = f"{self.base_url}/api/v1/alerts/{alert_id}/status"
-            
-            payload = {
-                'status': new_status,  # pending, acknowledged, investigating, resolved, false_positive
-                'updated_by': 'agent',
-                'updated_at': datetime.now().isoformat(),
-                'agent_id': self.agent_id,
-                'details': details or {}
-            }
-            
-            self.logger.info(f"Updating alert status: {alert_id} → {new_status}")
-            
-            response = await self._make_request('PUT', url, payload)
-            
-            if response and response.get('success'):
-                self.logger.debug(f"Alert status updated: {alert_id}")
-                return response
-            else:
-                self.logger.warning(f"Alert status update failed: {alert_id}")
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"Alert status update error: {e}")
-            return None
-    
-    async def send_alert_feedback(self, alert_id: str, feedback_type: str, 
-                                feedback_data: Dict[str, Any] = None) -> Optional[Dict]:
-        """Send detailed alert feedback to server"""
-        try:
-            url = f"{self.base_url}/api/v1/alerts/{alert_id}/feedback"
-            
-            payload = {
-                'alert_id': alert_id,
-                'feedback_type': feedback_type,  # notification_displayed, user_clicked, user_dismissed, etc.
-                'feedback_data': feedback_data or {},
-                'timestamp': datetime.now().isoformat(),
-                'agent_id': self.agent_id,
-                'source': 'agent'
-            }
-            
-            response = await self._make_request('POST', url, payload)
-            
-            if response and response.get('success'):
-                self.logger.debug(f"Alert feedback sent: {alert_id}")
-                return response
-            else:
-                self.logger.debug(f"Alert feedback failed: {alert_id}")
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"Alert feedback error: {e}")
-            return None
-    
-    async def mark_alerts_as_retrieved(self, alert_ids: List[str]) -> Optional[Dict]:
-        """Mark multiple alerts as retrieved by agent"""
-        try:
-            url = f"{self.base_url}/api/v1/alerts/mark-retrieved"
-            
-            payload = {
-                'alert_ids': alert_ids,
-                'retrieved_at': datetime.now().isoformat(),
-                'agent_id': self.agent_id
-            }
-            
-            response = await self._make_request('POST', url, payload)
-            
-            if response and response.get('success'):
-                self.logger.info(f"Marked {len(alert_ids)} alerts as retrieved")
-                return response
-            else:
-                self.logger.warning(f"Failed to mark alerts as retrieved")
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"Mark alerts retrieved error: {e}")
-            return None
-    
-    # ============================================================================
-    # EXISTING METHODS
-    # ============================================================================
-    
-    async def check_server_health(self) -> bool:
-        """Check server health"""
-        try:
-            url = f"{self.base_url}/health"
-            
-            response = await self._make_request('GET', url)
-            
-            if response and response.get('status') in ['healthy', 'running']:
-                return True
-            else:
-                return False
-                
-        except Exception:
-            return False
-    
-    async def discover_server(self) -> Optional[Dict]:
-        """Discover server capabilities"""
-        try:
-            url = f"{self.base_url}/api/discover"
-            
-            response = await self._make_request('GET', url)
-            return response
-            
-        except Exception as e:
-            self.logger.error(f"Server discovery failed: {e}")
-            return None
-    
-    async def _make_request(self, method: str, url: str, payload: Optional[Dict] = None) -> Optional[Dict]:
-        """Make HTTP request with retry logic"""
-        if not self.session or self._session_closed:
-            await self.initialize()
-        
-        for attempt in range(self.max_retries):
-            try:
-                if method.upper() == 'GET':
-                    async with self.session.get(url) as response:
-                        return await self._handle_response(response)
-                elif method.upper() == 'POST':
-                    async with self.session.post(url, json=payload) as response:
-                        return await self._handle_response(response)
-                elif method.upper() == 'PUT':
-                    async with self.session.put(url, json=payload) as response:
-                        return await self._handle_response(response)
-                else:
-                    raise Exception(f"Unsupported HTTP method: {method}")
-                    
-            except aiohttp.ClientError as e:
-                self.logger.warning(f"Request failed (attempt {attempt + 1}/{self.max_retries}): {e}")
-                
-                if attempt < self.max_retries - 1:
-                    await asyncio.sleep(self.retry_delay)
-                else:
-                    raise Exception(f"Request failed after {self.max_retries} attempts: {e}")
-                    
             except Exception as e:
-                self.logger.error(f"Unexpected request error: {e}")
-                raise
-        
-        return None
+                self.logger.error(f"❌ Immediate processing loop error: {e}")
+                await asyncio.sleep(0.01)
     
-    async def _handle_response(self, response: aiohttp.ClientResponse) -> Optional[Dict]:
-        """Handle HTTP response"""
-        try:
-            # Check status code
-            if response.status == 200:
+    async def _minimal_polling_loop(self):
+        """Minimal polling loop for ZERO DELAY detection"""
+        while self.is_running:
+            try:
+                # Skip collection if previous one is still running
+                if self._collecting:
+                    await asyncio.sleep(0.001)
+                    continue
+                
+                collection_start = time.time()
+                self._collecting = True
+                
                 try:
-                    data = await response.json()
-                    return data
-                except json.JSONDecodeError:
-                    text = await response.text()
-                    self.logger.warning(f"Invalid JSON response: {text}")
-                    return None
+                    # Collect data with immediate processing
+                    result = await asyncio.wait_for(
+                        self._collect_data(), 
+                        timeout=1.0  # 1 second timeout for immediate response
+                    )
                     
-            elif response.status == 401:
-                raise Exception("Authentication failed - invalid token")
-            elif response.status == 403:
-                raise Exception("Access denied - check network permissions")
-            elif response.status == 404:
-                raise Exception("Server endpoint not found")
-            elif response.status == 429:
-                self.logger.warning("Rate limit exceeded")
-                await asyncio.sleep(self.retry_delay)
-                return None
-            elif response.status >= 500:
-                text = await response.text()
-                raise Exception(f"Server error {response.status}: {text}")
+                    # Process the result immediately
+                    if isinstance(result, list):
+                        for event in result:
+                            await self._add_immediate_event(event)
+                    elif isinstance(result, EventData):
+                        await self._add_immediate_event(result)
+                    
+                    # Update statistics
+                    self.last_collection_time = datetime.now()
+                    collection_time = time.time() - collection_start
+                    
+                    # Log performance issues less frequently
+                    if collection_time > self._immediate_send_threshold:
+                        current_time = time.time()
+                        if current_time - self._last_performance_log > 10:  # Log every 10 seconds
+                            self.logger.debug(f"⚡ Collection time: {collection_time*1000:.1f}ms")
+                            self._last_performance_log = current_time
+                    
+                    # Immediate next collection check
+                    await asyncio.sleep(0.001)  # 1ms for immediate detection
+                    
+                except asyncio.TimeoutError:
+                    self.logger.warning(f"⚠️ Collection timeout: {self.collector_name}")
+                    self.collection_errors += 1
+                    await asyncio.sleep(0.01)
+                    
+                finally:
+                    self._collecting = False
+                
+            except Exception as e:
+                self.logger.error(f"❌ Minimal polling error: {e}")
+                self.collection_errors += 1
+                self._collecting = False
+                await asyncio.sleep(0.01)
+    
+    async def _add_immediate_event(self, event_data: EventData):
+        """Add event for immediate processing"""
+        try:
+            if self.immediate_processing:
+                # Try to add to immediate queue
+                try:
+                    self._immediate_events.put_nowait(event_data)
+                except asyncio.QueueFull:
+                    # If immediate queue is full, send directly
+                    await self._send_event_immediately(event_data)
             else:
-                text = await response.text()
-                self.logger.warning(f"Unexpected response {response.status}: {text}")
-                return None
+                # Fallback to normal processing
+                await self.add_event(event_data)
                 
         except Exception as e:
-            self.logger.error(f"Response handling error: {e}")
-            raise
+            self.logger.error(f"❌ Failed to add immediate event: {e}")
     
-    def get_server_info(self) -> Dict[str, Any]:
-        """Get server connection information"""
+    async def _send_event_immediately(self, event_data: EventData):
+        """Send event immediately through event processor"""
+        try:
+            if self.event_processor:
+                await self.event_processor.add_event(event_data)
+                self.events_collected += 1
+                self.logger.debug(f"⚡ Event sent immediately: {event_data.event_type}")
+            else:
+                self.logger.warning("⚠️ No event processor available for immediate send")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Immediate event send failed: {e}")
+            self.collection_errors += 1
+    
+    async def _process_remaining_immediate_events(self):
+        """Process any remaining immediate events before shutdown"""
+        try:
+            while not self._immediate_events.empty():
+                try:
+                    event = self._immediate_events.get_nowait()
+                    await self._send_event_immediately(event)
+                except asyncio.QueueEmpty:
+                    break
+                    
+        except Exception as e:
+            self.logger.error(f"❌ Failed to process remaining immediate events: {e}")
+    
+    @abstractmethod
+    async def _collect_data(self):
+        """Collect data - must be implemented by subclasses"""
+        pass
+    
+    async def _collector_specific_init(self):
+        """Collector-specific initialization - override in subclasses if needed"""
+        pass
+    
+    async def _collector_specific_cleanup(self):
+        """Collector-specific cleanup - override in subclasses if needed"""
+        pass
+    
+    async def _validate_config(self):
+        """Validate collector configuration for ZERO DELAY"""
+        if self.polling_interval < 0.001:
+            self.logger.warning("⚠️ Polling interval too low, setting to 1ms for immediate processing")
+            self.polling_interval = 0.001
+        
+        if self.max_events_per_interval < 1:
+            self.logger.warning("⚠️ Max events per interval too low, setting to 1 for immediate processing")
+            self.max_events_per_interval = 1
+    
+    async def add_event(self, event_data: EventData):
+        """Add event to the processing queue - ZERO DELAY version"""
+        try:
+            if self.immediate_processing:
+                await self._add_immediate_event(event_data)
+            else:
+                # Fallback to event processor
+                if self.event_processor:
+                    await self.event_processor.add_event(event_data)
+                    self.events_collected += 1
+                    self.logger.debug(f"📤 Event added: {event_data.event_type}")
+                else:
+                    self.logger.warning("⚠️ No event processor available")
+                    
+        except Exception as e:
+            self.logger.error(f"❌ Failed to add event: {e}")
+            self.collection_errors += 1
+    
+    def set_event_processor(self, event_processor):
+        """Set the event processor reference"""
+        self.event_processor = event_processor
+        self.logger.debug("🔗 Event processor linked for ZERO DELAY")
+    
+    def enable_immediate_processing(self, enabled: bool = True):
+        """Enable/disable immediate processing mode"""
+        self.immediate_processing = enabled
+        self.logger.info(f"⚡ Immediate processing {'enabled' if enabled else 'disabled'}")
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get collector statistics with ZERO DELAY metrics"""
+        uptime = (datetime.now() - self.start_time).total_seconds() if self.start_time else 0
+        
         return {
-            'host': self.server_host,
-            'port': self.server_port,
-            'base_url': self.base_url,
-            'timeout': self.timeout,
-            'max_retries': self.max_retries,
-            'auth_configured': bool(self.auth_token),
-            'session_active': self.session is not None and not self._session_closed,
-            'agent_id': self.agent_id,
-            'alert_acknowledgment_enabled': True
+            'collector_name': self.collector_name,
+            'is_running': self.is_running,
+            'is_initialized': self.is_initialized,
+            'uptime_seconds': uptime,
+            'events_collected': self.events_collected,
+            'collection_errors': self.collection_errors,
+            'last_collection_time': self.last_collection_time.isoformat() if self.last_collection_time else None,
+            'polling_interval': self.polling_interval,
+            'real_time_monitoring': self.real_time_monitoring,
+            'events_per_minute': (self.events_collected / max(uptime / 60, 1)) if uptime > 0 else 0,
+            'is_collecting': self._collecting,
+            'immediate_processing': self.immediate_processing,
+            'zero_delay_enabled': True,
+            'immediate_queue_size': self._immediate_events.qsize(),
+            'immediate_send_threshold_ms': self._immediate_send_threshold * 1000
         }
+    
+    def get_config(self) -> Dict[str, Any]:
+        """Get collector configuration"""
+        return {
+            'polling_interval': self.polling_interval,
+            'max_events_per_interval': self.max_events_per_interval,
+            'real_time_monitoring': self.real_time_monitoring,
+            'collection_enabled': self.collection_config.get('enabled', True),
+            'immediate_processing': self.immediate_processing,
+            'zero_delay_enabled': True
+        }
+    
+    def update_config(self, config_updates: Dict[str, Any]):
+        """Update collector configuration for ZERO DELAY"""
+        try:
+            if 'polling_interval' in config_updates:
+                new_interval = max(0.001, config_updates['polling_interval'])  # Minimum 1ms
+                self.polling_interval = new_interval
+            
+            if 'immediate_processing' in config_updates:
+                self.immediate_processing = config_updates['immediate_processing']
+            
+            if 'real_time_monitoring' in config_updates:
+                self.real_time_monitoring = config_updates['real_time_monitoring']
+            
+            self.logger.info(f"🔧 {self.collector_name} ZERO DELAY configuration updated")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Configuration update failed: {e}")
+    
+    async def health_check(self) -> Dict[str, Any]:
+        """Perform health check with ZERO DELAY metrics"""
+        try:
+            health_status = {
+                'healthy': True,
+                'collector_name': self.collector_name,
+                'is_running': self.is_running,
+                'is_initialized': self.is_initialized,
+                'issues': []
+            }
+            
+            # Check if collector is running when it should be
+            if self.is_initialized and not self.is_running:
+                health_status['healthy'] = False
+                health_status['issues'].append('Collector is not running')
+            
+            # Check for excessive errors
+            uptime = (datetime.now() - self.start_time).total_seconds() if self.start_time else 0
+            error_rate = self.collection_errors / max(uptime / 60, 1) if uptime > 60 else 0
+            
+            if error_rate > 0.5:  # More than 0.5 errors per minute for immediate processing
+                health_status['healthy'] = False
+                health_status['issues'].append(f'High error rate: {error_rate:.1f} errors/min')
+            
+            # Check if collection is happening
+            if (self.last_collection_time and 
+                (datetime.now() - self.last_collection_time).total_seconds() > 1):  # 1 second for immediate processing
+                health_status['healthy'] = False
+                health_status['issues'].append('Collection appears to be stalled')
+            
+            # Check immediate processing queue
+            if self._immediate_events.qsize() > 0 and uptime > 1:
+                health_status['issues'].append(f'Immediate queue has {self._immediate_events.qsize()} pending events')
+            
+            # Add ZERO DELAY specific health info
+            health_status['zero_delay_status'] = {
+                'immediate_processing': self.immediate_processing,
+                'immediate_queue_size': self._immediate_events.qsize(),
+                'last_collection_ms_ago': (datetime.now() - self.last_collection_time).total_seconds() * 1000 if self.last_collection_time else None
+            }
+            
+            return health_status
+            
+        except Exception as e:
+            self.logger.error(f"❌ Health check failed: {e}")
+            return {
+                'healthy': False,
+                'collector_name': self.collector_name,
+                'issues': [f'Health check failed: {str(e)}']
+            }
+    
+    def clear_stats(self):
+        """Clear collector statistics"""
+        self.events_collected = 0
+        self.events_sent = 0
+        self.collection_errors = 0
+        self.last_collection_time = None
+        self._last_performance_log = 0
+        self.logger.info(f"📊 {self.collector_name} ZERO DELAY statistics cleared")
