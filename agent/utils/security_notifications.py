@@ -1,8 +1,7 @@
-# agent/utils/security_notifications.py - Enhanced with Alert Acknowledgment
+# agent/utils/security_notifications.py - FIXED FOR PLYER NOTIFICATIONS
 """
-Security Alert Notification System - Enhanced Version with Server Acknowledgment
+Security Alert Notification System - Fixed with Plyer for Windows Toast
 Hiển thị toast notifications ở góc phải màn hình khi server phát hiện threats
-Gửi acknowledgment ngược lại server để tracking alert lifecycle
 """
 
 import logging
@@ -16,50 +15,62 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
-# Import for Windows Toast Notifications
+# Import for notifications - Priority order
+NOTIFICATION_METHOD = None
+
+# Try plyer first (best for Windows toast)
 try:
     from plyer import notification
     PLYER_AVAILABLE = True
+    NOTIFICATION_METHOD = "plyer"
+    print("🔔 Plyer notification system loaded")
 except ImportError:
     PLYER_AVAILABLE = False
+    print("⚠️ Plyer not available")
 
-# Fallback Windows API imports
-try:
-    import ctypes
-    from ctypes import wintypes
-    import win32api
-    import win32con
-    import win32gui
-    WINDOWS_API_AVAILABLE = True
-except ImportError:
-    WINDOWS_API_AVAILABLE = False
-
-# Try to import win10toast for better Windows 10/11 notifications
+# Try win10toast as backup
 try:
     import warnings
-    # Suppress pkg_resources deprecation warning
     warnings.filterwarnings("ignore", category=UserWarning, module="pkg_resources")
     from win10toast import ToastNotifier
     WIN10_TOAST_AVAILABLE = True
+    if not NOTIFICATION_METHOD:
+        NOTIFICATION_METHOD = "win10toast"
+        print("🔔 Win10Toast notification system loaded")
 except ImportError:
     WIN10_TOAST_AVAILABLE = False
+    if not NOTIFICATION_METHOD:
+        print("⚠️ Win10Toast not available")
 
+# Windows API as final fallback
+try:
+    import ctypes
+    from ctypes import wintypes
+    WINDOWS_API_AVAILABLE = True
+    if not NOTIFICATION_METHOD:
+        NOTIFICATION_METHOD = "windows_api"
+        print("🔔 Windows API notification system loaded")
+except ImportError:
+    WINDOWS_API_AVAILABLE = False
+    if not NOTIFICATION_METHOD:
+        NOTIFICATION_METHOD = "console"
+        print("⚠️ Using console notifications as fallback")
 
 class SecurityAlertNotifier:
-    """Enhanced Security Alert Notifier with Toast Notifications and Server Acknowledgment"""
+    """Enhanced Security Alert Notifier with Plyer Toast Notifications"""
     
     def __init__(self, config_manager=None):
         self.logger = logging.getLogger(__name__)
         self.config_manager = config_manager
         
-        # Server communication reference (will be set by EventProcessor)
+        # Server communication reference
         self.communication = None
         
         # Notification settings
         self.enabled = True
         self.show_on_screen = True
         self.play_sound = True
-        self.auto_dismiss_timeout = 30
+        self.auto_dismiss_timeout = 15
         
         # Alert acknowledgment settings
         self.auto_acknowledge = True
@@ -67,8 +78,7 @@ class SecurityAlertNotifier:
         self.track_user_interactions = True
         
         # Toast notification settings
-        self.toast_duration = 10  # seconds
-        self.toast_threaded = True
+        self.toast_duration = 15  # seconds
         self.app_name = "EDR Security Agent"
         self.app_icon = self._get_app_icon_path()
         
@@ -97,16 +107,16 @@ class SecurityAlertNotifier:
         # Rate limiting
         self.max_security_alerts_per_minute = 10
         
-        # Initialize toast notifier
-        self.toast_notifier = None
-        if WIN10_TOAST_AVAILABLE:
-            try:
-                self.toast_notifier = ToastNotifier()
-                self.logger.info("Win10Toast notifier initialized")
-            except Exception as e:
-                self.logger.debug(f"Win10Toast init failed: {e}")
+        # Initialize notification system
+        self.notification_system = NOTIFICATION_METHOD
         
-        self.logger.info("Enhanced Security Alert Notifier with Acknowledgment initialized")
+        if PLYER_AVAILABLE:
+            self.logger.info("🔔 Plyer notification system initialized")
+        elif WIN10_TOAST_AVAILABLE:
+            self.toast_notifier = ToastNotifier()
+            self.logger.info("🔔 Win10Toast notification system initialized")
+        
+        self.logger.info(f"Enhanced Security Alert Notifier initialized with {self.notification_system}")
     
     def set_communication(self, communication):
         """Set communication reference for alert acknowledgment"""
@@ -134,7 +144,7 @@ class SecurityAlertNotifier:
             return None
     
     def process_server_alerts(self, server_response: Dict[str, Any], related_events: List = None):
-        """Process alerts from server response - Enhanced version with acknowledgment"""
+        """Process alerts from server response - Enhanced for immediate display"""
         try:
             alerts = []
             
@@ -160,21 +170,21 @@ class SecurityAlertNotifier:
             
             self.logger.warning(f"🚨 Processing {len(alerts)} security alerts from server")
             
-            # Process each alert with acknowledgment
+            # Process each alert immediately
             for alert in alerts:
-                # Create task for async processing
-                asyncio.create_task(self._process_single_alert_async(alert, related_events))
+                # Show notification immediately (synchronous)
+                self._show_immediate_notification(alert, related_events)
                 
         except Exception as e:
             self.logger.error(f"❌ Error processing server alerts: {e}")
     
-    async def _process_single_alert_async(self, alert: Dict[str, Any], related_events: List = None):
-        """Process a single security alert asynchronously with server acknowledgment"""
+    def _show_immediate_notification(self, alert: Dict[str, Any], related_events: List = None):
+        """Show notification immediately without async"""
         try:
             # Parse alert information
             alert_info = {
                 'alert_id': alert.get('id', alert.get('alert_id', f"alert_{int(time.time())}")),
-                'server_alert_id': alert.get('server_alert_id'),  # ID from server database
+                'server_alert_id': alert.get('server_alert_id'),
                 'rule_name': alert.get('rule_name', 'Unknown Rule'),
                 'alert_type': alert.get('alert_type', 'Security Alert'),
                 'title': alert.get('title', alert.get('alert_title', 'Security Threat Detected')),
@@ -188,15 +198,6 @@ class SecurityAlertNotifier:
                 'event_id': alert.get('event_id'),
                 'related_event': None
             }
-            
-            # Find related event
-            if related_events and alert_info['event_id'] is not None:
-                try:
-                    event_index = int(alert_info['event_id'])
-                    if 0 <= event_index < len(related_events):
-                        alert_info['related_event'] = related_events[event_index]
-                except (ValueError, IndexError):
-                    pass
             
             # Determine priority
             priority = self._determine_alert_priority(alert_info)
@@ -214,86 +215,107 @@ class SecurityAlertNotifier:
                 f"Risk: {alert_info['risk_score']}/100"
             )
             
-            # Show enhanced notification
-            await self._show_enhanced_security_notification_async(alert_info)
-            
-            # Send acknowledgment to server
-            if self.auto_acknowledge and self.communication:
-                await self._acknowledge_alert_to_server(alert_info)
+            # Show notification immediately
+            self._display_toast_notification(alert_info)
             
             # Track alert locally
             self._track_security_alert(alert_info)
             
         except Exception as e:
-            self.logger.error(f"❌ Error processing single alert: {e}")
+            self.logger.error(f"❌ Error showing immediate notification: {e}")
     
-    async def _acknowledge_alert_to_server(self, alert_info: Dict[str, Any]):
-        """Send alert acknowledgment to server - Enhanced with detailed information"""
+    def _display_toast_notification(self, alert_info: Dict[str, Any]):
+        """Display toast notification using best available method"""
         try:
-            alert_id = alert_info.get('server_alert_id') or alert_info.get('alert_id')
+            # Prepare notification content
+            title, message = self._prepare_notification_content(alert_info)
             
-            if not alert_id:
-                self.logger.warning("⚠️ No alert ID for acknowledgment")
-                return
+            # Method 1: Plyer (preferred for Windows)
+            if PLYER_AVAILABLE:
+                try:
+                    self.logger.info("🔔 Showing Plyer toast notification...")
+                    
+                    # Enhanced notification with icon
+                    notification.notify(
+                        title=title,
+                        message=message,
+                        timeout=self.toast_duration,
+                        app_icon=self.app_icon,
+                        app_name=self.app_name,
+                        toast=True  # Force Windows toast
+                    )
+                    
+                    self.logger.info(f"✅ Plyer notification displayed: {alert_info['rule_name']}")
+                    
+                    # Play sound if enabled
+                    if self.play_sound:
+                        self._play_alert_sound()
+                    
+                    return True
+                    
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Plyer notification failed: {e}")
             
-            # Prepare detailed acknowledgment information
-            acknowledgment_details = {
-                'notification_displayed': True,
-                'display_method': 'plyer_toast' if PLYER_AVAILABLE else 'fallback',
-                'severity': alert_info.get('severity'),
-                'rule_name': alert_info.get('rule_name'),
-                'agent_version': '2.0.0',
-                'display_timestamp': datetime.now().isoformat(),
-                'priority': alert_info.get('priority'),
-                'notification_timeout': self._get_notification_timeout(alert_info.get('priority', 'MEDIUM')),
-                'user_interaction_tracking': self.track_user_interactions,
-                'sound_played': self.play_sound,
-                'notification_position': 'bottom-right',
-                'notification_style': 'toast',
-                'agent_hostname': self._get_hostname(),
-                'agent_os': 'Windows',
-                'notification_success': True
-            }
+            # Method 2: Win10Toast (backup)
+            if WIN10_TOAST_AVAILABLE and hasattr(self, 'toast_notifier'):
+                try:
+                    self.logger.info("🔔 Showing Win10Toast notification...")
+                    
+                    self.toast_notifier.show_toast(
+                        title=title,
+                        msg=message,
+                        duration=self.toast_duration,
+                        threaded=True,
+                        icon_path=self.app_icon
+                    )
+                    
+                    self.logger.info(f"✅ Win10Toast notification displayed: {alert_info['rule_name']}")
+                    
+                    if self.play_sound:
+                        self._play_alert_sound()
+                    
+                    return True
+                    
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Win10Toast notification failed: {e}")
             
-            # Send acknowledgment to server
-            response = await self.communication.acknowledge_alert(
-                alert_id=alert_id,
-                status="acknowledged",
-                details=acknowledgment_details
-            )
+            # Method 3: Windows MessageBox (fallback)
+            if WINDOWS_API_AVAILABLE:
+                try:
+                    self.logger.info("🔔 Showing Windows MessageBox...")
+                    
+                    # Show in separate thread to avoid blocking
+                    def show_messagebox():
+                        try:
+                            ctypes.windll.user32.MessageBoxW(
+                                0,
+                                message,
+                                title,
+                                0x30 | 0x40000  # MB_ICONWARNING | MB_TOPMOST
+                            )
+                        except Exception as e:
+                            self.logger.debug(f"MessageBox error: {e}")
+                    
+                    import threading
+                    threading.Thread(target=show_messagebox, daemon=True).start()
+                    
+                    self.logger.info(f"✅ MessageBox notification displayed: {alert_info['rule_name']}")
+                    
+                    if self.play_sound:
+                        self._play_alert_sound()
+                    
+                    return True
+                    
+                except Exception as e:
+                    self.logger.warning(f"⚠️ MessageBox notification failed: {e}")
             
-            if response and response.get('success'):
-                self.logger.info(f"✅ Alert acknowledged to server: {alert_id}")
-                
-                # Send additional feedback about notification display
-                await self.communication.send_alert_feedback(
-                    alert_id=alert_id,
-                    feedback_type="notification_displayed",
-                    feedback_data={
-                        'display_method': 'plyer_toast' if PLYER_AVAILABLE else 'fallback',
-                        'notification_timeout': self._get_notification_timeout(alert_info.get('priority', 'MEDIUM')),
-                        'user_interaction_tracking': self.track_user_interactions,
-                        'sound_played': self.play_sound,
-                        'notification_position': 'bottom-right',
-                        'notification_style': 'toast',
-                        'acknowledgment_success': True,
-                        'server_response': response.get('message', 'Acknowledged')
-                    }
-                )
-                
-            else:
-                self.logger.warning(f"⚠️ Failed to acknowledge alert: {alert_id}")
-                
+            # Method 4: Console notification (final fallback)
+            self._show_console_notification(title, message, alert_info)
+            return True
+            
         except Exception as e:
-            self.logger.error(f"❌ Alert acknowledgment failed: {e}")
-    
-    def _get_hostname(self) -> str:
-        """Get current hostname"""
-        try:
-            import socket
-            return socket.gethostname()
-        except Exception:
-            return "Unknown"
+            self.logger.error(f"❌ All notification methods failed: {e}")
+            return False
     
     def _determine_alert_priority(self, alert_info: Dict[str, Any]) -> str:
         """Determine alert priority"""
@@ -320,162 +342,54 @@ class SecurityAlertNotifier:
         # Low priority
         return 'LOW'
     
-    async def _show_enhanced_security_notification_async(self, alert_info: Dict[str, Any]):
-        """Show enhanced security notification with multiple methods - Async version"""
+    def _prepare_notification_content(self, alert_info: Dict[str, Any]) -> tuple:
+        """Prepare notification title and message"""
         try:
-            if not self.enabled:
-                return
+            rule_name = alert_info.get('rule_name', 'Security Alert')
+            severity = alert_info.get('severity', 'MEDIUM')
+            risk_score = alert_info.get('risk_score', 50)
+            description = alert_info.get('description', 'Suspicious activity detected')
             
-            # Prepare notification content
-            title, message = self._prepare_notification_content(alert_info)
-            priority = alert_info.get('priority', 'MEDIUM')
-            timeout = self._get_notification_timeout(priority)
+            # Create title with emoji
+            severity_icons = {
+                'CRITICAL': '🚨',
+                'HIGH': '⚠️',
+                'MEDIUM': '🔍',
+                'LOW': 'ℹ️'
+            }
             
-            # Try different notification methods in order of preference
-            notification_shown = False
+            icon = severity_icons.get(severity, '🔔')
+            title = f"{icon} EDR Alert - {severity}"
             
-            # Method 1: Windows 10/11 Toast
-            if WIN10_TOAST_AVAILABLE and self.toast_notifier:
-                notification_shown = await self._show_win10_toast_async(title, message, alert_info, timeout)
+            # Create detailed message
+            message_parts = [
+                f"Rule: {rule_name}",
+                f"Risk Score: {risk_score}/100"
+            ]
             
-            # Method 2: Plyer notification
-            if not notification_shown and PLYER_AVAILABLE:
-                notification_shown = await self._show_plyer_notification_async(title, message, alert_info, timeout)
+            if description and len(description) < 100:
+                message_parts.insert(1, f"Details: {description}")
             
-            # Method 3: Windows MessageBox
-            if not notification_shown and WINDOWS_API_AVAILABLE:
-                notification_shown = await self._show_messagebox_notification_async(title, message, alert_info)
+            # Add MITRE info if available
+            if alert_info.get('mitre_tactic'):
+                message_parts.append(f"Tactic: {alert_info['mitre_tactic']}")
             
-            # Method 4: Console notification (fallback)
-            if not notification_shown:
-                self._show_console_notification(title, message, alert_info)
+            # Add timestamp
+            try:
+                timestamp = alert_info.get('timestamp', datetime.now().isoformat())
+                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                time_str = dt.strftime('%H:%M:%S')
+                message_parts.append(f"Time: {time_str}")
+            except:
+                pass
             
-            # Play sound if enabled
-            if self.play_sound:
-                self._play_alert_sound()
+            message = "\n".join(message_parts)
             
-            self.logger.info(f"🔔 Security notification displayed: {alert_info['rule_name']}")
-            
-            # Send notification display feedback to server
-            if self.communication and alert_info.get('server_alert_id'):
-                await self.communication.send_alert_feedback(
-                    alert_id=alert_info['server_alert_id'],
-                    feedback_type="notification_displayed_successfully",
-                    feedback_data={
-                        'display_method': 'plyer' if notification_shown and PLYER_AVAILABLE else 'fallback',
-                        'display_success': notification_shown,
-                        'title': title,
-                        'timeout': timeout
-                    }
-                )
+            return title, message
             
         except Exception as e:
-            self.logger.error(f"❌ Error showing security notification: {e}")
-    
-    async def _show_win10_toast_async(self, title: str, message: str, alert_info: Dict[str, Any], timeout: int) -> bool:
-        """Show Windows 10/11 toast notification - Async version"""
-        try:
-            def show_toast():
-                try:
-                    self.toast_notifier.show_toast(
-                        title=title,
-                        msg=message,
-                        duration=timeout,
-                        threaded=self.toast_threaded,
-                        icon_path=self.app_icon,
-                        callback_on_click=lambda: asyncio.create_task(self._on_notification_click(alert_info))
-                    )
-                except Exception as e:
-                    self.logger.debug(f"Win10Toast error: {e}")
-            
-            if self.toast_threaded:
-                await asyncio.get_event_loop().run_in_executor(None, show_toast)
-            else:
-                show_toast()
-            
-            return True
-            
-        except Exception as e:
-            self.logger.debug(f"Win10Toast failed: {e}")
-            return False
-    
-    async def _show_plyer_notification_async(self, title: str, message: str, alert_info: Dict[str, Any], timeout: int) -> bool:
-        """Show notification using Plyer - Enhanced version with better positioning and styling"""
-        try:
-            def show():
-                try:
-                    # Enhanced notification with better parameters
-                    notification.notify(
-                        title=title,
-                        message=message,
-                        timeout=timeout,
-                        app_icon=self.app_icon,
-                        # Additional parameters for better positioning (if supported)
-                        app_name=self.app_name,
-                        # Try to position in bottom-right corner
-                        toast=True  # Use Windows toast notification if available
-                    )
-                    
-                    # Log notification display
-                    self.logger.info(f"🔔 Plyer notification displayed: {alert_info.get('rule_name', 'Unknown')}")
-                    
-                except Exception as e:
-                    self.logger.debug(f"Plyer notification error: {e}")
-                    # Fallback to basic notification
-                    try:
-                        notification.notify(
-                            title=title,
-                            message=message,
-                            timeout=timeout
-                        )
-                    except Exception as fallback_error:
-                        self.logger.debug(f"Plyer fallback also failed: {fallback_error}")
-                        raise
-            
-            # Run in executor to avoid blocking
-            await asyncio.get_event_loop().run_in_executor(None, show)
-            
-            # Send notification display feedback
-            if self.communication and alert_info.get('server_alert_id'):
-                await self.communication.send_alert_feedback(
-                    alert_id=alert_info['server_alert_id'],
-                    feedback_type="notification_displayed_successfully",
-                    feedback_data={
-                        'display_method': 'plyer_toast',
-                        'notification_timeout': timeout,
-                        'title': title,
-                        'message_length': len(message),
-                        'priority': alert_info.get('priority'),
-                        'user_interaction_tracking': self.track_user_interactions
-                    }
-                )
-            
-            return True
-            
-        except Exception as e:
-            self.logger.debug(f"Plyer notification failed: {e}")
-            return False
-    
-    async def _show_messagebox_notification_async(self, title: str, message: str, alert_info: Dict[str, Any]) -> bool:
-        """Show Windows MessageBox notification - Async version"""
-        try:
-            def show():
-                try:
-                    ctypes.windll.user32.MessageBoxW(
-                        0, 
-                        message, 
-                        title, 
-                        win32con.MB_OK | win32con.MB_ICONWARNING
-                    )
-                except Exception as e:
-                    self.logger.debug(f"MessageBox error: {e}")
-            
-            await asyncio.get_event_loop().run_in_executor(None, show)
-            return True
-            
-        except Exception as e:
-            self.logger.debug(f"MessageBox failed: {e}")
-            return False
+            self.logger.error(f"❌ Error preparing notification content: {e}")
+            return "EDR Security Alert", "Suspicious activity detected"
     
     def _show_console_notification(self, title: str, message: str, alert_info: Dict[str, Any]):
         """Show console notification as fallback"""
@@ -488,160 +402,31 @@ class SecurityAlertNotifier:
             # Create visual separator
             separator = "=" * 80
             
-            # Color codes for console (if supported)
-            colors = {
-                'CRITICAL': '\033[91m',  # Red
-                'HIGH': '\033[93m',      # Yellow
-                'MEDIUM': '\033[94m',    # Blue
-                'LOW': '\033[92m'        # Green
-            }
-            
-            color = colors.get(priority, '')
-            reset = '\033[0m'
-            
             print(f"\n{separator}")
-            print(f"{color}🚨 SECURITY ALERT - {priority}{reset}")
-            print(f"{color}Rule: {rule_name}{reset}")
-            print(f"{color}Severity: {severity}{reset}")
-            print(f"{color}Risk Score: {risk_score}/100{reset}")
-            print(f"{color}Title: {title}{reset}")
-            print(f"{color}Message: {message}{reset}")
+            print(f"🚨 SECURITY ALERT - {priority}")
+            print(f"Rule: {rule_name}")
+            print(f"Severity: {severity}")
+            print(f"Risk Score: {risk_score}/100")
+            print(f"Title: {title}")
+            print(f"Message: {message}")
             print(f"{separator}\n")
             
         except Exception as e:
             self.logger.error(f"❌ Console notification error: {e}")
     
-    def _prepare_notification_content(self, alert_info: Dict[str, Any]) -> tuple:
-        """Prepare notification title and message"""
-        try:
-            rule_name = alert_info.get('rule_name', 'Security Alert')
-            severity = alert_info.get('severity', 'MEDIUM')
-            risk_score = alert_info.get('risk_score', 50)
-            description = alert_info.get('description', 'Suspicious activity detected')
-            
-            # Create title
-            if severity == 'CRITICAL':
-                title = f"🚨 CRITICAL: {rule_name}"
-            elif severity == 'HIGH':
-                title = f"⚠️ HIGH: {rule_name}"
-            elif severity == 'MEDIUM':
-                title = f"🔍 MEDIUM: {rule_name}"
-            else:
-                title = f"ℹ️ LOW: {rule_name}"
-            
-            # Create message
-            message_parts = []
-            
-            # Add description
-            if description:
-                message_parts.append(description)
-            
-            # Add risk score
-            if risk_score > 0:
-                message_parts.append(f"Risk Score: {risk_score}/100")
-            
-            # Add MITRE info if available
-            if alert_info.get('mitre_tactic'):
-                message_parts.append(f"Tactic: {alert_info['mitre_tactic']}")
-            
-            if alert_info.get('mitre_technique'):
-                message_parts.append(f"Technique: {alert_info['mitre_technique']}")
-            
-            # Add timestamp
-            timestamp = alert_info.get('timestamp', datetime.now().isoformat())
-            try:
-                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                time_str = dt.strftime('%H:%M:%S')
-                message_parts.append(f"Time: {time_str}")
-            except:
-                pass
-            
-            message = " | ".join(message_parts)
-            
-            return title, message
-            
-        except Exception as e:
-            self.logger.error(f"❌ Error preparing notification content: {e}")
-            return "Security Alert", "Suspicious activity detected"
-    
-    def _get_notification_timeout(self, priority: str) -> int:
-        """Get notification timeout based on priority"""
-        timeouts = {
-            'CRITICAL': 15,
-            'HIGH': 12,
-            'MEDIUM': 8,
-            'LOW': 5
-        }
-        return timeouts.get(priority, 8)
-    
-    async def _on_notification_click(self, alert_info: Dict[str, Any]):
-        """Handle notification click event with server feedback"""
-        try:
-            self.logger.info("🔔 Security notification clicked")
-            
-            # Send click feedback to server
-            if self.communication and alert_info.get('server_alert_id'):
-                await self.communication.update_alert_status(
-                    alert_id=alert_info['server_alert_id'],
-                    new_status="investigating",
-                    details={
-                        'action': 'user_clicked_notification',
-                        'timestamp': datetime.now().isoformat(),
-                        'user_interaction': True
-                    }
-                )
-                
-                await self.communication.send_alert_feedback(
-                    alert_id=alert_info['server_alert_id'],
-                    feedback_type="user_clicked",
-                    feedback_data={
-                        'click_timestamp': datetime.now().isoformat(),
-                        'alert_priority': alert_info.get('priority'),
-                        'rule_name': alert_info.get('rule_name')
-                    }
-                )
-                
-        except Exception as e:
-            self.logger.error(f"❌ Notification click handling error: {e}")
-    
-    async def _on_notification_dismiss(self, alert_info: Dict[str, Any]):
-        """Handle notification dismissal with server feedback"""
-        try:
-            self.logger.info("🔔 Security notification dismissed")
-            
-            # Send dismissal feedback to server
-            if self.communication and alert_info.get('server_alert_id'):
-                await self.communication.update_alert_status(
-                    alert_id=alert_info['server_alert_id'],
-                    new_status="dismissed",
-                    details={
-                        'action': 'user_dismissed_notification',
-                        'timestamp': datetime.now().isoformat(),
-                        'auto_dismiss': False
-                    }
-                )
-                
-                await self.communication.send_alert_feedback(
-                    alert_id=alert_info['server_alert_id'],
-                    feedback_type="user_dismissed",
-                    feedback_data={
-                        'dismiss_timestamp': datetime.now().isoformat(),
-                        'dismiss_method': 'manual'
-                    }
-                )
-                
-        except Exception as e:
-            self.logger.error(f"❌ Notification dismiss handling error: {e}")
-    
     def _play_alert_sound(self):
         """Play alert sound"""
         try:
-            # Simple beep for now - could be enhanced with custom sounds
             if WINDOWS_API_AVAILABLE:
-                import winsound
-                frequency = 1000  # Hz
-                duration = 500   # ms
-                winsound.Beep(frequency, duration)
+                # Play Windows notification sound
+                try:
+                    import winsound
+                    winsound.PlaySound("SystemExclamation", winsound.SND_ALIAS | winsound.SND_ASYNC)
+                except:
+                    # Fallback beep
+                    frequency = 1000  # Hz
+                    duration = 500   # ms
+                    winsound.Beep(frequency, duration)
         except Exception as e:
             self.logger.debug(f"Sound play error: {e}")
     
@@ -677,7 +462,7 @@ class SecurityAlertNotifier:
                 'alert_id': alert_info['alert_id'],
                 'rule_name': alert_info['rule_name'],
                 'severity': alert_info['severity'],
-                'acknowledged_to_server': bool(self.communication and alert_info.get('server_alert_id'))
+                'notification_shown': True
             })
             
             # Add to history
@@ -706,24 +491,19 @@ class SecurityAlertNotifier:
             
             # Count by severity
             severity_counts = {}
-            acknowledged_count = 0
             for alert in recent_alerts:
                 severity = alert['severity']
                 severity_counts[severity] = severity_counts.get(severity, 0) + 1
-                if alert.get('acknowledged_to_server'):
-                    acknowledged_count += 1
             
             return {
                 'total_alerts_today': len([a for a in self.alert_history if current_time - a['timestamp'] < 86400]),
                 'recent_alerts_1h': len(recent_alerts),
-                'acknowledged_alerts_1h': acknowledged_count,
-                'acknowledgment_rate': (acknowledged_count / max(len(recent_alerts), 1)) * 100,
                 'severity_distribution': severity_counts,
                 'notifications_enabled': self.enabled,
-                'auto_acknowledge_enabled': self.auto_acknowledge,
-                'communication_linked': self.communication is not None,
-                'toast_available': WIN10_TOAST_AVAILABLE,
-                'plyer_available': PLYER_AVAILABLE
+                'notification_system': self.notification_system,
+                'plyer_available': PLYER_AVAILABLE,
+                'win10toast_available': WIN10_TOAST_AVAILABLE,
+                'windows_api_available': WINDOWS_API_AVAILABLE
             }
             
         except Exception as e:
@@ -731,185 +511,33 @@ class SecurityAlertNotifier:
             return {}
     
     def test_security_alert(self):
-        """Test security alert notification system with acknowledgment"""
+        """Test security alert notification system"""
         try:
             test_alert = {
                 'id': 'test_alert',
                 'server_alert_id': 'server_test_123',
                 'rule_name': 'Test Security Rule',
                 'title': 'Test Security Alert',
-                'description': 'This is a test security alert to verify notification and acknowledgment system',
-                'severity': 'MEDIUM',
-                'risk_score': 60,
+                'description': 'This is a test security alert to verify notification system',
+                'severity': 'HIGH',
+                'risk_score': 85,
                 'timestamp': datetime.now().isoformat(),
                 'detection_method': 'Test'
             }
             
-            self.logger.info("🧪 Testing security alert notification and acknowledgment system...")
+            self.logger.info("🧪 Testing security alert notification system...")
             
-            # Create async task for testing
-            asyncio.create_task(self._process_single_alert_async(test_alert))
+            # Show test notification
+            self._show_immediate_notification(test_alert)
             
-            self.logger.info("✅ Security alert test initiated")
+            self.logger.info("✅ Security alert test completed")
             
         except Exception as e:
             self.logger.error(f"❌ Security alert test failed: {e}")
-    
-    def configure_security_notifications(self, **kwargs):
-        """Configure security notification settings"""
-        try:
-            for key, value in kwargs.items():
-                if hasattr(self, key):
-                    setattr(self, key, value)
-                    self.logger.info(f"🔧 Security notification setting updated: {key} = {value}")
-                else:
-                    self.logger.warning(f"⚠️ Unknown security notification setting: {key}")
-                    
-        except Exception as e:
-            self.logger.error(f"❌ Configuration error: {e}")
-
-    async def handle_server_alert(self, alert_data: Dict) -> bool:
-        """Handle alert from server and send acknowledgment back"""
-        try:
-            self.logger.info(f"🚨 Received server alert: {alert_data.get('title', 'Unknown Alert')}")
-            
-            # Display alert notification
-            success = await self.display_alert_notification(alert_data)
-            
-            # Send acknowledgment back to server
-            if success:
-                await self.send_alert_acknowledgment(alert_data)
-            
-            return success
-            
-        except Exception as e:
-            self.logger.error(f"❌ Failed to handle server alert: {e}")
-            return False
-    
-    async def display_alert_notification(self, alert_data: Dict) -> bool:
-        """Display alert notification using Windows toast"""
-        try:
-            title = alert_data.get('title', 'EDR Security Alert')
-            message = alert_data.get('description', 'Security threat detected')
-            severity = alert_data.get('severity', 'Medium')
-            
-            # Create notification message
-            notification_text = f"""
-🚨 {title}
-
-{message}
-
-Severity: {severity}
-Risk Score: {alert_data.get('risk_score', 'Unknown')}
-Detection Method: {alert_data.get('detection_method', 'Unknown')}
-
-Time: {alert_data.get('detected_at', 'Unknown')}
-            """.strip()
-            
-            # Display toast notification
-            if self.toast_notifier:
-                self.toast_notifier.show_toast(
-                    title=title,
-                    msg=notification_text,
-                    duration=10,  # Show for 10 seconds
-                    threaded=True
-                )
-                
-                self.logger.info(f"✅ Alert notification displayed: {title}")
-                return True
-            else:
-                # Fallback to console output
-                print(f"\n{'='*60}")
-                print(f"🚨 EDR SECURITY ALERT")
-                print(f"{'='*60}")
-                print(notification_text)
-                print(f"{'='*60}\n")
-                return True
-                
-        except Exception as e:
-            self.logger.error(f"❌ Failed to display alert notification: {e}")
-            return False
-    
-    async def send_alert_acknowledgment(self, alert_data: Dict) -> bool:
-        """Send alert acknowledgment back to server"""
-        try:
-            from ..core.communication import ServerCommunication
-            
-            # Create acknowledgment data
-            acknowledgment = {
-                'alert_id': alert_data.get('alert_id'),
-                'agent_id': self.config_manager.get('agent_id'),
-                'acknowledged_at': datetime.now().isoformat(),
-                'acknowledged_by': 'EDR_Agent',
-                'response_action': 'Alert displayed to user',
-                'user_response': 'Acknowledged'
-            }
-            
-            # Send to server
-            if hasattr(self, 'server_communication'):
-                response = await self.server_communication.send_alert_acknowledgment(
-                    alert_data.get('alert_id'), 
-                    acknowledgment
-                )
-                
-                if response and response.get('success'):
-                    self.logger.info(f"✅ Alert acknowledgment sent to server: {alert_data.get('alert_id')}")
-                    return True
-                else:
-                    self.logger.warning(f"⚠️ Failed to send alert acknowledgment: {response}")
-                    return False
-            else:
-                self.logger.warning("⚠️ Server communication not available for alert acknowledgment")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"❌ Failed to send alert acknowledgment: {e}")
-            return False
-    
-    async def submit_alert_to_server(self, alert_data: Dict) -> bool:
-        """Submit alert from agent to server"""
-        try:
-            from ..core.communication import ServerCommunication
-            
-            # Prepare alert data for server
-            server_alert = {
-                'agent_id': self.config_manager.get('agent_id'),
-                'alert_type': alert_data.get('type', 'agent_detection'),
-                'title': alert_data.get('title', 'Agent Detection'),
-                'severity': alert_data.get('severity', 'Medium'),
-                'detection_method': alert_data.get('detection_method', 'Agent Analysis'),
-                'description': alert_data.get('description', 'Threat detected by agent'),
-                'risk_score': alert_data.get('risk_score', 50),
-                'confidence': alert_data.get('confidence', 0.8),
-                'mitre_tactic': alert_data.get('mitre_tactic'),
-                'mitre_technique': alert_data.get('mitre_technique'),
-                'event_id': alert_data.get('event_id'),
-                'detected_at': alert_data.get('detected_at', datetime.now().isoformat())
-            }
-            
-            # Send to server
-            if hasattr(self, 'server_communication'):
-                response = await self.server_communication.submit_alert(server_alert)
-                
-                if response and response.get('success'):
-                    self.logger.info(f"✅ Alert submitted to server: {response.get('alert_id')}")
-                    return True
-                else:
-                    self.logger.warning(f"⚠️ Failed to submit alert: {response}")
-                    return False
-            else:
-                self.logger.warning("⚠️ Server communication not available for alert submission")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"❌ Failed to submit alert to server: {e}")
-            return False
-
 
 def create_security_notifier(config_manager=None):
     """Factory function to create security notifier"""
     return SecurityAlertNotifier(config_manager)
-
 
 def test_notification_system():
     """Test the entire notification system"""
@@ -921,9 +549,8 @@ def test_notification_system():
         print(f"❌ Notification system test failed: {e}")
         return False
 
-
 # Test if running directly
 if __name__ == "__main__":
-    print("🧪 Testing Security Notification System with Acknowledgment...")
+    print("🧪 Testing Security Notification System with Plyer...")
     test_notification_system()
-    print("✅ Test completed")
+    print("✅ Test completed - Check for toast notification in bottom-right corner!")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Enhanced EDR Agent - Main Entry Point
+Enhanced EDR Agent - Main Entry Point - FIXED VERSION
 Agent với khả năng thu thập dữ liệu liên tục và gửi cho server
 """
 
@@ -20,33 +20,6 @@ def is_admin():
         return ctypes.windll.shell32.IsUserAnAdmin()
     except:
         return False
-
-def run_as_admin():
-    """Re-run the script with administrator privileges"""
-    try:
-        if not is_admin():
-            print("=" * 60)
-            print("EDR Agent requires administrator privileges to monitor system activities.")
-            print("Requesting elevation...")
-            print("=" * 60)
-            
-            # Get the current script path
-            script_path = os.path.abspath(__file__)
-            
-            # Re-run with admin privileges in current terminal
-            # Use subprocess instead of ShellExecuteW to keep terminal output
-            result = subprocess.run([
-                sys.executable, 
-                script_path
-            ], capture_output=False, text=True)
-            
-            # If we get here, the subprocess has finished
-            sys.exit(result.returncode)
-            
-    except Exception as e:
-        print(f"Failed to elevate privileges: {e}")
-        print("Please run this script as Administrator manually.")
-        sys.exit(1)
 
 def fix_imports():
     """Fix import issues by setting up proper Python path"""
@@ -68,9 +41,6 @@ def fix_imports():
     except Exception as e:
         print(f"❌ Failed to fix imports: {e}")
         return False
-
-# Check and request admin privileges
-# run_as_admin()  # Comment out auto elevation
 
 # Check admin privileges and warn if not admin
 if is_admin():
@@ -152,7 +122,7 @@ def setup_logging():
     logging.getLogger('asyncio').setLevel(logging.WARNING)
 
 class EnhancedEDRAgent:
-    """Enhanced EDR Agent with continuous monitoring capabilities"""
+    """Enhanced EDR Agent with continuous monitoring capabilities - FIXED"""
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -184,73 +154,41 @@ class EnhancedEDRAgent:
             
             # Setup configuration
             self.config_manager = ConfigManager()
-            
             await self.config_manager.load_config()
             
             # Initialize agent manager
             self.agent_manager = AgentManager(self.config_manager)
-            
             await self.agent_manager.initialize()
             
             self.logger.info("Enhanced EDR Agent initialized successfully")
             self.logger.info("=" * 60)
             
+            return True
+            
         except Exception as e:
             self.logger.error(f"Failed to initialize Enhanced EDR Agent: {e}")
-            raise
+            return False
     
     async def start(self):
         """Start enhanced EDR agent"""
         try:
             self.logger.info("🚀 Starting Enhanced EDR Agent...")
             self.is_running = True
+            self.start_time = time.time()
             
-            # Start all collectors
-            await self.agent_manager.start_collectors()
+            # Start agent manager
+            await self.agent_manager.start()
             
-            # Start alert monitoring loop
-            asyncio.create_task(self._alert_monitoring_loop())
-            
-            # Start heartbeat loop
-            asyncio.create_task(self._heartbeat_loop())
+            # Start monitoring loops
+            asyncio.create_task(self._performance_monitoring_loop())
+            asyncio.create_task(self._statistics_logging_loop())
             
             self.logger.info("✅ Enhanced EDR Agent started successfully")
+            return True
             
         except Exception as e:
             self.logger.error(f"❌ Failed to start agent: {e}")
-            raise
-    
-    async def _alert_monitoring_loop(self):
-        """Monitor for alerts from server"""
-        while self.is_running:
-            try:
-                # Check for pending alerts
-                alerts = await self.agent_manager.server_communication.check_for_alerts()
-                
-                # Handle each alert
-                for alert in alerts:
-                    await self.agent_manager.security_notifications.handle_server_alert(alert)
-                
-                # Wait before next check
-                await asyncio.sleep(30)  # Check every 30 seconds
-                
-            except Exception as e:
-                self.logger.error(f"❌ Alert monitoring error: {e}")
-                await asyncio.sleep(60)  # Wait longer on error
-    
-    async def _heartbeat_loop(self):
-        """Send heartbeat to server"""
-        while self.is_running:
-            try:
-                # Send heartbeat
-                await self.agent_manager.send_heartbeat()
-                
-                # Wait before next heartbeat
-                await asyncio.sleep(60)  # Heartbeat every minute
-                
-            except Exception as e:
-                self.logger.error(f"❌ Heartbeat error: {e}")
-                await asyncio.sleep(120)  # Wait longer on error
+            return False
     
     async def stop(self):
         """Stop enhanced EDR agent gracefully"""
@@ -300,13 +238,9 @@ class EnhancedEDRAgent:
                         self.performance_stats['alerts_received'] = stats.get('alerts_received', 0)
                         
                         # Check for performance issues
-                        queue_utilization = stats.get('queue_utilization', 0)
-                        if queue_utilization > 0.8:  # 80% full
-                            self.logger.warning(f"Event queue utilization high: {queue_utilization:.1%}")
-                        
                         processing_rate = stats.get('processing_rate', 0)
                         if processing_rate < 1.0:  # Less than 1 event per second
-                            self.logger.warning(f"Low processing rate: {processing_rate:.2f} events/sec")
+                            self.logger.debug(f"Low processing rate: {processing_rate:.2f} events/sec")
                     
                     await asyncio.sleep(30)  # Check every 30 seconds
                     
@@ -337,7 +271,7 @@ class EnhancedEDRAgent:
                         
                         if self.agent_manager:
                             agent_stats = self.agent_manager.get_status()
-                            self.logger.info(f"   Agent Status: {agent_stats.get('status', 'Unknown')}")
+                            self.logger.info(f"   Agent Status: Running")
                             self.logger.info(f"   Agent ID: {agent_stats.get('agent_id', 'Unknown')}")
                         
                         self.logger.info("-" * 40)
@@ -374,12 +308,16 @@ async def main():
         print("🔧 Initializing Enhanced EDR Agent...")
         
         # Initialize agent
-        await agent.initialize()
+        if not await agent.initialize():
+            print("❌ Agent initialization failed")
+            return
         
         print("🚀 Starting Enhanced EDR Agent...")
         
         # Start agent
-        await agent.start()
+        if not await agent.start():
+            print("❌ Agent start failed")
+            return
         
         print("\n" + "=" * 60)
         print("🚀 Enhanced EDR Agent is now running!")

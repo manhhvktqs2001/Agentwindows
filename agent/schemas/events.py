@@ -1,4 +1,4 @@
-# agent/schemas/events.py
+# agent/schemas/events.py - COMPLETELY FIXED VERSION
 """
 Event Data Schemas - Fixed for server compatibility
 Ensures schema compatibility between agent and server
@@ -19,7 +19,7 @@ class EventType(str, Enum):
     SYSTEM = "System"
 
 class EventAction(str, Enum):
-    """Event action enumeration"""
+    """Event action enumeration - FIXED WITH ALL REQUIRED ACTIONS"""
     # Basic actions
     CREATE = "Create"
     MODIFY = "Modify"
@@ -46,11 +46,12 @@ class EventAction(str, Enum):
     FAILED = "Failed"
     SUCCESS = "Success"
     
-    # Security actions
+    # Security actions - FIXED: Added missing actions
     DETECTED = "Detected"
     BLOCKED = "Blocked"
     ALLOWED = "Allowed"
     SUSPICIOUS_ACTIVITY = "SuspiciousActivity"
+    SUSPICIOUS = "Suspicious"  # ADDED: For file collector
     
     # Resource monitoring
     RESOURCE_USAGE = "ResourceUsage"
@@ -105,14 +106,14 @@ class ThreatLevel(str, Enum):
 
 @dataclass
 class EventData:
-    """Base event data structure - Fixed for server compatibility"""
+    """Base event data structure - COMPLETELY FIXED"""
     # Required fields
     event_type: str
     event_action: str
     event_timestamp: datetime
     
     # Core attributes
-    severity: str = "Info"  # Info, Low, Medium, High, Critical
+    severity: str = "Info"
     agent_id: Optional[str] = None
     description: Optional[str] = None
     
@@ -142,11 +143,10 @@ class EventData:
     protocol: Optional[str] = None
     direction: Optional[str] = None
     
-    # Registry events
+    # Registry events - FIXED: Use correct field names matching server
     registry_key: Optional[str] = None
-    registry_name: Optional[str] = None
-    registry_value: Optional[str] = None
-    registry_type: Optional[int] = None
+    registry_value_name: Optional[str] = None  # Server expects this field
+    registry_value_data: Optional[str] = None  # Server expects this field
     registry_operation: Optional[str] = None
     
     # Authentication events
@@ -173,6 +173,10 @@ class EventData:
         valid_types = ['Process', 'File', 'Network', 'Registry', 'Authentication', 'System']
         if self.event_type not in valid_types:
             raise ValueError(f"Invalid event_type: {self.event_type}")
+        
+        # Set default description if not provided
+        if not self.description:
+            self.description = f"{self.event_type} {self.event_action}"
     
     def _normalize_severity(self, severity: str) -> str:
         """Normalize severity to server-compatible format"""

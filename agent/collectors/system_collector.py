@@ -1,5 +1,6 @@
+# agent/collectors/system_collector.py - FIXED IMPORTS
 from agent.collectors.base_collector import BaseCollector
-from agent.schemas.events import EventData, EventAction, Severity
+from agent.schemas.events import EventData, EventType, EventAction, Severity  # FIXED: Added missing imports
 import psutil
 from datetime import datetime
 import asyncio
@@ -9,16 +10,16 @@ import platform
 from typing import List, Dict, Any, Optional
 
 class SystemCollector(BaseCollector):
-    """Enhanced System Resource Collector"""
+    """Enhanced System Resource Collector - FIXED IMPORTS"""
     
     def __init__(self, config_manager):
         super().__init__(config_manager, "SystemCollector")
         
         # Enhanced configuration
-        self.polling_interval = 3  # ENHANCED: Reduced from 15 to 3 seconds for continuous monitoring
-        self.monitor_cpu_threshold = 80  # Alert when CPU > 80%
-        self.monitor_memory_threshold = 85  # Alert when memory > 85%
-        self.monitor_disk_threshold = 90  # Alert when disk > 90%
+        self.polling_interval = 3
+        self.monitor_cpu_threshold = 80
+        self.monitor_memory_threshold = 85
+        self.monitor_disk_threshold = 90
         
         # System tracking
         self.last_cpu_usage = 0
@@ -40,16 +41,15 @@ class SystemCollector(BaseCollector):
         self.network_history = []
         
         # Alert thresholds
-        self.cpu_spike_threshold = 20  # CPU spike > 20%
-        self.memory_leak_threshold = 10  # Memory increase > 10% in 5 minutes
-        self.disk_io_threshold = 1000  # Disk I/O > 1000 MB/s
+        self.cpu_spike_threshold = 20
+        self.memory_leak_threshold = 10
+        self.disk_io_threshold = 1000
         
         self.logger.info("🖥️ Enhanced System Collector initialized")
     
     async def _collect_data(self):
         """Implement abstract method from BaseCollector - collect system data"""
         try:
-            # Use existing collect_data method for data collection
             events = await self.collect_data()
             return events
         except Exception as e:
@@ -59,14 +59,10 @@ class SystemCollector(BaseCollector):
     async def initialize(self):
         """Initialize system collector with enhanced monitoring"""
         try:
-            # Get initial system state
+            await super().initialize()
             await self._get_initial_system_state()
-            
-            # Set up enhanced monitoring
             self._setup_system_monitoring()
-            
             self.logger.info("✅ Enhanced System Collector initialized")
-            
         except Exception as e:
             self.logger.error(f"❌ System collector initialization failed: {e}")
             raise
@@ -74,20 +70,14 @@ class SystemCollector(BaseCollector):
     def _setup_system_monitoring(self):
         """Set up enhanced system monitoring"""
         try:
-            # Set up system event callbacks
             self._setup_system_callbacks()
-            
-            # Initialize performance tracking
             self._initialize_performance_tracking()
-            
         except Exception as e:
             self.logger.error(f"System monitoring setup failed: {e}")
     
     def _setup_system_callbacks(self):
         """Set up system event callbacks for real-time monitoring"""
         try:
-            # This would integrate with Windows API for real-time system events
-            # For now, we use polling with enhanced frequency
             pass
         except Exception as e:
             self.logger.debug(f"System callbacks setup failed: {e}")
@@ -95,12 +85,11 @@ class SystemCollector(BaseCollector):
     def _initialize_performance_tracking(self):
         """Initialize performance tracking arrays"""
         try:
-            # Initialize history arrays with current values
             current_cpu = psutil.cpu_percent(interval=1)
             current_memory = psutil.virtual_memory().percent
             current_disk = psutil.disk_usage('/').percent
             
-            self.cpu_history = [current_cpu] * 20  # Keep last 20 readings
+            self.cpu_history = [current_cpu] * 20
             self.memory_history = [current_memory] * 20
             self.disk_history = [current_disk] * 20
             
@@ -112,27 +101,21 @@ class SystemCollector(BaseCollector):
         try:
             events = []
             
-            # ENHANCED: Collect CPU usage
             cpu_events = await self._collect_cpu_data()
             events.extend(cpu_events)
             
-            # ENHANCED: Collect memory usage
             memory_events = await self._collect_memory_data()
             events.extend(memory_events)
             
-            # ENHANCED: Collect disk usage
             disk_events = await self._collect_disk_data()
             events.extend(disk_events)
             
-            # ENHANCED: Collect network usage
             network_events = await self._collect_network_data()
             events.extend(network_events)
             
-            # ENHANCED: Monitor system events
             system_events = await self._monitor_system_events()
             events.extend(system_events)
             
-            # ENHANCED: Detect anomalies
             anomaly_events = await self._detect_anomalies()
             events.extend(anomaly_events)
             
@@ -162,16 +145,12 @@ class SystemCollector(BaseCollector):
         """Collect CPU usage data"""
         try:
             events = []
-            
-            # Get current CPU usage
             current_cpu = psutil.cpu_percent(interval=1)
             
-            # Update history
             self.cpu_history.append(current_cpu)
             if len(self.cpu_history) > 20:
                 self.cpu_history.pop(0)
             
-            # Check for high CPU usage
             if current_cpu > self.monitor_cpu_threshold:
                 event = self._create_system_event(
                     action=EventAction.RESOURCE_USAGE,
@@ -185,10 +164,10 @@ class SystemCollector(BaseCollector):
                         'cpu_freq': psutil.cpu_freq().current if psutil.cpu_freq() else 0
                     }
                 )
-                events.append(event)
-                self.logger.warning(f"🚨 High CPU usage detected: {current_cpu}%")
+                if event:
+                    events.append(event)
+                    self.logger.warning(f"🚨 High CPU usage detected: {current_cpu}%")
             
-            # Check for CPU spikes
             if self.monitor_cpu_spikes and len(self.cpu_history) >= 2:
                 cpu_change = current_cpu - self.cpu_history[-2]
                 if cpu_change > self.cpu_spike_threshold:
@@ -200,15 +179,14 @@ class SystemCollector(BaseCollector):
                         severity=Severity.MEDIUM,
                         additional_data={
                             'cpu_change': cpu_change,
-                            'cpu_history': self.cpu_history[-5:]  # Last 5 readings
+                            'cpu_history': self.cpu_history[-5:]
                         }
                     )
-                    events.append(event)
-                    self.logger.warning(f"⚠️ CPU spike detected: +{cpu_change}%")
+                    if event:
+                        events.append(event)
+                        self.logger.warning(f"⚠️ CPU spike detected: +{cpu_change}%")
             
-            # Update last CPU usage
             self.last_cpu_usage = current_cpu
-            
             return events
             
         except Exception as e:
@@ -219,17 +197,13 @@ class SystemCollector(BaseCollector):
         """Collect memory usage data"""
         try:
             events = []
-            
-            # Get current memory usage
             memory = psutil.virtual_memory()
             current_memory = memory.percent
             
-            # Update history
             self.memory_history.append(current_memory)
             if len(self.memory_history) > 20:
                 self.memory_history.pop(0)
             
-            # Check for high memory usage
             if current_memory > self.monitor_memory_threshold:
                 event = self._create_system_event(
                     action=EventAction.RESOURCE_USAGE,
@@ -244,10 +218,10 @@ class SystemCollector(BaseCollector):
                         'memory_used': memory.used
                     }
                 )
-                events.append(event)
-                self.logger.warning(f"🚨 High memory usage detected: {current_memory}%")
+                if event:
+                    events.append(event)
+                    self.logger.warning(f"🚨 High memory usage detected: {current_memory}%")
             
-            # Check for memory leaks
             if self.monitor_memory_leaks and len(self.memory_history) >= 10:
                 recent_avg = sum(self.memory_history[-10:]) / 10
                 older_avg = sum(self.memory_history[-20:-10]) / 10
@@ -265,12 +239,11 @@ class SystemCollector(BaseCollector):
                             'memory_history': self.memory_history[-10:]
                         }
                     )
-                    events.append(event)
-                    self.logger.warning(f"⚠️ Potential memory leak detected: +{memory_increase}%")
+                    if event:
+                        events.append(event)
+                        self.logger.warning(f"⚠️ Potential memory leak detected: +{memory_increase}%")
             
-            # Update last memory usage
             self.last_memory_usage = current_memory
-            
             return events
             
         except Exception as e:
@@ -281,17 +254,13 @@ class SystemCollector(BaseCollector):
         """Collect disk usage data"""
         try:
             events = []
-            
-            # Get current disk usage
             disk = psutil.disk_usage('/')
             current_disk = disk.percent
             
-            # Update history
             self.disk_history.append(current_disk)
             if len(self.disk_history) > 20:
                 self.disk_history.pop(0)
             
-            # Check for high disk usage
             if current_disk > self.monitor_disk_threshold:
                 event = self._create_system_event(
                     action=EventAction.RESOURCE_USAGE,
@@ -306,14 +275,14 @@ class SystemCollector(BaseCollector):
                         'disk_free': disk.free
                     }
                 )
-                events.append(event)
-                self.logger.warning(f"🚨 High disk usage detected: {current_disk}%")
+                if event:
+                    events.append(event)
+                    self.logger.warning(f"🚨 High disk usage detected: {current_disk}%")
             
-            # Monitor disk I/O
             if self.monitor_disk_activity:
                 disk_io = psutil.disk_io_counters()
                 if disk_io:
-                    total_io = (disk_io.read_bytes + disk_io.write_bytes) / (1024 * 1024)  # MB
+                    total_io = (disk_io.read_bytes + disk_io.write_bytes) / (1024 * 1024)
                     
                     if total_io > self.disk_io_threshold:
                         event = self._create_system_event(
@@ -330,12 +299,11 @@ class SystemCollector(BaseCollector):
                                 'write_count': disk_io.write_count
                             }
                         )
-                        events.append(event)
-                        self.logger.warning(f"⚠️ High disk I/O detected: {total_io:.2f} MB")
+                        if event:
+                            events.append(event)
+                            self.logger.warning(f"⚠️ High disk I/O detected: {total_io:.2f} MB")
             
-            # Update last disk usage
             self.last_disk_usage = current_disk
-            
             return events
 
         except Exception as e:
@@ -346,22 +314,17 @@ class SystemCollector(BaseCollector):
         """Collect network usage data"""
         try:
             events = []
-            
-            # Get network I/O statistics
             net_io = psutil.net_io_counters()
             
-            # Calculate network usage
             bytes_sent = net_io.bytes_sent
             bytes_recv = net_io.bytes_recv
-            total_network = (bytes_sent + bytes_recv) / (1024 * 1024)  # MB
+            total_network = (bytes_sent + bytes_recv) / (1024 * 1024)
             
-            # Update history
             self.network_history.append(total_network)
             if len(self.network_history) > 20:
                 self.network_history.pop(0)
             
-            # Check for high network usage
-            if total_network > 100:  # 100 MB threshold
+            if total_network > 100:
                 event = self._create_system_event(
                     action=EventAction.NETWORK_USAGE,
                     resource_type='Network',
@@ -376,8 +339,9 @@ class SystemCollector(BaseCollector):
                         'packets_recv': net_io.packets_recv
                     }
                 )
-                events.append(event)
-                self.logger.warning(f"⚠️ High network usage detected: {total_network:.2f} MB")
+                if event:
+                    events.append(event)
+                    self.logger.warning(f"⚠️ High network usage detected: {total_network:.2f} MB")
             
             return events
             
@@ -390,12 +354,10 @@ class SystemCollector(BaseCollector):
         try:
             events = []
             
-            # Monitor system boot time
             boot_time = datetime.fromtimestamp(psutil.boot_time())
             uptime = datetime.now() - boot_time
             
-            # Check for recent reboots
-            if uptime.total_seconds() < 300:  # 5 minutes
+            if uptime.total_seconds() < 300:
                 event = self._create_system_event(
                     action=EventAction.SYSTEM_BOOT,
                     resource_type='System',
@@ -413,14 +375,14 @@ class SystemCollector(BaseCollector):
                         }
                     }
                 )
-                events.append(event)
-                self.logger.info(f"🔄 System boot detected - Uptime: {uptime}")
+                if event:
+                    events.append(event)
+                    self.logger.info(f"🔄 System boot detected - Uptime: {uptime}")
             
-            # Monitor system load
             if hasattr(psutil, 'getloadavg'):
                 try:
                     load_avg = psutil.getloadavg()
-                    if load_avg[0] > 5.0:  # High load average
+                    if load_avg[0] > 5.0:
                         event = self._create_system_event(
                             action=EventAction.SYSTEM_LOAD,
                             resource_type='System',
@@ -433,8 +395,9 @@ class SystemCollector(BaseCollector):
                                 'load_average_15min': load_avg[2]
                             }
                         )
-                        events.append(event)
-                        self.logger.warning(f"⚠️ High system load detected: {load_avg[0]}")
+                        if event:
+                            events.append(event)
+                            self.logger.warning(f"⚠️ High system load detected: {load_avg[0]}")
                 except:
                     pass
             
@@ -449,10 +412,9 @@ class SystemCollector(BaseCollector):
         try:
             events = []
             
-            # Detect unusual CPU patterns
             if len(self.cpu_history) >= 10:
                 cpu_variance = self._calculate_variance(self.cpu_history[-10:])
-                if cpu_variance > 50:  # High variance indicates unusual activity
+                if cpu_variance > 50:
                     event = self._create_system_event(
                         action=EventAction.ANOMALY_DETECTED,
                         resource_type='CPU',
@@ -465,13 +427,13 @@ class SystemCollector(BaseCollector):
                             'cpu_history': self.cpu_history[-10:]
                         }
                     )
-                    events.append(event)
-                    self.logger.warning(f"🚨 CPU anomaly detected - Variance: {cpu_variance}")
+                    if event:
+                        events.append(event)
+                        self.logger.warning(f"🚨 CPU anomaly detected - Variance: {cpu_variance}")
             
-            # Detect unusual memory patterns
             if len(self.memory_history) >= 10:
                 memory_variance = self._calculate_variance(self.memory_history[-10:])
-                if memory_variance > 30:  # High variance indicates unusual activity
+                if memory_variance > 30:
                     event = self._create_system_event(
                         action=EventAction.ANOMALY_DETECTED,
                         resource_type='Memory',
@@ -484,8 +446,9 @@ class SystemCollector(BaseCollector):
                             'memory_history': self.memory_history[-10:]
                         }
                     )
-                    events.append(event)
-                    self.logger.warning(f"🚨 Memory anomaly detected - Variance: {memory_variance}")
+                    if event:
+                        events.append(event)
+                        self.logger.warning(f"🚨 Memory anomaly detected - Variance: {memory_variance}")
             
             return events
             
@@ -508,10 +471,10 @@ class SystemCollector(BaseCollector):
     
     def _create_system_event(self, action: EventAction, resource_type: str, current_value: float,
                            threshold: float, severity: Severity, additional_data: Dict = None) -> EventData:
-        """Create system event data"""
+        """Create system event data - FIXED"""
         try:
             return EventData(
-                event_type=EventType.SYSTEM,
+                event_type=EventType.SYSTEM,  # FIXED: Now imports work
                 event_action=action,
                 event_timestamp=datetime.now(),
                 severity=severity,
@@ -527,52 +490,10 @@ class SystemCollector(BaseCollector):
                         'machine': platform.machine(),
                         'processor': platform.processor()
                     },
-                    **additional_data
+                    **(additional_data or {})
                 }
             )
             
         except Exception as e:
             self.logger.error(f"System event creation failed: {e}")
             return None
-
-    async def start_monitoring(self):
-        """Start continuous system monitoring"""
-        self.is_running = True
-        self.logger.info("🚀 Starting continuous system monitoring...")
-        
-        # Start monitoring loop
-        asyncio.create_task(self._monitoring_loop())
-        
-        self.logger.info("✅ System monitoring started")
-    
-    async def stop_monitoring(self):
-        """Stop system monitoring"""
-        self.is_running = False
-        self.logger.info("🛑 System monitoring stopped")
-    
-    async def _monitoring_loop(self):
-        """Continuous monitoring loop"""
-        while self.is_running:
-            try:
-                # Collect system data
-                events = await self.collect_data()
-                
-                # Send events to event processor
-                if hasattr(self, 'event_processor') and self.event_processor:
-                    for event in events:
-                        await self.event_processor.submit_event(event)
-                
-                await asyncio.sleep(self.polling_interval)
-                
-            except Exception as e:
-                self.logger.error(f"❌ System monitoring error: {e}")
-                await asyncio.sleep(10)  # Wait longer on error
-
-    def set_event_processor(self, event_processor):
-        """Set event processor for sending events"""
-        self.event_processor = event_processor
-        self.logger.info("Event processor linked to System Collector")
-    
-    async def stop(self):
-        """Stop system monitoring"""
-        await self.stop_monitoring()

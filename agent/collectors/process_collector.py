@@ -1,4 +1,4 @@
-# agent/collectors/process_collector.py
+# agent/collectors/process_collector.py - FIXED VERSION
 """
 Enhanced Process Collector - Continuous Process Monitoring
 Thu thập thông tin process liên tục và gửi cho server
@@ -12,18 +12,19 @@ from typing import Dict, List, Optional, Set
 from datetime import datetime
 from pathlib import Path
 
-from ..schemas.events import EventData, EventType, EventAction
-from ..utils.process_utils import get_process_info, get_process_hash, is_system_process
+from agent.collectors.base_collector import BaseCollector
+from agent.schemas.events import EventData, EventType, EventAction
+from agent.utils.process_utils import get_process_info, get_process_hash, is_system_process
 
 logger = logging.getLogger('ProcessCollector')
 
-class EnhancedProcessCollector:
-    """Enhanced Process Collector with continuous monitoring"""
+class EnhancedProcessCollector(BaseCollector):
+    """Enhanced Process Collector with continuous monitoring - FIXED"""
     
     def __init__(self, config_manager=None):
+        super().__init__(config_manager, "ProcessCollector")
         self.config_manager = config_manager
         self.logger = logging.getLogger('ProcessCollector')
-        self.is_running = False
         self.monitored_processes = set()
         self.baseline_processes = set()
         self.suspicious_processes = {
@@ -47,29 +48,12 @@ class EnhancedProcessCollector:
         """Initialize the process collector"""
         try:
             self.logger.info("🔧 Initializing Enhanced Process Collector...")
-            # No specific initialization needed for process collector
+            await super().initialize()
+            await self._create_baseline()
             self.logger.info("✅ Enhanced Process Collector initialized successfully")
         except Exception as e:
             self.logger.error(f"❌ Enhanced Process Collector initialization failed: {e}")
             raise
-    
-    async def start_monitoring(self):
-        """Start continuous process monitoring"""
-        self.is_running = True
-        self.logger.info("🚀 Starting continuous process monitoring...")
-        
-        # Create baseline
-        await self._create_baseline()
-        
-        # Start monitoring loop
-        asyncio.create_task(self._monitoring_loop())
-        
-        self.logger.info("✅ Process monitoring started")
-    
-    async def stop_monitoring(self):
-        """Stop process monitoring"""
-        self.is_running = False
-        self.logger.info("🛑 Process monitoring stopped")
     
     async def _create_baseline(self):
         """Create baseline of current processes"""
@@ -89,20 +73,10 @@ class EnhancedProcessCollector:
         except Exception as e:
             self.logger.error(f"❌ Baseline creation failed: {e}")
     
-    async def _monitoring_loop(self):
-        """Continuous monitoring loop"""
-        while self.is_running:
-            try:
-                await self._scan_processes()
-                await asyncio.sleep(5)  # Scan every 5 seconds
-                
-            except Exception as e:
-                self.logger.error(f"❌ Process monitoring error: {e}")
-                await asyncio.sleep(10)  # Wait longer on error
-    
-    async def _scan_processes(self):
-        """Scan current processes for changes"""
+    async def _collect_data(self):
+        """Collect process data - Required by BaseCollector"""
         try:
+            events = []
             current_processes = set()
             new_processes = []
             suspicious_events = []
@@ -110,6 +84,9 @@ class EnhancedProcessCollector:
             for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'create_time', 'username']):
                 try:
                     proc_info = proc.info
+                    if not proc_info['name']:
+                        continue
+                        
                     process_key = f"{proc_info['name']}_{proc_info['exe']}"
                     current_processes.add(process_key)
                     
@@ -119,7 +96,7 @@ class EnhancedProcessCollector:
                         self.monitored_processes.add(process_key)
                     
                     # Check for suspicious processes
-                    if proc_info['name'].lower() in self.suspicious_processes:
+                    if proc_info['name'] and proc_info['name'].lower() in self.suspicious_processes:
                         suspicious_events.append(proc_info)
                     
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
@@ -127,25 +104,37 @@ class EnhancedProcessCollector:
             
             # Generate events for new processes
             for proc_info in new_processes:
-                await self._generate_process_event(proc_info, EventAction.CREATE)
-                self.stats['new_processes_detected'] += 1
+                event = await self._generate_process_event(proc_info, EventAction.CREATE)
+                if event:
+                    events.append(event)
+                    self.stats['new_processes_detected'] += 1
             
             # Generate events for suspicious processes
             for proc_info in suspicious_events:
-                await self._generate_process_event(proc_info, EventAction.START, severity="High")
-                self.stats['suspicious_processes_detected'] += 1
+                event = await self._generate_process_event(proc_info, EventAction.START, severity="High")
+                if event:
+                    events.append(event)
+                    self.stats['suspicious_processes_detected'] += 1
             
             self.stats['processes_scanned'] += len(current_processes)
             self.stats['last_scan_time'] = datetime.now()
             
+            return events
+            
         except Exception as e:
             self.logger.error(f"❌ Process scan failed: {e}")
+            return []
     
     async def _generate_process_event(self, proc_info: Dict, action: str, severity: str = "Info"):
         """Generate process event for server"""
         try:
             # Get additional process details
-            process_details = get_process_info(proc_info['pid'])
+            process_details = None
+            try:
+                if proc_info.get('pid'):
+                    process_details = get_process_info(proc_info['pid'])
+            except:
+                pass
             
             event = EventData(
                 event_type=EventType.PROCESS,
@@ -154,19 +143,22 @@ class EnhancedProcessCollector:
                 severity=severity,
                 
                 # Process details
-                process_id=proc_info['pid'],
-                process_name=proc_info['name'],
-                process_path=proc_info['exe'],
-                command_line=' '.join(proc_info['cmdline']) if proc_info['cmdline'] else None,
+                process_id=proc_info.get('pid'),
+                process_name=proc_info.get('name'),
+                process_path=proc_info.get('exe'),
+                command_line=' '.join(proc_info['cmdline']) if proc_info.get('cmdline') else None,
                 process_user=proc_info.get('username'),
                 
                 # Additional context
-                description=f"Process {action.lower()}: {proc_info['name']} (PID: {proc_info['pid']})"
+                description=f"Process {action.lower()}: {proc_info.get('name', 'Unknown')} (PID: {proc_info.get('pid', 'Unknown')})"
             )
             
             # Add process hash if available
-            if proc_info['exe'] and Path(proc_info['exe']).exists():
-                event.process_hash = get_process_hash(proc_info['exe'])
+            if proc_info.get('exe') and Path(str(proc_info['exe'])).exists():
+                try:
+                    event.process_hash = get_process_hash(proc_info['exe'])
+                except:
+                    pass
             
             # Add parent process info
             if process_details and process_details.get('parent_pid'):
@@ -179,24 +171,20 @@ class EnhancedProcessCollector:
                 'cpu_percent': process_details.get('cpu_percent') if process_details else None,
                 'memory_percent': process_details.get('memory_percent') if process_details else None,
                 'num_threads': process_details.get('num_threads') if process_details else None,
-                'is_suspicious': proc_info['name'].lower() in self.suspicious_processes
+                'is_suspicious': proc_info.get('name', '').lower() in self.suspicious_processes
             }
             
-            # Send event to event processor
-            if hasattr(self, 'event_processor') and self.event_processor:
-                await self.event_processor.submit_event(event)
-                self.stats['events_generated'] += 1
-            
-            self.logger.debug(f"📝 Process event generated: {proc_info['name']} (PID: {proc_info['pid']})")
+            return event
             
         except Exception as e:
             self.logger.error(f"❌ Process event generation failed: {e}")
+            return None
     
     def get_stats(self) -> Dict:
         """Get collector statistics"""
-        return {
+        base_stats = super().get_stats()
+        base_stats.update({
             'collector_type': 'Process',
-            'is_running': self.is_running,
             'processes_scanned': self.stats['processes_scanned'],
             'new_processes_detected': self.stats['new_processes_detected'],
             'suspicious_processes_detected': self.stats['suspicious_processes_detected'],
@@ -204,13 +192,5 @@ class EnhancedProcessCollector:
             'last_scan_time': self.stats['last_scan_time'].isoformat() if self.stats['last_scan_time'] else None,
             'baseline_processes': len(self.baseline_processes),
             'monitored_processes': len(self.monitored_processes)
-        }
-    
-    def set_event_processor(self, event_processor):
-        """Set event processor for sending events"""
-        self.event_processor = event_processor
-        self.logger.info("Event processor linked to Process Collector")
-    
-    async def stop(self):
-        """Stop process monitoring"""
-        await self.stop_monitoring()
+        })
+        return base_stats
