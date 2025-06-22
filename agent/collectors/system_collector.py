@@ -1,6 +1,11 @@
-# agent/collectors/system_collector.py - FIXED IMPORTS
+# agent/collectors/system_collector.py - MULTIPLE SYSTEM EVENT TYPES
+"""
+Enhanced System Collector - Gửi nhiều loại system events liên tục
+Thu thập nhiều loại thông tin system và gửi events khác nhau cho server
+"""
+
 from agent.collectors.base_collector import BaseCollector
-from agent.schemas.events import EventData, EventType, EventAction, Severity  # FIXED: Added missing imports
+from agent.schemas.events import EventData, EventType, EventAction, Severity
 import psutil
 from datetime import datetime
 import asyncio
@@ -8,492 +13,632 @@ import json
 import time
 import platform
 from typing import List, Dict, Any, Optional
+from collections import deque
 
 class SystemCollector(BaseCollector):
-    """Enhanced System Resource Collector - FIXED IMPORTS"""
+    """Enhanced System Collector - Multiple system event types for continuous sending"""
     
     def __init__(self, config_manager):
         super().__init__(config_manager, "SystemCollector")
         
-        # Enhanced configuration
-        self.polling_interval = 3
-        self.monitor_cpu_threshold = 80
-        self.monitor_memory_threshold = 85
-        self.monitor_disk_threshold = 90
+        # MULTIPLE EVENTS: System tracking with history
+        self.cpu_history = deque(maxlen=60)  # 10 minutes at 10s intervals
+        self.memory_history = deque(maxlen=60)
+        self.disk_history = deque(maxlen=60)
+        self.network_history = deque(maxlen=60)
+        self.process_count_history = deque(maxlen=60)
         
-        # System tracking
-        self.last_cpu_usage = 0
-        self.last_memory_usage = 0
-        self.last_disk_usage = 0
+        # MULTIPLE EVENTS: Performance thresholds for different events
+        self.cpu_high_threshold = 75
+        self.cpu_critical_threshold = 90
+        self.memory_high_threshold = 80
+        self.memory_critical_threshold = 90
+        self.disk_high_threshold = 85
+        self.disk_critical_threshold = 95
+        
+        # MULTIPLE EVENTS: System monitoring settings
+        self.polling_interval = 2  # 2 seconds for continuous system monitoring
+        self.send_regular_metrics = True
+        self.metrics_send_interval = 8  # Send regular metrics every 8 seconds
+        self.last_metrics_send = 0
+        
+        # MULTIPLE EVENTS: Event categories
+        self.boot_events_sent = False
         self.system_alerts = []
         
-        # Enhanced monitoring
-        self.monitor_cpu_spikes = True
-        self.monitor_memory_leaks = True
-        self.monitor_disk_activity = True
-        self.monitor_network_usage = True
-        self.monitor_system_events = True
+        # MULTIPLE EVENTS: Statistics
+        self.stats = {
+            'cpu_usage_events': 0,
+            'memory_usage_events': 0,
+            'disk_usage_events': 0,
+            'process_count_events': 0,
+            'system_performance_events': 0,
+            'system_health_events': 0,
+            'boot_events': 0,
+            'service_events': 0,
+            'hardware_events': 0,
+            'total_system_events': 0
+        }
         
-        # Performance tracking
-        self.cpu_history = []
-        self.memory_history = []
-        self.disk_history = []
-        self.network_history = []
-        
-        # Alert thresholds
-        self.cpu_spike_threshold = 20
-        self.memory_leak_threshold = 10
-        self.disk_io_threshold = 1000
-        
-        self.logger.info("🖥️ Enhanced System Collector initialized")
+        self.logger.info("Enhanced System Collector initialized for MULTIPLE SYSTEM EVENT TYPES")
     
     async def _collect_data(self):
-        """Implement abstract method from BaseCollector - collect system data"""
+        """Collect multiple types of system events"""
         try:
-            events = await self.collect_data()
-            return events
-        except Exception as e:
-            self.logger.error(f"❌ System data collection failed: {e}")
-            return []
-    
-    async def initialize(self):
-        """Initialize system collector with enhanced monitoring"""
-        try:
-            await super().initialize()
-            await self._get_initial_system_state()
-            self._setup_system_monitoring()
-            self.logger.info("✅ Enhanced System Collector initialized")
-        except Exception as e:
-            self.logger.error(f"❌ System collector initialization failed: {e}")
-            raise
-    
-    def _setup_system_monitoring(self):
-        """Set up enhanced system monitoring"""
-        try:
-            self._setup_system_callbacks()
-            self._initialize_performance_tracking()
-        except Exception as e:
-            self.logger.error(f"System monitoring setup failed: {e}")
-    
-    def _setup_system_callbacks(self):
-        """Set up system event callbacks for real-time monitoring"""
-        try:
-            pass
-        except Exception as e:
-            self.logger.debug(f"System callbacks setup failed: {e}")
-    
-    def _initialize_performance_tracking(self):
-        """Initialize performance tracking arrays"""
-        try:
-            current_cpu = psutil.cpu_percent(interval=1)
-            current_memory = psutil.virtual_memory().percent
-            current_disk = psutil.disk_usage('/').percent
-            
-            self.cpu_history = [current_cpu] * 20
-            self.memory_history = [current_memory] * 20
-            self.disk_history = [current_disk] * 20
-            
-        except Exception as e:
-            self.logger.error(f"Performance tracking initialization failed: {e}")
-    
-    async def collect_data(self) -> List[EventData]:
-        """Collect system data with enhanced monitoring"""
-        try:
+            collection_start = time.time()
             events = []
             
-            cpu_events = await self._collect_cpu_data()
+            # Collect current system metrics
+            current_metrics = await self._collect_current_system_metrics()
+            
+            # EVENT TYPE 1: Regular System Metrics (every N seconds)
+            current_time = time.time()
+            if (current_time - self.last_metrics_send) >= self.metrics_send_interval:
+                metrics_event = await self._create_system_metrics_event(current_metrics)
+                if metrics_event:
+                    events.append(metrics_event)
+                    self.stats['system_performance_events'] += 1
+                    self.last_metrics_send = current_time
+            
+            # EVENT TYPE 2: CPU Usage Events (threshold-based)
+            cpu_events = await self._check_cpu_usage_events(current_metrics)
             events.extend(cpu_events)
             
-            memory_events = await self._collect_memory_data()
+            # EVENT TYPE 3: Memory Usage Events (threshold-based)
+            memory_events = await self._check_memory_usage_events(current_metrics)
             events.extend(memory_events)
             
-            disk_events = await self._collect_disk_data()
+            # EVENT TYPE 4: Disk Usage Events (threshold-based)
+            disk_events = await self._check_disk_usage_events(current_metrics)
             events.extend(disk_events)
             
-            network_events = await self._collect_network_data()
-            events.extend(network_events)
+            # EVENT TYPE 5: Process Count Events
+            process_events = await self._check_process_count_events(current_metrics)
+            events.extend(process_events)
             
-            system_events = await self._monitor_system_events()
-            events.extend(system_events)
+            # EVENT TYPE 6: System Health Events (based on trends)
+            health_events = await self._check_system_health_events(current_metrics)
+            events.extend(health_events)
             
-            anomaly_events = await self._detect_anomalies()
-            events.extend(anomaly_events)
+            # EVENT TYPE 7: Boot/Uptime Events (once per boot)
+            if not self.boot_events_sent:
+                boot_event = await self._create_system_boot_event(current_metrics)
+                if boot_event:
+                    events.append(boot_event)
+                    self.stats['boot_events'] += 1
+                    self.boot_events_sent = True
+            
+            # EVENT TYPE 8: Service Status Events (periodic)
+            if self.stats['total_system_events'] % 25 == 0:  # Every 25 scans
+                service_events = await self._check_service_status_events()
+                events.extend(service_events)
+            
+            # EVENT TYPE 9: Hardware Temperature Events (if available)
+            temp_events = await self._check_temperature_events()
+            events.extend(temp_events)
+            
+            # EVENT TYPE 10: System Load Events
+            load_events = await self._check_system_load_events(current_metrics)
+            events.extend(load_events)
+            
+            # Update history
+            self._update_system_history(current_metrics)
+            
+            # Update statistics
+            self.stats['total_system_events'] += len(events)
             
             if events:
-                self.logger.debug(f"📊 Collected {len(events)} system events")
+                self.logger.info(f"📤 Generated {len(events)} MULTIPLE SYSTEM EVENTS for continuous sending")
             
             return events
             
         except Exception as e:
-            self.logger.error(f"❌ System data collection failed: {e}")
+            self.logger.error(f"❌ Multiple system events collection failed: {e}")
             return []
     
-    async def _get_initial_system_state(self):
-        """Get initial system state for baseline"""
+    async def _collect_current_system_metrics(self):
+        """Collect current system metrics"""
         try:
-            self.last_cpu_usage = psutil.cpu_percent(interval=1)
-            self.last_memory_usage = psutil.virtual_memory().percent
-            self.last_disk_usage = psutil.disk_usage('/').percent
+            # CPU metrics
+            cpu_percent = psutil.cpu_percent(interval=0.1)
+            cpu_count = psutil.cpu_count()
             
-            self.logger.info(f"📋 Initial system state - CPU: {self.last_cpu_usage}%, "
-                           f"Memory: {self.last_memory_usage}%, Disk: {self.last_disk_usage}%")
-            
-        except Exception as e:
-            self.logger.error(f"Initial system state failed: {e}")
-
-    async def _collect_cpu_data(self) -> List[EventData]:
-        """Collect CPU usage data"""
-        try:
-            events = []
-            current_cpu = psutil.cpu_percent(interval=1)
-            
-            self.cpu_history.append(current_cpu)
-            if len(self.cpu_history) > 20:
-                self.cpu_history.pop(0)
-            
-            if current_cpu > self.monitor_cpu_threshold:
-                event = self._create_system_event(
-                    action=EventAction.RESOURCE_USAGE,
-                    resource_type='CPU',
-                    current_value=current_cpu,
-                    threshold=self.monitor_cpu_threshold,
-                    severity=Severity.HIGH,
-                    additional_data={
-                        'cpu_percent': current_cpu,
-                        'cpu_count': psutil.cpu_count(),
-                        'cpu_freq': psutil.cpu_freq().current if psutil.cpu_freq() else 0
-                    }
-                )
-                if event:
-                    events.append(event)
-                    self.logger.warning(f"🚨 High CPU usage detected: {current_cpu}%")
-            
-            if self.monitor_cpu_spikes and len(self.cpu_history) >= 2:
-                cpu_change = current_cpu - self.cpu_history[-2]
-                if cpu_change > self.cpu_spike_threshold:
-                    event = self._create_system_event(
-                        action=EventAction.CPU_SPIKE,
-                        resource_type='CPU',
-                        current_value=current_cpu,
-                        threshold=self.cpu_spike_threshold,
-                        severity=Severity.MEDIUM,
-                        additional_data={
-                            'cpu_change': cpu_change,
-                            'cpu_history': self.cpu_history[-5:]
-                        }
-                    )
-                    if event:
-                        events.append(event)
-                        self.logger.warning(f"⚠️ CPU spike detected: +{cpu_change}%")
-            
-            self.last_cpu_usage = current_cpu
-            return events
-            
-        except Exception as e:
-            self.logger.error(f"CPU data collection failed: {e}")
-            return []
-    
-    async def _collect_memory_data(self) -> List[EventData]:
-        """Collect memory usage data"""
-        try:
-            events = []
+            # Memory metrics
             memory = psutil.virtual_memory()
-            current_memory = memory.percent
             
-            self.memory_history.append(current_memory)
-            if len(self.memory_history) > 20:
-                self.memory_history.pop(0)
-            
-            if current_memory > self.monitor_memory_threshold:
-                event = self._create_system_event(
-                    action=EventAction.RESOURCE_USAGE,
-                    resource_type='Memory',
-                    current_value=current_memory,
-                    threshold=self.monitor_memory_threshold,
-                    severity=Severity.HIGH,
-                    additional_data={
-                        'memory_percent': current_memory,
-                        'memory_total': memory.total,
-                        'memory_available': memory.available,
-                        'memory_used': memory.used
-                    }
-                )
-                if event:
-                    events.append(event)
-                    self.logger.warning(f"🚨 High memory usage detected: {current_memory}%")
-            
-            if self.monitor_memory_leaks and len(self.memory_history) >= 10:
-                recent_avg = sum(self.memory_history[-10:]) / 10
-                older_avg = sum(self.memory_history[-20:-10]) / 10
-                memory_increase = recent_avg - older_avg
-                
-                if memory_increase > self.memory_leak_threshold:
-                    event = self._create_system_event(
-                        action=EventAction.MEMORY_LEAK,
-                        resource_type='Memory',
-                        current_value=current_memory,
-                        threshold=self.memory_leak_threshold,
-                        severity=Severity.MEDIUM,
-                        additional_data={
-                            'memory_increase': memory_increase,
-                            'memory_history': self.memory_history[-10:]
-                        }
-                    )
-                    if event:
-                        events.append(event)
-                        self.logger.warning(f"⚠️ Potential memory leak detected: +{memory_increase}%")
-            
-            self.last_memory_usage = current_memory
-            return events
-            
-        except Exception as e:
-            self.logger.error(f"Memory data collection failed: {e}")
-            return []
-    
-    async def _collect_disk_data(self) -> List[EventData]:
-        """Collect disk usage data"""
-        try:
-            events = []
+            # Disk metrics
             disk = psutil.disk_usage('/')
-            current_disk = disk.percent
             
-            self.disk_history.append(current_disk)
-            if len(self.disk_history) > 20:
-                self.disk_history.pop(0)
-            
-            if current_disk > self.monitor_disk_threshold:
-                event = self._create_system_event(
-                    action=EventAction.RESOURCE_USAGE,
-                    resource_type='Disk',
-                    current_value=current_disk,
-                    threshold=self.monitor_disk_threshold,
-                    severity=Severity.HIGH,
-                    additional_data={
-                        'disk_percent': current_disk,
-                        'disk_total': disk.total,
-                        'disk_used': disk.used,
-                        'disk_free': disk.free
-                    }
-                )
-                if event:
-                    events.append(event)
-                    self.logger.warning(f"🚨 High disk usage detected: {current_disk}%")
-            
-            if self.monitor_disk_activity:
-                disk_io = psutil.disk_io_counters()
-                if disk_io:
-                    total_io = (disk_io.read_bytes + disk_io.write_bytes) / (1024 * 1024)
-                    
-                    if total_io > self.disk_io_threshold:
-                        event = self._create_system_event(
-                            action=EventAction.DISK_IO_HIGH,
-                            resource_type='Disk',
-                            current_value=total_io,
-                            threshold=self.disk_io_threshold,
-                            severity=Severity.MEDIUM,
-                            additional_data={
-                                'disk_io_mb': total_io,
-                                'read_bytes': disk_io.read_bytes,
-                                'write_bytes': disk_io.write_bytes,
-                                'read_count': disk_io.read_count,
-                                'write_count': disk_io.write_count
-                            }
-                        )
-                        if event:
-                            events.append(event)
-                            self.logger.warning(f"⚠️ High disk I/O detected: {total_io:.2f} MB")
-            
-            self.last_disk_usage = current_disk
-            return events
-
-        except Exception as e:
-            self.logger.error(f"Disk data collection failed: {e}")
-            return []
-    
-    async def _collect_network_data(self) -> List[EventData]:
-        """Collect network usage data"""
-        try:
-            events = []
+            # Network metrics
             net_io = psutil.net_io_counters()
             
-            bytes_sent = net_io.bytes_sent
-            bytes_recv = net_io.bytes_recv
-            total_network = (bytes_sent + bytes_recv) / (1024 * 1024)
+            # Process metrics
+            process_count = len(psutil.pids())
             
-            self.network_history.append(total_network)
-            if len(self.network_history) > 20:
-                self.network_history.pop(0)
+            # System uptime
+            boot_time = psutil.boot_time()
+            uptime = time.time() - boot_time
             
-            if total_network > 100:
-                event = self._create_system_event(
-                    action=EventAction.NETWORK_USAGE,
-                    resource_type='Network',
-                    current_value=total_network,
-                    threshold=100,
-                    severity=Severity.MEDIUM,
-                    additional_data={
-                        'network_mb': total_network,
-                        'bytes_sent': bytes_sent,
-                        'bytes_recv': bytes_recv,
-                        'packets_sent': net_io.packets_sent,
-                        'packets_recv': net_io.packets_recv
-                    }
-                )
-                if event:
-                    events.append(event)
-                    self.logger.warning(f"⚠️ High network usage detected: {total_network:.2f} MB")
-            
-            return events
-            
-        except Exception as e:
-            self.logger.error(f"Network data collection failed: {e}")
-            return []
-    
-    async def _monitor_system_events(self) -> List[EventData]:
-        """Monitor system events"""
-        try:
-            events = []
-            
-            boot_time = datetime.fromtimestamp(psutil.boot_time())
-            uptime = datetime.now() - boot_time
-            
-            if uptime.total_seconds() < 300:
-                event = self._create_system_event(
-                    action=EventAction.SYSTEM_BOOT,
-                    resource_type='System',
-                    current_value=uptime.total_seconds(),
-                    threshold=300,
-                    severity=Severity.MEDIUM,
-                    additional_data={
-                        'boot_time': boot_time.isoformat(),
-                        'uptime_seconds': uptime.total_seconds(),
-                        'system_info': {
-                            'platform': platform.platform(),
-                            'system': platform.system(),
-                            'release': platform.release(),
-                            'version': platform.version()
-                        }
-                    }
-                )
-                if event:
-                    events.append(event)
-                    self.logger.info(f"🔄 System boot detected - Uptime: {uptime}")
-            
-            if hasattr(psutil, 'getloadavg'):
-                try:
+            # Load average (if available)
+            load_avg = None
+            try:
+                if hasattr(psutil, 'getloadavg'):
                     load_avg = psutil.getloadavg()
-                    if load_avg[0] > 5.0:
-                        event = self._create_system_event(
-                            action=EventAction.SYSTEM_LOAD,
-                            resource_type='System',
-                            current_value=load_avg[0],
-                            threshold=5.0,
-                            severity=Severity.MEDIUM,
-                            additional_data={
-                                'load_average_1min': load_avg[0],
-                                'load_average_5min': load_avg[1],
-                                'load_average_15min': load_avg[2]
-                            }
-                        )
-                        if event:
-                            events.append(event)
-                            self.logger.warning(f"⚠️ High system load detected: {load_avg[0]}")
-                except:
-                    pass
+            except:
+                pass
             
-            return events
-            
+            return {
+                'timestamp': time.time(),
+                'cpu_percent': cpu_percent,
+                'cpu_count': cpu_count,
+                'memory_percent': memory.percent,
+                'memory_total': memory.total,
+                'memory_available': memory.available,
+                'memory_used': memory.used,
+                'disk_percent': disk.percent,
+                'disk_total': disk.total,
+                'disk_used': disk.used,
+                'disk_free': disk.free,
+                'network_bytes_sent': net_io.bytes_sent,
+                'network_bytes_recv': net_io.bytes_recv,
+                'process_count': process_count,
+                'uptime_seconds': uptime,
+                'boot_time': boot_time,
+                'load_average': load_avg
+            }
         except Exception as e:
-            self.logger.error(f"System events monitoring failed: {e}")
-            return []
+            self.logger.error(f"❌ System metrics collection failed: {e}")
+            return {}
     
-    async def _detect_anomalies(self) -> List[EventData]:
-        """Detect system anomalies"""
+    async def _create_system_metrics_event(self, metrics: Dict):
+        """EVENT TYPE 1: Regular System Metrics Event"""
         try:
-            events = []
+            severity = self._calculate_system_severity(metrics)
             
-            if len(self.cpu_history) >= 10:
-                cpu_variance = self._calculate_variance(self.cpu_history[-10:])
-                if cpu_variance > 50:
-                    event = self._create_system_event(
-                        action=EventAction.ANOMALY_DETECTED,
-                        resource_type='CPU',
-                        current_value=cpu_variance,
-                        threshold=50,
-                        severity=Severity.HIGH,
-                        additional_data={
-                            'anomaly_type': 'cpu_variance',
-                            'cpu_variance': cpu_variance,
-                            'cpu_history': self.cpu_history[-10:]
-                        }
-                    )
-                    if event:
-                        events.append(event)
-                        self.logger.warning(f"🚨 CPU anomaly detected - Variance: {cpu_variance}")
-            
-            if len(self.memory_history) >= 10:
-                memory_variance = self._calculate_variance(self.memory_history[-10:])
-                if memory_variance > 30:
-                    event = self._create_system_event(
-                        action=EventAction.ANOMALY_DETECTED,
-                        resource_type='Memory',
-                        current_value=memory_variance,
-                        threshold=30,
-                        severity=Severity.HIGH,
-                        additional_data={
-                            'anomaly_type': 'memory_variance',
-                            'memory_variance': memory_variance,
-                            'memory_history': self.memory_history[-10:]
-                        }
-                    )
-                    if event:
-                        events.append(event)
-                        self.logger.warning(f"🚨 Memory anomaly detected - Variance: {memory_variance}")
-            
-            return events
-            
-        except Exception as e:
-            self.logger.error(f"Anomaly detection failed: {e}")
-            return []
-    
-    def _calculate_variance(self, values: List[float]) -> float:
-        """Calculate variance of a list of values"""
-        try:
-            if not values:
-                return 0
-            
-            mean = sum(values) / len(values)
-            variance = sum((x - mean) ** 2 for x in values) / len(values)
-            return variance
-            
-        except Exception:
-            return 0
-    
-    def _create_system_event(self, action: EventAction, resource_type: str, current_value: float,
-                           threshold: float, severity: Severity, additional_data: Dict = None) -> EventData:
-        """Create system event data - FIXED"""
-        try:
             return EventData(
-                event_type=EventType.SYSTEM,  # FIXED: Now imports work
-                event_action=action,
+                event_type=EventType.SYSTEM,
+                event_action=EventAction.RESOURCE_USAGE,
                 event_timestamp=datetime.now(),
                 severity=severity,
+                
+                cpu_usage=metrics.get('cpu_percent'),
+                memory_usage=metrics.get('memory_percent'),
+                disk_usage=metrics.get('disk_percent'),
+                
+                description=f"📊 SYSTEM METRICS: CPU {metrics.get('cpu_percent', 0):.1f}% | Memory {metrics.get('memory_percent', 0):.1f}% | Disk {metrics.get('disk_percent', 0):.1f}%",
                 raw_event_data={
-                    'resource_type': resource_type,
-                    'current_value': current_value,
-                    'threshold': threshold,
+                    'event_subtype': 'system_metrics_summary',
+                    'metrics': metrics,
+                    'system_health_score': self._calculate_health_score(metrics)
+                }
+            )
+        except Exception as e:
+            self.logger.error(f"❌ System metrics event failed: {e}")
+            return None
+    
+    async def _check_cpu_usage_events(self, metrics: Dict) -> List[EventData]:
+        """EVENT TYPE 2: CPU Usage Events"""
+        events = []
+        try:
+            cpu_percent = metrics.get('cpu_percent', 0)
+            
+            if cpu_percent > self.cpu_critical_threshold:
+                event = EventData(
+                    event_type=EventType.SYSTEM,
+                    event_action=EventAction.CPU_SPIKE,
+                    event_timestamp=datetime.now(),
+                    severity="Critical",
+                    
+                    cpu_usage=cpu_percent,
+                    description=f"🔥 CRITICAL CPU USAGE: {cpu_percent:.1f}% (Critical threshold: {self.cpu_critical_threshold}%)",
+                    raw_event_data={
+                        'event_subtype': 'critical_cpu_usage',
+                        'cpu_percent': cpu_percent,
+                        'threshold': self.cpu_critical_threshold,
+                        'severity_level': 'critical'
+                    }
+                )
+                events.append(event)
+                self.stats['cpu_usage_events'] += 1
+                
+            elif cpu_percent > self.cpu_high_threshold:
+                event = EventData(
+                    event_type=EventType.SYSTEM,
+                    event_action=EventAction.RESOURCE_USAGE,
+                    event_timestamp=datetime.now(),
+                    severity="High",
+                    
+                    cpu_usage=cpu_percent,
+                    description=f"⚠️ HIGH CPU USAGE: {cpu_percent:.1f}% (High threshold: {self.cpu_high_threshold}%)",
+                    raw_event_data={
+                        'event_subtype': 'high_cpu_usage',
+                        'cpu_percent': cpu_percent,
+                        'threshold': self.cpu_high_threshold,
+                        'severity_level': 'high'
+                    }
+                )
+                events.append(event)
+                self.stats['cpu_usage_events'] += 1
+                
+        except Exception as e:
+            self.logger.error(f"❌ CPU usage events check failed: {e}")
+        
+        return events
+    
+    async def _check_memory_usage_events(self, metrics: Dict) -> List[EventData]:
+        """EVENT TYPE 3: Memory Usage Events"""
+        events = []
+        try:
+            memory_percent = metrics.get('memory_percent', 0)
+            
+            if memory_percent > self.memory_critical_threshold:
+                event = EventData(
+                    event_type=EventType.SYSTEM,
+                    event_action=EventAction.MEMORY_LEAK,
+                    event_timestamp=datetime.now(),
+                    severity="Critical",
+                    
+                    memory_usage=memory_percent,
+                    description=f"💾 CRITICAL MEMORY USAGE: {memory_percent:.1f}% (Critical threshold: {self.memory_critical_threshold}%)",
+                    raw_event_data={
+                        'event_subtype': 'critical_memory_usage',
+                        'memory_percent': memory_percent,
+                        'memory_total_gb': metrics.get('memory_total', 0) / (1024**3),
+                        'memory_available_gb': metrics.get('memory_available', 0) / (1024**3),
+                        'threshold': self.memory_critical_threshold
+                    }
+                )
+                events.append(event)
+                self.stats['memory_usage_events'] += 1
+                
+            elif memory_percent > self.memory_high_threshold:
+                event = EventData(
+                    event_type=EventType.SYSTEM,
+                    event_action=EventAction.RESOURCE_USAGE,
+                    event_timestamp=datetime.now(),
+                    severity="High",
+                    
+                    memory_usage=memory_percent,
+                    description=f"⚠️ HIGH MEMORY USAGE: {memory_percent:.1f}% (High threshold: {self.memory_high_threshold}%)",
+                    raw_event_data={
+                        'event_subtype': 'high_memory_usage',
+                        'memory_percent': memory_percent,
+                        'threshold': self.memory_high_threshold
+                    }
+                )
+                events.append(event)
+                self.stats['memory_usage_events'] += 1
+                
+        except Exception as e:
+            self.logger.error(f"❌ Memory usage events check failed: {e}")
+        
+        return events
+    
+    async def _check_disk_usage_events(self, metrics: Dict) -> List[EventData]:
+        """EVENT TYPE 4: Disk Usage Events"""
+        events = []
+        try:
+            disk_percent = metrics.get('disk_percent', 0)
+            
+            if disk_percent > self.disk_critical_threshold:
+                event = EventData(
+                    event_type=EventType.SYSTEM,
+                    event_action=EventAction.RESOURCE_USAGE,
+                    event_timestamp=datetime.now(),
+                    severity="Critical",
+                    
+                    disk_usage=disk_percent,
+                    description=f"💿 CRITICAL DISK USAGE: {disk_percent:.1f}% (Critical threshold: {self.disk_critical_threshold}%)",
+                    raw_event_data={
+                        'event_subtype': 'critical_disk_usage',
+                        'disk_percent': disk_percent,
+                        'disk_total_gb': metrics.get('disk_total', 0) / (1024**3),
+                        'disk_free_gb': metrics.get('disk_free', 0) / (1024**3),
+                        'threshold': self.disk_critical_threshold
+                    }
+                )
+                events.append(event)
+                self.stats['disk_usage_events'] += 1
+                
+            elif disk_percent > self.disk_high_threshold:
+                event = EventData(
+                    event_type=EventType.SYSTEM,
+                    event_action=EventAction.RESOURCE_USAGE,
+                    event_timestamp=datetime.now(),
+                    severity="High",
+                    
+                    disk_usage=disk_percent,
+                    description=f"⚠️ HIGH DISK USAGE: {disk_percent:.1f}% (High threshold: {self.disk_high_threshold}%)",
+                    raw_event_data={
+                        'event_subtype': 'high_disk_usage',
+                        'disk_percent': disk_percent,
+                        'threshold': self.disk_high_threshold
+                    }
+                )
+                events.append(event)
+                self.stats['disk_usage_events'] += 1
+                
+        except Exception as e:
+            self.logger.error(f"❌ Disk usage events check failed: {e}")
+        
+        return events
+    
+    async def _check_process_count_events(self, metrics: Dict) -> List[EventData]:
+        """EVENT TYPE 5: Process Count Events"""
+        events = []
+        try:
+            process_count = metrics.get('process_count', 0)
+            
+            # Alert if process count is unusually high (> 300 processes)
+            if process_count > 300:
+                event = EventData(
+                    event_type=EventType.SYSTEM,
+                    event_action=EventAction.RESOURCE_USAGE,
+                    event_timestamp=datetime.now(),
+                    severity="Medium",
+                    
+                    description=f"🔢 HIGH PROCESS COUNT: {process_count} processes running",
+                    raw_event_data={
+                        'event_subtype': 'high_process_count',
+                        'process_count': process_count,
+                        'threshold': 300,
+                        'system_load_indicator': 'high_process_activity'
+                    }
+                )
+                events.append(event)
+                self.stats['process_count_events'] += 1
+                
+        except Exception as e:
+            self.logger.error(f"❌ Process count events check failed: {e}")
+        
+        return events
+    
+    async def _check_system_health_events(self, metrics: Dict) -> List[EventData]:
+        """EVENT TYPE 6: System Health Events"""
+        events = []
+        try:
+            health_score = self._calculate_health_score(metrics)
+            
+            if health_score < 30:  # Poor system health
+                event = EventData(
+                    event_type=EventType.SYSTEM,
+                    event_action=EventAction.ANOMALY_DETECTED,
+                    event_timestamp=datetime.now(),
+                    severity="High",
+                    
+                    description=f"🚨 POOR SYSTEM HEALTH: Health score {health_score}/100",
+                    raw_event_data={
+                        'event_subtype': 'poor_system_health',
+                        'health_score': health_score,
+                        'health_factors': {
+                            'cpu_factor': 100 - metrics.get('cpu_percent', 0),
+                            'memory_factor': 100 - metrics.get('memory_percent', 0),
+                            'disk_factor': 100 - metrics.get('disk_percent', 0)
+                        }
+                    }
+                )
+                events.append(event)
+                self.stats['system_health_events'] += 1
+                
+        except Exception as e:
+            self.logger.error(f"❌ System health events check failed: {e}")
+        
+        return events
+    
+    async def _create_system_boot_event(self, metrics: Dict):
+        """EVENT TYPE 7: System Boot Event"""
+        try:
+            uptime = metrics.get('uptime_seconds', 0)
+            
+            return EventData(
+                event_type=EventType.SYSTEM,
+                event_action=EventAction.SYSTEM_BOOT,
+                event_timestamp=datetime.now(),
+                severity="Info",
+                
+                description=f"🔄 SYSTEM BOOT DETECTED: Uptime {uptime/3600:.1f} hours",
+                raw_event_data={
+                    'event_subtype': 'system_boot',
+                    'boot_time': metrics.get('boot_time'),
+                    'uptime_seconds': uptime,
+                    'uptime_hours': uptime / 3600,
                     'system_info': {
                         'platform': platform.platform(),
                         'system': platform.system(),
                         'release': platform.release(),
-                        'version': platform.version(),
-                        'machine': platform.machine(),
-                        'processor': platform.processor()
-                    },
-                    **(additional_data or {})
+                        'version': platform.version()
+                    }
                 }
             )
-            
         except Exception as e:
-            self.logger.error(f"System event creation failed: {e}")
+            self.logger.error(f"❌ System boot event failed: {e}")
             return None
+    
+    async def _check_service_status_events(self) -> List[EventData]:
+        """EVENT TYPE 8: Service Status Events"""
+        events = []
+        try:
+            # Simple service check - check if important Windows services are running
+            important_services = ['winlogon', 'lsass', 'services', 'svchost']
+            
+            running_services = []
+            for proc in psutil.process_iter(['name']):
+                try:
+                    if proc.info['name'] and proc.info['name'].lower().replace('.exe', '') in important_services:
+                        running_services.append(proc.info['name'])
+                except:
+                    continue
+            
+            if len(running_services) > 0:
+                event = EventData(
+                    event_type=EventType.SYSTEM,
+                    event_action=EventAction.ACCESS,
+                    event_timestamp=datetime.now(),
+                    severity="Info",
+                    
+                    description=f"🔧 SYSTEM SERVICES: {len(running_services)} critical services running",
+                    raw_event_data={
+                        'event_subtype': 'service_status_check',
+                        'running_services': running_services,
+                        'service_count': len(running_services),
+                        'service_health': 'healthy' if len(running_services) >= 3 else 'degraded'
+                    }
+                )
+                events.append(event)
+                self.stats['service_events'] += 1
+                
+        except Exception as e:
+            self.logger.error(f"❌ Service status events check failed: {e}")
+        
+        return events
+    
+    async def _check_temperature_events(self) -> List[EventData]:
+        """EVENT TYPE 9: Hardware Temperature Events"""
+        events = []
+        try:
+            # Try to get temperature info (not always available)
+            if hasattr(psutil, 'sensors_temperatures'):
+                temps = psutil.sensors_temperatures()
+                
+                for sensor_name, sensor_list in temps.items():
+                    for sensor in sensor_list:
+                        if sensor.current and sensor.current > 75:  # High temperature
+                            event = EventData(
+                                event_type=EventType.SYSTEM,
+                                event_action=EventAction.RESOURCE_USAGE,
+                                event_timestamp=datetime.now(),
+                                severity="High" if sensor.current > 85 else "Medium",
+                                
+                                description=f"🌡️ HIGH TEMPERATURE: {sensor_name} at {sensor.current}°C",
+                                raw_event_data={
+                                    'event_subtype': 'high_temperature',
+                                    'sensor_name': sensor_name,
+                                    'temperature_celsius': sensor.current,
+                                    'temperature_threshold': 75,
+                                    'critical_threshold': 85
+                                }
+                            )
+                            events.append(event)
+                            self.stats['hardware_events'] += 1
+                            
+        except Exception as e:
+            self.logger.debug(f"Temperature monitoring not available: {e}")
+        
+        return events
+    
+    async def _check_system_load_events(self, metrics: Dict) -> List[EventData]:
+        """EVENT TYPE 10: System Load Events"""
+        events = []
+        try:
+            load_avg = metrics.get('load_average')
+            if load_avg and len(load_avg) >= 1:
+                load_1min = load_avg[0]
+                cpu_count = metrics.get('cpu_count', 1)
+                
+                # Load average per CPU core
+                load_per_core = load_1min / cpu_count
+                
+                if load_per_core > 2.0:  # High load (> 2.0 per core)
+                    event = EventData(
+                        event_type=EventType.SYSTEM,
+                        event_action=EventAction.SYSTEM_LOAD,
+                        event_timestamp=datetime.now(),
+                        severity="High" if load_per_core > 3.0 else "Medium",
+                        
+                        description=f"📈 HIGH SYSTEM LOAD: {load_1min:.2f} load average ({load_per_core:.2f} per core)",
+                        raw_event_data={
+                            'event_subtype': 'high_system_load',
+                            'load_average_1min': load_1min,
+                            'load_average_5min': load_avg[1] if len(load_avg) > 1 else None,
+                            'load_average_15min': load_avg[2] if len(load_avg) > 2 else None,
+                            'load_per_core': load_per_core,
+                            'cpu_count': cpu_count
+                        }
+                    )
+                    events.append(event)
+                    
+        except Exception as e:
+            self.logger.debug(f"Load average monitoring not available: {e}")
+        
+        return events
+    
+    def _update_system_history(self, metrics: Dict):
+        """Update system metrics history"""
+        try:
+            self.cpu_history.append(metrics.get('cpu_percent', 0))
+            self.memory_history.append(metrics.get('memory_percent', 0))
+            self.disk_history.append(metrics.get('disk_percent', 0))
+            self.process_count_history.append(metrics.get('process_count', 0))
+        except Exception as e:
+            self.logger.error(f"❌ History update failed: {e}")
+    
+    def _calculate_system_severity(self, metrics: Dict) -> str:
+        """Calculate overall system severity"""
+        try:
+            cpu = metrics.get('cpu_percent', 0)
+            memory = metrics.get('memory_percent', 0)
+            disk = metrics.get('disk_percent', 0)
+            
+            if cpu > 90 or memory > 90 or disk > 95:
+                return "Critical"
+            elif cpu > 75 or memory > 80 or disk > 85:
+                return "High"
+            elif cpu > 60 or memory > 65 or disk > 70:
+                return "Medium"
+            else:
+                return "Info"
+        except Exception:
+            return "Info"
+    
+    def _calculate_health_score(self, metrics: Dict) -> int:
+        """Calculate system health score (0-100)"""
+        try:
+            cpu_score = max(0, 100 - metrics.get('cpu_percent', 0))
+            memory_score = max(0, 100 - metrics.get('memory_percent', 0))
+            disk_score = max(0, 100 - metrics.get('disk_percent', 0))
+            
+            # Weighted average
+            health_score = int((cpu_score * 0.4 + memory_score * 0.4 + disk_score * 0.2))
+            return max(0, min(100, health_score))
+        except Exception:
+            return 50  # Default neutral score
+    
+    def get_stats(self) -> Dict:
+        """Get detailed statistics for multiple system event types"""
+        base_stats = super().get_stats()
+        base_stats.update({
+            'collector_type': 'System_MultipleEvents',
+            'cpu_usage_events': self.stats['cpu_usage_events'],
+            'memory_usage_events': self.stats['memory_usage_events'],
+            'disk_usage_events': self.stats['disk_usage_events'],
+            'process_count_events': self.stats['process_count_events'],
+            'system_performance_events': self.stats['system_performance_events'],
+            'system_health_events': self.stats['system_health_events'],
+            'boot_events': self.stats['boot_events'],
+            'service_events': self.stats['service_events'],
+            'hardware_events': self.stats['hardware_events'],
+            'total_system_events': self.stats['total_system_events'],
+            'history_length': len(self.cpu_history),
+            'current_health_score': self._calculate_health_score(self._get_current_metrics_summary()),
+            'multiple_event_types': True,
+            'system_event_types_generated': [
+                'system_metrics_summary', 'critical_cpu_usage', 'high_cpu_usage',
+                'critical_memory_usage', 'high_memory_usage', 'critical_disk_usage',
+                'high_disk_usage', 'high_process_count', 'poor_system_health',
+                'system_boot', 'service_status_check', 'high_temperature', 'high_system_load'
+            ]
+        })
+        return base_stats
+    
+    def _get_current_metrics_summary(self) -> Dict:
+        """Get current metrics summary for health calculation"""
+        try:
+            if self.cpu_history and self.memory_history and self.disk_history:
+                return {
+                    'cpu_percent': self.cpu_history[-1],
+                    'memory_percent': self.memory_history[-1],
+                    'disk_percent': self.disk_history[-1]
+                }
+        except:
+            pass
+        return {'cpu_percent': 0, 'memory_percent': 0, 'disk_percent': 0}
