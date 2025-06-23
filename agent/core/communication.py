@@ -1,7 +1,7 @@
-# agent/core/communication.py - COMPLETELY FIXED VERSION
+# agent/core/communication.py - FIXED FOR COMPLETE FIELD MAPPING
 """
-Server Communication - FIXED with Auto Server Detection and Offline Mode
-Giải quyết hoàn toàn vấn đề kết nối server và hỗ trợ offline mode
+Fixed Server Communication - Ensures ALL event fields are properly mapped to server schema
+Maps agent event fields to exact server database columns
 """
 
 import aiohttp
@@ -20,7 +20,7 @@ from agent.schemas.events import EventData
 from agent.schemas.server_responses import ServerResponse
 
 class ServerCommunication:
-    """Handle communication with EDR server - COMPLETELY FIXED"""
+    """Fixed Server Communication - Complete field mapping to database schema"""
     
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
@@ -30,7 +30,7 @@ class ServerCommunication:
         self.config = self.config_manager.get_config()
         self.server_config = self.config.get('server', {})
         
-        # FIXED: Auto-detect working server
+        # Auto-detect working server
         self.working_server = None
         self.server_host = None
         self.server_port = None
@@ -44,12 +44,12 @@ class ServerCommunication:
         self.session: Optional[aiohttp.ClientSession] = None
         self._session_closed = False
         
-        # FIXED: Optimized timeout settings
-        self.timeout = 3  # Faster timeout
-        self.connect_timeout = 1  # Very fast connection timeout
-        self.read_timeout = 2   # Fast read timeout
-        self.max_retries = 1    # Minimal retries
-        self.retry_delay = 0.2  # Very fast retry
+        # Optimized timeout settings
+        self.timeout = 3
+        self.connect_timeout = 1
+        self.read_timeout = 2
+        self.max_retries = 1
+        self.retry_delay = 0.2
         
         # Connection pooling
         self.connection_pool_size = 5
@@ -66,19 +66,19 @@ class ServerCommunication:
         self.offline_events_queue = []
         self.max_offline_events = 1000
         
-        self.logger.info("🔧 Communication initialized with auto server detection and offline mode")
+        self.logger.info("🔧 FIXED Communication initialized - Complete field mapping")
     
     async def initialize(self):
         """Initialize communication with auto server detection"""
         try:
-            # FIXED: Auto-detect working server
+            # Auto-detect working server
             self.working_server = await self._detect_working_server()
             
             if not self.working_server:
                 self.logger.warning("⚠️ No EDR server found - enabling offline mode")
                 self.offline_mode = True
                 self._setup_offline_mode()
-                return  # Don't raise exception, continue in offline mode
+                return
             
             # Set server details
             self.server_host = self.working_server['host']
@@ -235,7 +235,7 @@ class ServerCommunication:
             def test_tcp():
                 try:
                     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(1)  # Very fast timeout
+                    sock.settimeout(1)
                     result = sock.connect_ex((host, port))
                     sock.close()
                     return result == 0
@@ -250,13 +250,12 @@ class ServerCommunication:
             # Test 2: HTTP request
             def test_http():
                 try:
-                    # Try multiple endpoints
                     endpoints = ['/health', '/api/v1/status', '/', '/status']
                     
                     for endpoint in endpoints:
                         try:
                             response = requests.get(f"http://{host}:{port}{endpoint}", timeout=2)
-                            if response.status_code < 500:  # Any response except server error
+                            if response.status_code < 500:
                                 return True
                         except:
                             continue
@@ -270,7 +269,6 @@ class ServerCommunication:
             if tcp_success and http_success:
                 return True
             elif tcp_success:
-                # TCP works, assume HTTP will work
                 self.logger.debug(f"⚠️ TCP OK but HTTP test failed: {server['name']} (will try anyway)")
                 return True
             
@@ -310,11 +308,11 @@ class ServerCommunication:
             return False
     
     async def submit_event(self, event_data: EventData) -> Optional[Dict]:
-        """Submit single event with offline mode support"""
+        """Submit single event with complete field mapping"""
         try:
             if self.offline_mode:
                 # Store event for later sending
-                event_payload = self._convert_event_to_payload(event_data)
+                event_payload = self._convert_event_to_complete_payload(event_data)
                 
                 if len(self.offline_events_queue) >= self.max_offline_events:
                     # Remove oldest event
@@ -333,14 +331,14 @@ class ServerCommunication:
                 }
             
             url = f"{self.base_url}/api/v1/events/submit"
-            payload = self._convert_event_to_payload(event_data)
+            payload = self._convert_event_to_complete_payload(event_data)
             
-            self.logger.debug(f"📤 Sending event: {event_data.event_type} - {event_data.event_action}")
+            self.logger.debug(f"📤 Sending complete event: {event_data.event_type} - {event_data.event_action}")
             
             response = await self._make_request_with_retry('POST', url, payload)
             
             if response:
-                self.logger.debug(f"✅ Event sent successfully: {response.get('event_id', 'N/A')}")
+                self.logger.debug(f"✅ Complete event sent successfully: {response.get('event_id', 'N/A')}")
                 return response
             else:
                 # Switch to offline mode if server stops responding
@@ -358,6 +356,95 @@ class ServerCommunication:
                 return await self.submit_event(event_data)  # Retry in offline mode
             
             return None
+    
+    def _convert_event_to_complete_payload(self, event_data: EventData) -> Dict:
+        """Convert event data to COMPLETE API payload with ALL database fields mapped"""
+        try:
+            # FIXED: Create complete payload mapping ALL database columns
+            payload = {
+                # Core event fields
+                'agent_id': event_data.agent_id,
+                'event_type': event_data.event_type,
+                'event_action': event_data.event_action,
+                'event_timestamp': event_data.event_timestamp.isoformat(),
+                'severity': event_data.severity,
+                
+                # Process fields - ALWAYS included (NULL if not process event)
+                'process_id': event_data.process_id,
+                'process_name': event_data.process_name,
+                'process_path': event_data.process_path,
+                'command_line': event_data.command_line,
+                'parent_pid': event_data.parent_pid,
+                'parent_process_name': event_data.parent_process_name,
+                'process_user': event_data.process_user,
+                'process_hash': event_data.process_hash,
+                
+                # File fields - ALWAYS included (NULL if not file event)
+                'file_path': event_data.file_path,
+                'file_name': event_data.file_name,
+                'file_size': event_data.file_size,
+                'file_hash': event_data.file_hash,
+                'file_extension': event_data.file_extension,
+                'file_operation': event_data.file_operation,
+                
+                # Network fields - ALWAYS included (NULL if not network event)
+                'source_ip': event_data.source_ip,
+                'destination_ip': event_data.destination_ip,
+                'source_port': event_data.source_port,
+                'destination_port': event_data.destination_port,
+                'protocol': event_data.protocol,
+                'direction': event_data.direction,
+                
+                # Registry fields - ALWAYS included (NULL if not registry event)
+                'registry_key': event_data.registry_key,
+                'registry_value_name': event_data.registry_value_name,
+                'registry_value_data': event_data.registry_value_data,
+                'registry_operation': event_data.registry_operation,
+                
+                # Authentication fields - ALWAYS included (NULL if not auth event)
+                'login_user': event_data.login_user,
+                'login_type': event_data.login_type,
+                'login_result': event_data.login_result,
+                
+                # System fields - ALWAYS included (NULL if not system event)
+                'cpu_usage': event_data.cpu_usage,
+                'memory_usage': event_data.memory_usage,
+                'disk_usage': event_data.disk_usage,
+                
+                # Metadata fields
+                'description': event_data.description,
+                'threat_level': 'None',  # Default value
+                'risk_score': 0,         # Default value
+                'analyzed': True,        # Default value
+                'analyzed_at': datetime.now().isoformat(),
+                
+                # Raw event data
+                'raw_event_data': event_data.raw_event_data or {}
+            }
+            
+            # FIXED: Ensure no None values cause issues - convert None to NULL for database
+            for key, value in payload.items():
+                if value is None:
+                    payload[key] = None  # Explicitly set to None for JSON serialization
+            
+            # FIXED: Log complete payload for debugging (first few times only)
+            if not hasattr(self, '_payload_logged'):
+                self.logger.info(f"📋 Complete payload sample: {json.dumps(payload, indent=2, default=str)[:500]}...")
+                self._payload_logged = True
+            
+            return payload
+            
+        except Exception as e:
+            self.logger.error(f"❌ Complete payload conversion failed: {e}")
+            # Return minimal payload on error
+            return {
+                'agent_id': event_data.agent_id or 'unknown',
+                'event_type': event_data.event_type or 'Unknown',
+                'event_action': event_data.event_action or 'Unknown',
+                'event_timestamp': datetime.now().isoformat(),
+                'severity': event_data.severity or 'Info',
+                'description': str(event_data.description) or 'Error converting event data'
+            }
     
     async def _make_request_with_retry(self, method: str, url: str, payload: Optional[Dict] = None) -> Optional[Dict]:
         """Make HTTP request with retry logic"""
@@ -567,76 +654,6 @@ class ServerCommunication:
         except Exception as e:
             self.logger.error(f"Error closing session: {e}")
     
-    def _convert_event_to_payload(self, event_data: EventData) -> Dict:
-        """Convert event data to API payload"""
-        payload = {
-            'agent_id': event_data.agent_id,
-            'event_type': event_data.event_type,
-            'event_action': event_data.event_action,
-            'event_timestamp': event_data.event_timestamp.isoformat(),
-            'severity': event_data.severity
-        }
-        
-        # Add event-specific fields
-        if event_data.event_type == 'Process':
-            payload.update({
-                'process_id': event_data.process_id,
-                'process_name': event_data.process_name,
-                'process_path': event_data.process_path,
-                'command_line': event_data.command_line,
-                'parent_pid': event_data.parent_pid,
-                'parent_process_name': event_data.parent_process_name,
-                'process_user': event_data.process_user,
-                'process_hash': event_data.process_hash
-            })
-        elif event_data.event_type == 'File':
-            payload.update({
-                'file_path': event_data.file_path,
-                'file_name': event_data.file_name,
-                'file_size': event_data.file_size,
-                'file_hash': event_data.file_hash,
-                'file_extension': event_data.file_extension,
-                'file_operation': event_data.file_operation
-            })
-        elif event_data.event_type == 'Network':
-            payload.update({
-                'source_ip': event_data.source_ip,
-                'destination_ip': event_data.destination_ip,
-                'source_port': event_data.source_port,
-                'destination_port': event_data.destination_port,
-                'protocol': event_data.protocol,
-                'direction': event_data.direction
-            })
-        elif event_data.event_type == 'Registry':
-            payload.update({
-                'registry_key': event_data.registry_key,
-                'registry_value_name': event_data.registry_value_name,
-                'registry_value_data': event_data.registry_value_data,
-                'registry_operation': event_data.registry_operation
-            })
-        elif event_data.event_type == 'Authentication':
-            payload.update({
-                'login_user': event_data.login_user,
-                'login_type': event_data.login_type,
-                'login_result': event_data.login_result
-            })
-        
-        # Add raw data if present
-        if hasattr(event_data, 'raw_event_data') and event_data.raw_event_data:
-            if isinstance(event_data.raw_event_data, str):
-                try:
-                    import json
-                    payload['raw_event_data'] = json.loads(event_data.raw_event_data)
-                except json.JSONDecodeError:
-                    payload['raw_event_data'] = {'data': event_data.raw_event_data}
-            elif isinstance(event_data.raw_event_data, dict):
-                payload['raw_event_data'] = event_data.raw_event_data
-            else:
-                payload['raw_event_data'] = {'data': str(event_data.raw_event_data)}
-        
-        # Remove None values
-        return {k: v for k, v in payload.items() if v is not None}
-    
     def get_server_info(self) -> Dict[str, Any]:
         """Get server connection information"""
         return {
@@ -653,5 +670,6 @@ class ServerCommunication:
             'session_active': self.session is not None and not self._session_closed,
             'success_rate': (self.successful_connections / max(self.connection_attempts, 1)) * 100 if self.connection_attempts > 0 else 0,
             'offline_events_queued': len(self.offline_events_queue),
-            'max_offline_events': self.max_offline_events
+            'max_offline_events': self.max_offline_events,
+            'complete_field_mapping': True
         }

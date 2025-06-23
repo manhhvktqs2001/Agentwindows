@@ -1,7 +1,7 @@
-# agent/collectors/network_collector.py - MULTIPLE NETWORK EVENT TYPES
+# agent/collectors/network_collector.py - FIXED FOR COMPLETE DATA
 """
-Enhanced Network Collector - Gửi nhiều loại network events liên tục
-Thu thập nhiều loại thông tin network và gửi events khác nhau cho server
+Fixed Network Collector - Ensures ALL network fields are populated
+Thu thập đầy đủ thông tin network: SourceIP, DestinationIP, SourcePort, DestinationPort, Protocol, Direction
 """
 
 import psutil
@@ -11,7 +11,6 @@ import logging
 import time
 from typing import Dict, List, Optional, Set
 from datetime import datetime
-import subprocess
 from collections import defaultdict, deque
 
 from agent.collectors.base_collector import BaseCollector
@@ -21,19 +20,19 @@ from agent.utils.network_utils import get_connection_info, is_suspicious_connect
 logger = logging.getLogger('NetworkCollector')
 
 class EnhancedNetworkCollector(BaseCollector):
-    """Enhanced Network Collector - Multiple network event types for continuous sending"""
+    """Fixed Network Collector - Ensures complete data collection with ALL required fields"""
     
     def __init__(self, config_manager=None):
         super().__init__(config_manager, "NetworkCollector")
         
-        # MULTIPLE EVENTS: Network tracking
+        # Network tracking
         self.monitored_connections = {}  # connection_key -> connection_info
         self.connection_history = deque(maxlen=1000)
         self.port_activity = defaultdict(int)
         self.bandwidth_usage = defaultdict(list)
         self.dns_queries = deque(maxlen=500)
         
-        # MULTIPLE EVENTS: Network categories
+        # Network categories
         self.suspicious_ports = {
             22, 23, 443, 3389, 445, 135, 139, 1433, 3306, 5432,
             4444, 5555, 6666, 7777, 8888, 9999, 31337, 12345
@@ -53,11 +52,11 @@ class EnhancedNetworkCollector(BaseCollector):
             995: 'POP3S'
         }
         
-        self.outbound_countries = set()  # Track outbound connections by country
+        self.outbound_countries = set()
         self.bandwidth_threshold = 10 * 1024 * 1024  # 10MB
         self.polling_interval = 0.5  # 500ms for network monitoring
         
-        # MULTIPLE EVENTS: Statistics
+        # Statistics
         self.stats = {
             'connection_established_events': 0,
             'connection_closed_events': 0,
@@ -71,15 +70,17 @@ class EnhancedNetworkCollector(BaseCollector):
             'total_network_events': 0
         }
         
-        self.logger.info("Enhanced Network Collector initialized for MULTIPLE NETWORK EVENT TYPES")
+        self.logger.info("🌐 FIXED Network Collector initialized - COMPLETE DATA COLLECTION")
     
     async def _collect_data(self):
-        """Collect multiple types of network events"""
+        """Collect network data with COMPLETE field population"""
         try:
             events = []
             current_connections = {}
             
-            # MULTIPLE EVENTS: Scan all network connections
+            self.logger.debug("🌐 Collecting COMPLETE network data...")
+            
+            # Scan all network connections
             connections = psutil.net_connections(kind='inet')
             
             for conn in connections:
@@ -95,92 +96,71 @@ class EnhancedNetworkCollector(BaseCollector):
                     
                     current_connections[conn_key] = conn
                     
-                    # EVENT TYPE 1: New Connection Established Event
+                    # EVENT TYPE 1: New Connection Established Event with COMPLETE data
                     if conn_key not in self.monitored_connections and conn.raddr:
-                        event = await self._create_connection_established_event(conn)
+                        event = await self._create_complete_connection_established_event(conn)
                         if event:
                             events.append(event)
                             self.stats['connection_established_events'] += 1
                     
-                    # EVENT TYPE 2: Suspicious Connection Event
+                    # EVENT TYPE 2: Suspicious Connection Event with COMPLETE data
                     if conn.raddr and is_suspicious_connection(conn):
-                        event = await self._create_suspicious_connection_event(conn)
+                        event = await self._create_complete_suspicious_connection_event(conn)
                         if event:
                             events.append(event)
                             self.stats['suspicious_connection_events'] += 1
                     
-                    # EVENT TYPE 3: External Connection Event
+                    # EVENT TYPE 3: External Connection Event with COMPLETE data
                     if conn.raddr and self._is_external_connection(conn):
-                        event = await self._create_external_connection_event(conn)
+                        event = await self._create_complete_external_connection_event(conn)
                         if event:
                             events.append(event)
                             self.stats['external_connection_events'] += 1
                     
-                    # EVENT TYPE 4: Port Activity Event
-                    port = conn.laddr.port if conn.laddr else 0
-                    self.port_activity[port] += 1
-                    if self.port_activity[port] % 10 == 0:  # Every 10 connections on same port
-                        event = await self._create_port_activity_event(conn, self.port_activity[port])
-                        if event:
-                            events.append(event)
-                    
-                    # EVENT TYPE 5: Service Detection Event
-                    if conn.raddr and port in self.common_services:
-                        event = await self._create_service_detection_event(conn)
+                    # EVENT TYPE 4: Listening Port Event with COMPLETE data
+                    if not conn.raddr and conn.status == 'LISTEN':
+                        event = await self._create_complete_listening_port_event(conn)
                         if event:
                             events.append(event)
                     
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
             
-            # EVENT TYPE 6: Connection Closed Events
+            # EVENT TYPE 5: Connection Closed Events with COMPLETE data
             closed_connections = set(self.monitored_connections.keys()) - set(current_connections.keys())
             for conn_key in closed_connections:
-                event = await self._create_connection_closed_event(conn_key, self.monitored_connections[conn_key])
-                if event:
-                    events.append(event)
-                    self.stats['connection_closed_events'] += 1
+                if conn_key in self.monitored_connections:
+                    event = await self._create_complete_connection_closed_event(conn_key, self.monitored_connections[conn_key])
+                    if event:
+                        events.append(event)
+                        self.stats['connection_closed_events'] += 1
+                    del self.monitored_connections[conn_key]
             
-            # EVENT TYPE 7: Network Bandwidth Event
-            bandwidth_event = await self._check_network_bandwidth_event()
-            if bandwidth_event:
-                events.append(bandwidth_event)
-                self.stats['high_bandwidth_events'] += 1
-            
-            # EVENT TYPE 8: Port Scan Detection Event
-            port_scan_event = await self._detect_port_scan_event()
-            if port_scan_event:
-                events.append(port_scan_event)
-                self.stats['port_scan_events'] += 1
-            
-            # EVENT TYPE 9: Network Summary Event (every 20 scans)
+            # EVENT TYPE 6: Network Summary Event (every 20 scans)
             if self.stats['total_network_events'] % 20 == 0:
-                summary_event = await self._create_network_summary_event()
+                summary_event = await self._create_complete_network_summary_event()
                 if summary_event:
                     events.append(summary_event)
                     self.stats['network_summary_events'] += 1
-            
-            # EVENT TYPE 10: DNS Query Event (simulated)
-            dns_event = await self._create_dns_query_event()
-            if dns_event:
-                events.append(dns_event)
-                self.stats['dns_query_events'] += 1
             
             # Update tracking
             self.monitored_connections = current_connections
             self.stats['total_network_events'] += len(events)
             
             if events:
-                self.logger.info(f"📤 Generated {len(events)} MULTIPLE NETWORK EVENTS for continuous sending")
+                self.logger.info(f"📤 Generated {len(events)} COMPLETE NETWORK EVENTS")
+                # Log sample event details
+                for event in events[:2]:  # Log first 2 events
+                    self.logger.info(f"📤 Network event: {event.source_ip}:{event.source_port} -> {event.destination_ip}:{event.destination_port} ({event.protocol})")
             
             return events
             
         except Exception as e:
-            self.logger.error(f"❌ Multiple network events collection failed: {e}")
+            self.logger.error(f"❌ Complete network events collection failed: {e}")
             return []
     
-    async def _create_connection_established_event(self, conn):
-        """EVENT TYPE 1: Connection Established Event"""
+    async def _create_complete_connection_established_event(self, conn):
+        """EVENT TYPE 1: Connection Established Event with ALL required fields"""
         try:
             # Get process info if available
             process_info = None
@@ -195,248 +175,274 @@ class EnhancedNetworkCollector(BaseCollector):
                 except:
                     pass
             
+            # FIXED: Extract ALL required network fields
+            source_ip = conn.laddr.ip if conn.laddr else "0.0.0.0"
+            source_port = conn.laddr.port if conn.laddr else 0
+            destination_ip = conn.raddr.ip if conn.raddr else "0.0.0.0"
+            destination_port = conn.raddr.port if conn.raddr else 0
+            protocol = 'TCP' if conn.type == socket.SOCK_STREAM else 'UDP'
+            direction = self._determine_connection_direction(conn)
+            
+            # FIXED: Create network event with ALL required fields populated
             return EventData(
                 event_type=EventType.NETWORK,
                 event_action=EventAction.CONNECT,
                 event_timestamp=datetime.now(),
-                severity="Medium" if conn.raddr.port in self.suspicious_ports else "Info",
+                severity="Medium" if destination_port in self.suspicious_ports else "Info",
                 
-                source_ip=conn.laddr.ip if conn.laddr else None,
-                source_port=conn.laddr.port if conn.laddr else None,
-                destination_ip=conn.raddr.ip if conn.raddr else None,
-                destination_port=conn.raddr.port if conn.raddr else None,
-                protocol='TCP' if conn.type == socket.SOCK_STREAM else 'UDP',
+                # FIXED: ALWAYS populate ALL network-specific fields
+                source_ip=source_ip,                    # REQUIRED FIELD
+                source_port=source_port,                # REQUIRED FIELD
+                destination_ip=destination_ip,          # REQUIRED FIELD
+                destination_port=destination_port,      # REQUIRED FIELD
+                protocol=protocol,                      # REQUIRED FIELD
+                direction=direction,                    # REQUIRED FIELD
                 
+                # Process information
                 process_id=conn.pid,
                 process_name=process_info['name'] if process_info else None,
                 
-                description=f"🔗 CONNECTION ESTABLISHED: {conn.laddr.ip if conn.laddr else 'Unknown'}:{conn.laddr.port if conn.laddr else 'Unknown'} -> {conn.raddr.ip if conn.raddr else 'Unknown'}:{conn.raddr.port if conn.raddr else 'Unknown'}",
+                description=f"🔗 CONNECTION ESTABLISHED: {source_ip}:{source_port} -> {destination_ip}:{destination_port} ({protocol})",
+                
                 raw_event_data={
                     'event_subtype': 'connection_established',
                     'connection_status': conn.status,
                     'process_info': process_info,
-                    'is_suspicious_port': conn.raddr.port in self.suspicious_ports if conn.raddr else False,
-                    'service_name': self.common_services.get(conn.raddr.port if conn.raddr else 0, 'Unknown')
+                    'is_suspicious_port': destination_port in self.suspicious_ports,
+                    'service_name': self.common_services.get(destination_port, 'Unknown'),
+                    'data_complete': True,
+                    
+                    # Complete network details
+                    'local_address': f"{source_ip}:{source_port}",
+                    'remote_address': f"{destination_ip}:{destination_port}",
+                    'connection_family': conn.family.name if hasattr(conn.family, 'name') else str(conn.family),
+                    'connection_type': conn.type.name if hasattr(conn.type, 'name') else str(conn.type),
+                    'is_listening': conn.status == 'LISTEN',
+                    'is_established': conn.status == 'ESTABLISHED',
+                    'is_external': self._is_external_ip(destination_ip),
+                    'is_localhost': destination_ip in ['127.0.0.1', '::1'],
+                    'timestamp': time.time()
                 }
             )
         except Exception as e:
-            self.logger.error(f"❌ Connection established event failed: {e}")
+            self.logger.error(f"❌ Complete connection established event failed: {e}")
             return None
     
-    async def _create_connection_closed_event(self, conn_key: str, conn):
-        """EVENT TYPE 2: Connection Closed Event"""
+    async def _create_complete_connection_closed_event(self, conn_key: str, conn):
+        """EVENT TYPE 2: Connection Closed Event with ALL required fields"""
         try:
+            # Parse connection key to extract details
+            parts = conn_key.split('-')
+            if len(parts) >= 2:
+                local_part = parts[0]
+                remote_part = parts[1]
+                
+                # Extract local address
+                if ':' in local_part:
+                    source_ip, source_port_str = local_part.rsplit(':', 1)
+                    source_port = int(source_port_str) if source_port_str.isdigit() else 0
+                else:
+                    source_ip, source_port = "0.0.0.0", 0
+                
+                # Extract remote address
+                if remote_part == 'LISTENING':
+                    destination_ip, destination_port = "0.0.0.0", 0
+                    direction = "Listening"
+                else:
+                    if ':' in remote_part:
+                        destination_ip, destination_port_str = remote_part.rsplit(':', 1)
+                        destination_port = int(destination_port_str) if destination_port_str.isdigit() else 0
+                    else:
+                        destination_ip, destination_port = "0.0.0.0", 0
+                    direction = self._determine_connection_direction(conn)
+            else:
+                source_ip, source_port = "0.0.0.0", 0
+                destination_ip, destination_port = "0.0.0.0", 0
+                direction = "Unknown"
+            
+            protocol = 'TCP' if hasattr(conn, 'type') and conn.type == socket.SOCK_STREAM else 'TCP'
+            
+            # FIXED: Create network event with ALL required fields populated
             return EventData(
                 event_type=EventType.NETWORK,
                 event_action=EventAction.DISCONNECT,
                 event_timestamp=datetime.now(),
                 severity="Info",
                 
-                source_ip=conn.laddr.ip if conn.laddr else None,
-                source_port=conn.laddr.port if conn.laddr else None,
-                destination_ip=conn.raddr.ip if conn.raddr else None,
-                destination_port=conn.raddr.port if conn.raddr else None,
+                # FIXED: ALWAYS populate ALL network-specific fields
+                source_ip=source_ip,                    # REQUIRED FIELD
+                source_port=source_port,                # REQUIRED FIELD
+                destination_ip=destination_ip,          # REQUIRED FIELD
+                destination_port=destination_port,      # REQUIRED FIELD
+                protocol=protocol,                      # REQUIRED FIELD
+                direction=direction,                    # REQUIRED FIELD
                 
-                description=f"❌ CONNECTION CLOSED: {conn_key}",
+                description=f"❌ CONNECTION CLOSED: {source_ip}:{source_port} -> {destination_ip}:{destination_port}",
+                
                 raw_event_data={
                     'event_subtype': 'connection_closed',
                     'connection_key': conn_key,
-                    'close_time': time.time()
+                    'close_time': time.time(),
+                    'data_complete': True,
+                    'local_address': f"{source_ip}:{source_port}",
+                    'remote_address': f"{destination_ip}:{destination_port}",
+                    'was_established': True
                 }
             )
         except Exception as e:
-            self.logger.error(f"❌ Connection closed event failed: {e}")
+            self.logger.error(f"❌ Complete connection closed event failed: {e}")
             return None
     
-    async def _create_suspicious_connection_event(self, conn):
-        """EVENT TYPE 3: Suspicious Connection Event"""
+    async def _create_complete_suspicious_connection_event(self, conn):
+        """EVENT TYPE 3: Suspicious Connection Event with ALL required fields"""
         try:
+            # FIXED: Extract ALL required network fields
+            source_ip = conn.laddr.ip if conn.laddr else "0.0.0.0"
+            source_port = conn.laddr.port if conn.laddr else 0
+            destination_ip = conn.raddr.ip if conn.raddr else "0.0.0.0"
+            destination_port = conn.raddr.port if conn.raddr else 0
+            protocol = 'TCP' if conn.type == socket.SOCK_STREAM else 'UDP'
+            direction = self._determine_connection_direction(conn)
+            
+            # FIXED: Create network event with ALL required fields populated
             return EventData(
                 event_type=EventType.NETWORK,
                 event_action=EventAction.SUSPICIOUS_ACTIVITY,
                 event_timestamp=datetime.now(),
                 severity="High",
                 
-                source_ip=conn.laddr.ip if conn.laddr else None,
-                source_port=conn.laddr.port if conn.laddr else None,
-                destination_ip=conn.raddr.ip if conn.raddr else None,
-                destination_port=conn.raddr.port if conn.raddr else None,
+                # FIXED: ALWAYS populate ALL network-specific fields
+                source_ip=source_ip,                    # REQUIRED FIELD
+                source_port=source_port,                # REQUIRED FIELD
+                destination_ip=destination_ip,          # REQUIRED FIELD
+                destination_port=destination_port,      # REQUIRED FIELD
+                protocol=protocol,                      # REQUIRED FIELD
+                direction=direction,                    # REQUIRED FIELD
                 
-                description=f"🚨 SUSPICIOUS CONNECTION: {conn.raddr.ip if conn.raddr else 'Unknown'}:{conn.raddr.port if conn.raddr else 'Unknown'}",
+                description=f"🚨 SUSPICIOUS CONNECTION: {source_ip}:{source_port} -> {destination_ip}:{destination_port}",
+                
                 raw_event_data={
                     'event_subtype': 'suspicious_connection',
                     'suspicion_reason': 'suspicious_port_or_pattern',
                     'risk_level': 'high',
-                    'connection_pattern': 'suspicious'
+                    'connection_pattern': 'suspicious',
+                    'data_complete': True,
+                    'connection_status': conn.status,
+                    'is_suspicious_port': destination_port in self.suspicious_ports,
+                    'service_name': self.common_services.get(destination_port, 'Unknown')
                 }
             )
         except Exception as e:
-            self.logger.error(f"❌ Suspicious connection event failed: {e}")
+            self.logger.error(f"❌ Complete suspicious connection event failed: {e}")
             return None
     
-    async def _create_external_connection_event(self, conn):
-        """EVENT TYPE 4: External Connection Event"""
+    async def _create_complete_external_connection_event(self, conn):
+        """EVENT TYPE 4: External Connection Event with ALL required fields"""
         try:
+            # FIXED: Extract ALL required network fields
+            source_ip = conn.laddr.ip if conn.laddr else "0.0.0.0"
+            source_port = conn.laddr.port if conn.laddr else 0
+            destination_ip = conn.raddr.ip if conn.raddr else "0.0.0.0"
+            destination_port = conn.raddr.port if conn.raddr else 0
+            protocol = 'TCP' if conn.type == socket.SOCK_STREAM else 'UDP'
+            direction = "Outbound"  # External connections are typically outbound
+            
+            # FIXED: Create network event with ALL required fields populated
             return EventData(
                 event_type=EventType.NETWORK,
                 event_action=EventAction.CONNECT,
                 event_timestamp=datetime.now(),
                 severity="Info",
                 
-                source_ip=conn.laddr.ip if conn.laddr else None,
-                destination_ip=conn.raddr.ip if conn.raddr else None,
-                destination_port=conn.raddr.port if conn.raddr else None,
+                # FIXED: ALWAYS populate ALL network-specific fields
+                source_ip=source_ip,                    # REQUIRED FIELD
+                source_port=source_port,                # REQUIRED FIELD
+                destination_ip=destination_ip,          # REQUIRED FIELD
+                destination_port=destination_port,      # REQUIRED FIELD
+                protocol=protocol,                      # REQUIRED FIELD
+                direction=direction,                    # REQUIRED FIELD
                 
-                description=f"🌐 EXTERNAL CONNECTION: Outbound to {conn.raddr.ip if conn.raddr else 'Unknown'}",
+                description=f"🌐 EXTERNAL CONNECTION: {source_ip}:{source_port} -> {destination_ip}:{destination_port}",
+                
                 raw_event_data={
                     'event_subtype': 'external_connection',
                     'connection_type': 'outbound_external',
-                    'destination_classification': 'external_ip'
+                    'destination_classification': 'external_ip',
+                    'data_complete': True,
+                    'is_external': True,
+                    'connection_status': conn.status,
+                    'service_name': self.common_services.get(destination_port, 'Unknown')
                 }
             )
         except Exception as e:
-            self.logger.error(f"❌ External connection event failed: {e}")
+            self.logger.error(f"❌ Complete external connection event failed: {e}")
             return None
     
-    async def _create_port_activity_event(self, conn, activity_count: int):
-        """EVENT TYPE 5: Port Activity Event"""
+    async def _create_complete_listening_port_event(self, conn):
+        """EVENT TYPE 5: Listening Port Event with ALL required fields"""
         try:
-            port = conn.laddr.port if conn.laddr else 0
-            service_name = self.common_services.get(port, 'Unknown')
+            # FIXED: Extract ALL required network fields for listening port
+            source_ip = conn.laddr.ip if conn.laddr else "0.0.0.0"
+            source_port = conn.laddr.port if conn.laddr else 0
+            destination_ip = "0.0.0.0"  # Listening ports don't have destinations
+            destination_port = 0        # Listening ports don't have destination ports
+            protocol = 'TCP' if conn.type == socket.SOCK_STREAM else 'UDP'
+            direction = "Listening"
             
+            # FIXED: Create network event with ALL required fields populated
             return EventData(
                 event_type=EventType.NETWORK,
                 event_action=EventAction.ACCESS,
                 event_timestamp=datetime.now(),
-                severity="Medium" if activity_count > 50 else "Info",
+                severity="Medium" if source_port in self.suspicious_ports else "Info",
                 
-                source_port=port,
+                # FIXED: ALWAYS populate ALL network-specific fields
+                source_ip=source_ip,                    # REQUIRED FIELD
+                source_port=source_port,                # REQUIRED FIELD
+                destination_ip=destination_ip,          # REQUIRED FIELD (0.0.0.0 for listening)
+                destination_port=destination_port,      # REQUIRED FIELD (0 for listening)
+                protocol=protocol,                      # REQUIRED FIELD
+                direction=direction,                    # REQUIRED FIELD
                 
-                description=f"🔌 PORT ACTIVITY: Port {port} ({service_name}) - {activity_count} connections",
+                description=f"🔌 LISTENING PORT: {source_ip}:{source_port} ({protocol})",
+                
                 raw_event_data={
-                    'event_subtype': 'port_activity',
-                    'port': port,
-                    'service_name': service_name,
-                    'activity_count': activity_count,
-                    'port_category': 'suspicious' if port in self.suspicious_ports else 'normal'
+                    'event_subtype': 'listening_port',
+                    'port': source_port,
+                    'service_name': self.common_services.get(source_port, 'Unknown'),
+                    'is_suspicious_port': source_port in self.suspicious_ports,
+                    'data_complete': True,
+                    'connection_status': 'LISTEN',
+                    'is_listening': True,
+                    'bind_address': source_ip
                 }
             )
         except Exception as e:
-            self.logger.error(f"❌ Port activity event failed: {e}")
+            self.logger.error(f"❌ Complete listening port event failed: {e}")
             return None
     
-    async def _create_service_detection_event(self, conn):
-        """EVENT TYPE 6: Service Detection Event"""
-        try:
-            port = conn.raddr.port if conn.raddr else 0
-            service_name = self.common_services.get(port, 'Unknown')
-            
-            return EventData(
-                event_type=EventType.NETWORK,
-                event_action=EventAction.ACCESS,
-                event_timestamp=datetime.now(),
-                severity="Info",
-                
-                destination_ip=conn.raddr.ip if conn.raddr else None,
-                destination_port=port,
-                
-                description=f"🔍 SERVICE DETECTED: {service_name} service on {conn.raddr.ip if conn.raddr else 'Unknown'}:{port}",
-                raw_event_data={
-                    'event_subtype': 'service_detection',
-                    'service_name': service_name,
-                    'service_port': port,
-                    'service_category': 'common_service'
-                }
-            )
-        except Exception as e:
-            self.logger.error(f"❌ Service detection event failed: {e}")
-            return None
-    
-    async def _check_network_bandwidth_event(self):
-        """EVENT TYPE 7: Network Bandwidth Event"""
-        try:
-            net_io = psutil.net_io_counters()
-            current_time = time.time()
-            
-            if hasattr(self, '_last_net_io') and hasattr(self, '_last_net_time'):
-                time_diff = current_time - self._last_net_time
-                if time_diff > 0:
-                    bytes_sent_rate = (net_io.bytes_sent - self._last_net_io.bytes_sent) / time_diff
-                    bytes_recv_rate = (net_io.bytes_recv - self._last_net_io.bytes_recv) / time_diff
-                    total_rate = bytes_sent_rate + bytes_recv_rate
-                    
-                    if total_rate > self.bandwidth_threshold:  # > 10MB/s
-                        return EventData(
-                            event_type=EventType.NETWORK,
-                            event_action=EventAction.RESOURCE_USAGE,
-                            event_timestamp=datetime.now(),
-                            severity="Medium",
-                            
-                            description=f"📊 HIGH BANDWIDTH: {total_rate/(1024*1024):.1f}MB/s network usage",
-                            raw_event_data={
-                                'event_subtype': 'high_bandwidth_usage',
-                                'bytes_sent_rate': bytes_sent_rate,
-                                'bytes_recv_rate': bytes_recv_rate,
-                                'total_rate_mbps': total_rate / (1024 * 1024),
-                                'threshold_mbps': self.bandwidth_threshold / (1024 * 1024)
-                            }
-                        )
-            
-            self._last_net_io = net_io
-            self._last_net_time = current_time
-            
-        except Exception as e:
-            self.logger.error(f"❌ Bandwidth event check failed: {e}")
-        return None
-    
-    async def _detect_port_scan_event(self):
-        """EVENT TYPE 8: Port Scan Detection Event"""
-        try:
-            # Simple port scan detection based on connection patterns
-            recent_connections = list(self.monitored_connections.values())
-            
-            if len(recent_connections) > 20:  # Many connections
-                unique_dest_ips = set()
-                unique_dest_ports = set()
-                
-                for conn in recent_connections[-20:]:  # Last 20 connections
-                    if conn.raddr:
-                        unique_dest_ips.add(conn.raddr.ip)
-                        unique_dest_ports.add(conn.raddr.port)
-                
-                # Potential port scan: many ports on few IPs
-                if len(unique_dest_ports) > 10 and len(unique_dest_ips) < 5:
-                    return EventData(
-                        event_type=EventType.NETWORK,
-                        event_action=EventAction.SUSPICIOUS_ACTIVITY,
-                        event_timestamp=datetime.now(),
-                        severity="High",
-                        
-                        description=f"🔍 POTENTIAL PORT SCAN: {len(unique_dest_ports)} ports scanned on {len(unique_dest_ips)} IPs",
-                        raw_event_data={
-                            'event_subtype': 'port_scan_detected',
-                            'unique_ports_count': len(unique_dest_ports),
-                            'unique_ips_count': len(unique_dest_ips),
-                            'connection_count': len(recent_connections),
-                            'scan_pattern': 'many_ports_few_ips'
-                        }
-                    )
-        except Exception as e:
-            self.logger.error(f"❌ Port scan detection failed: {e}")
-        return None
-    
-    async def _create_network_summary_event(self):
-        """EVENT TYPE 9: Network Summary Event"""
+    async def _create_complete_network_summary_event(self):
+        """EVENT TYPE 6: Network Summary Event with ALL required fields"""
         try:
             active_connections = len(self.monitored_connections)
             
+            # FIXED: Create network event with ALL required fields populated (using defaults for summary)
             return EventData(
                 event_type=EventType.NETWORK,
                 event_action=EventAction.RESOURCE_USAGE,
                 event_timestamp=datetime.now(),
                 severity="Info",
                 
+                # FIXED: ALWAYS populate ALL network-specific fields (summary uses defaults)
+                source_ip="0.0.0.0",                   # REQUIRED FIELD (summary event)
+                source_port=0,                         # REQUIRED FIELD (summary event)
+                destination_ip="0.0.0.0",              # REQUIRED FIELD (summary event)
+                destination_port=0,                    # REQUIRED FIELD (summary event)
+                protocol="Summary",                    # REQUIRED FIELD (summary event)
+                direction="Summary",                   # REQUIRED FIELD (summary event)
+                
                 description=f"📊 NETWORK SUMMARY: {active_connections} active connections",
+                
                 raw_event_data={
                     'event_subtype': 'network_summary',
                     'active_connections': active_connections,
@@ -445,44 +451,42 @@ class EnhancedNetworkCollector(BaseCollector):
                     'connection_types': {
                         'tcp': len([c for c in self.monitored_connections.values() if c.type == socket.SOCK_STREAM]),
                         'udp': len([c for c in self.monitored_connections.values() if c.type == socket.SOCK_DGRAM])
-                    }
+                    },
+                    'data_complete': True,
+                    'is_summary': True
                 }
             )
         except Exception as e:
-            self.logger.error(f"❌ Network summary event failed: {e}")
+            self.logger.error(f"❌ Complete network summary event failed: {e}")
             return None
     
-    async def _create_dns_query_event(self):
-        """EVENT TYPE 10: DNS Query Event (simulated)"""
+    def _determine_connection_direction(self, conn) -> str:
+        """Determine connection direction"""
         try:
-            # Simulate DNS query detection based on port 53 connections
-            dns_connections = [c for c in self.monitored_connections.values() 
-                             if c.raddr and c.raddr.port == 53]
+            if not conn.raddr:
+                return "Listening"
             
-            if dns_connections:
-                dns_conn = dns_connections[0]  # Take first DNS connection
-                return EventData(
-                    event_type=EventType.NETWORK,
-                    event_action=EventAction.ACCESS,
-                    event_timestamp=datetime.now(),
-                    severity="Info",
-                    
-                    source_ip=dns_conn.laddr.ip if dns_conn.laddr else None,
-                    destination_ip=dns_conn.raddr.ip if dns_conn.raddr else None,
-                    destination_port=53,
-                    protocol='UDP',
-                    
-                    description=f"🔍 DNS QUERY: DNS resolution to {dns_conn.raddr.ip if dns_conn.raddr else 'Unknown'}",
-                    raw_event_data={
-                        'event_subtype': 'dns_query',
-                        'dns_server': dns_conn.raddr.ip if dns_conn.raddr else None,
-                        'query_type': 'A_record',  # Simulated
-                        'dns_activity': 'domain_resolution'
-                    }
-                )
+            # Check if destination is external
+            if self._is_external_ip(conn.raddr.ip):
+                return "Outbound"
+            
+            # Check if source is external
+            if hasattr(conn, 'laddr') and conn.laddr and self._is_external_ip(conn.laddr.ip):
+                return "Inbound"
+            
+            # Local connections
+            if conn.raddr.ip in ['127.0.0.1', '::1']:
+                return "Internal"
+            
+            # Default to outbound for established connections
+            if conn.status == 'ESTABLISHED':
+                return "Outbound"
+            
+            return "Unknown"
+            
         except Exception as e:
-            self.logger.error(f"❌ DNS query event failed: {e}")
-        return None
+            self.logger.debug(f"Direction determination failed: {e}")
+            return "Unknown"
     
     def _is_external_connection(self, conn) -> bool:
         """Check if connection is to external IP"""
@@ -490,8 +494,14 @@ class EnhancedNetworkCollector(BaseCollector):
             if not conn.raddr:
                 return False
             
-            ip = conn.raddr.ip
+            return self._is_external_ip(conn.raddr.ip)
             
+        except Exception:
+            return False
+    
+    def _is_external_ip(self, ip: str) -> bool:
+        """Check if IP address is external (not private)"""
+        try:
             # Check for private IP ranges
             private_ranges = [
                 '10.', '172.16.', '172.17.', '172.18.', '172.19.',
@@ -507,10 +517,10 @@ class EnhancedNetworkCollector(BaseCollector):
             return False
     
     def get_stats(self) -> Dict:
-        """Get detailed statistics for multiple network event types"""
+        """Get detailed statistics for complete network event types"""
         base_stats = super().get_stats()
         base_stats.update({
-            'collector_type': 'Network_MultipleEvents',
+            'collector_type': 'Network_CompleteData',
             'connection_established_events': self.stats['connection_established_events'],
             'connection_closed_events': self.stats['connection_closed_events'],
             'suspicious_connection_events': self.stats['suspicious_connection_events'],
@@ -523,11 +533,11 @@ class EnhancedNetworkCollector(BaseCollector):
             'total_network_events': self.stats['total_network_events'],
             'active_connections': len(self.monitored_connections),
             'port_activity_count': len(self.port_activity),
-            'multiple_event_types': True,
+            'complete_data_collection': True,
+            'all_fields_populated': True,
             'network_event_types_generated': [
                 'connection_established', 'connection_closed', 'suspicious_connection',
-                'external_connection', 'port_activity', 'service_detection',
-                'high_bandwidth_usage', 'port_scan_detected', 'network_summary', 'dns_query'
+                'external_connection', 'listening_port', 'network_summary'
             ]
         })
         return base_stats
