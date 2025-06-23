@@ -1,7 +1,7 @@
-# agent/collectors/process_collector.py - FIXED MEMORY ERROR
+# agent/collectors/process_collector.py - ENHANCED VERSION FOR ALL PROCESSES
 """
-Enhanced Process Collector - FIXED memory_info access error
-Thu thập nhiều loại process events và sửa lỗi memory_info object
+Enhanced Process Collector - Tạo alert cho TẤT CẢ processes
+Thu thập và báo cáo mọi process activity, không chỉ suspicious processes
 """
 
 import psutil
@@ -19,50 +19,80 @@ from agent.utils.process_utils import get_process_info, get_process_hash, is_sys
 logger = logging.getLogger('ProcessCollector')
 
 class EnhancedProcessCollector(BaseCollector):
-    """Enhanced Process Collector - FIXED memory access error"""
+    """Enhanced Process Collector - Alert cho TẤT CẢ process activities"""
     
     def __init__(self, config_manager=None):
         super().__init__(config_manager, "ProcessCollector")
         
-        # MULTIPLE EVENTS: Tracking data
+        # ENHANCED: Tracking tất cả processes
         self.monitored_processes = {}
         self.baseline_processes = set()
         self.last_scan_pids = set()
         self.process_cpu_history = {}
         self.process_memory_history = {}
         
-        # MULTIPLE EVENTS: Categories for different event types
-        self.suspicious_processes = {
-            'powershell.exe', 'cmd.exe', 'wscript.exe', 'cscript.exe',
-            'rundll32.exe', 'regsvr32.exe', 'mshta.exe', 'certutil.exe'
+        # ENHANCED: Categories for ALL processes (không chỉ suspicious)
+        self.all_executables = {
+            'powershell.exe', 'cmd.exe', 'notepad.exe', 'calc.exe', 'explorer.exe',
+            'chrome.exe', 'firefox.exe', 'msedge.exe', 'code.exe', 'winword.exe',
+            'excel.exe', 'outlook.exe', 'teams.exe', 'skype.exe', 'zoom.exe',
+            'discord.exe', 'steam.exe', 'vlc.exe', 'winrar.exe', '7z.exe',
+            'python.exe', 'java.exe', 'node.exe', 'git.exe', 'putty.exe',
+            'wscript.exe', 'cscript.exe', 'rundll32.exe', 'regsvr32.exe',
+            'mshta.exe', 'certutil.exe', 'bitsadmin.exe', 'svchost.exe',
+            'lsass.exe', 'winlogon.exe', 'csrss.exe', 'dwm.exe', 'taskhost.exe'
         }
         
-        self.high_cpu_threshold = 80  # CPU > 80%
-        self.high_memory_threshold = 500 * 1024 * 1024  # Memory > 500MB
-        self.polling_interval = 0.5  # 500ms for continuous monitoring
+        # ENHANCED: Alert for ALL process types
+        self.interesting_processes = {
+            'editors': ['notepad.exe', 'notepad++.exe', 'code.exe', 'sublime_text.exe'],
+            'calculators': ['calc.exe', 'calculator.exe'],
+            'browsers': ['chrome.exe', 'firefox.exe', 'msedge.exe', 'iexplore.exe'],
+            'system_tools': ['cmd.exe', 'powershell.exe', 'powershell_ise.exe'],
+            'office': ['winword.exe', 'excel.exe', 'powerpoint.exe', 'outlook.exe'],
+            'media': ['vlc.exe', 'wmplayer.exe', 'spotify.exe'],
+            'development': ['python.exe', 'java.exe', 'node.exe', 'dotnet.exe'],
+            'communication': ['teams.exe', 'skype.exe', 'discord.exe', 'zoom.exe'],
+            'security': ['defender.exe', 'ccleaner.exe', 'malwarebytes.exe'],
+            'utilities': ['winrar.exe', '7z.exe', 'putty.exe', 'filezilla.exe']
+        }
         
-        # MULTIPLE EVENTS: Statistics
+        # ENHANCED: Thresholds for alerts
+        self.high_cpu_threshold = 70  # CPU > 70%
+        self.high_memory_threshold = 300 * 1024 * 1024  # Memory > 300MB
+        self.polling_interval = 0.8  # 800ms for enhanced monitoring
+        
+        # ENHANCED: Alert generation settings
+        self.generate_alerts_for_all_processes = True
+        self.alert_on_process_creation = True
+        self.alert_on_process_termination = True
+        self.alert_on_interesting_processes = True
+        
+        # ENHANCED: Statistics for ALL processes
         self.stats = {
-            'process_create_events': 0,
-            'process_terminate_events': 0,
-            'process_cpu_events': 0,
-            'process_memory_events': 0,
-            'process_suspicious_events': 0,
-            'process_child_events': 0,
-            'process_performance_events': 0,
-            'total_events_sent': 0
+            'total_process_create_events': 0,
+            'total_process_terminate_events': 0,
+            'notepad_events': 0,
+            'calc_events': 0,
+            'browser_events': 0,
+            'office_events': 0,
+            'system_tool_events': 0,
+            'suspicious_events': 0,
+            'high_cpu_events': 0,
+            'high_memory_events': 0,
+            'total_events_generated': 0
         }
         
-        self.logger.info("Enhanced Process Collector initialized for MULTIPLE EVENT TYPES")
+        self.logger.info("Enhanced Process Collector initialized - ALERTS FOR ALL PROCESSES")
     
     async def _collect_data(self):
-        """Collect multiple types of process events - FIXED VERSION"""
+        """Collect ALL process events and generate alerts for interesting activities"""
         try:
             scan_start = time.time()
             events = []
             current_pids = set()
             
-            # MULTIPLE EVENTS: Scan all processes for various event types
+            # ENHANCED: Scan ALL processes for events
             for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'create_time', 'username', 'ppid']):
                 try:
                     proc_info = proc.info
@@ -72,9 +102,8 @@ class EnhancedProcessCollector(BaseCollector):
                     pid = proc_info['pid']
                     current_pids.add(pid)
                     
-                    # FIXED: Get CPU and memory info safely
+                    # ENHANCED: Get CPU and memory info safely
                     try:
-                        # Get actual process object for CPU/memory info
                         actual_proc = psutil.Process(pid)
                         cpu_percent = actual_proc.cpu_percent()
                         memory_info = actual_proc.memory_info()
@@ -86,45 +115,34 @@ class EnhancedProcessCollector(BaseCollector):
                         proc_info['memory_rss'] = 0
                         proc_info['memory_vms'] = 0
                     
-                    # EVENT TYPE 1: Process Creation Events
+                    # ENHANCED EVENT TYPE 1: Process Creation Events (ALL PROCESSES)
                     if pid not in self.last_scan_pids:
-                        event = await self._create_process_creation_event(proc_info)
+                        event = await self._create_enhanced_process_creation_event(proc_info)
                         if event:
                             events.append(event)
-                            self.stats['process_create_events'] += 1
+                            self.stats['total_process_create_events'] += 1
+                            
+                            # Count specific process types
+                            self._update_process_type_stats(proc_info['name'], 'create')
                     
-                    # EVENT TYPE 2: CPU Usage Events (for high CPU processes)
-                    cpu_event = await self._check_process_cpu_event(proc_info)
-                    if cpu_event:
-                        events.append(cpu_event)
-                        self.stats['process_cpu_events'] += 1
+                    # ENHANCED EVENT TYPE 2: Interesting Process Activity Events
+                    if self._is_interesting_process(proc_info['name']):
+                        activity_event = await self._create_interesting_process_activity_event(proc_info)
+                        if activity_event:
+                            events.append(activity_event)
                     
-                    # EVENT TYPE 3: Memory Usage Events (for high memory processes)
-                    memory_event = await self._check_process_memory_event(proc_info)
-                    if memory_event:
-                        events.append(memory_event)
-                        self.stats['process_memory_events'] += 1
+                    # ENHANCED EVENT TYPE 3: CPU/Memory Usage Events
+                    if proc_info.get('cpu_percent', 0) > self.high_cpu_threshold:
+                        cpu_event = await self._create_high_cpu_event(proc_info)
+                        if cpu_event:
+                            events.append(cpu_event)
+                            self.stats['high_cpu_events'] += 1
                     
-                    # EVENT TYPE 4: Suspicious Process Events
-                    if proc_info['name'] and proc_info['name'].lower() in self.suspicious_processes:
-                        event = await self._create_suspicious_process_event(proc_info)
-                        if event:
-                            events.append(event)
-                            self.stats['process_suspicious_events'] += 1
-                    
-                    # EVENT TYPE 5: Child Process Events
-                    if proc_info.get('ppid'):
-                        child_event = await self._create_child_process_event(proc_info)
-                        if child_event:
-                            events.append(child_event)
-                            self.stats['process_child_events'] += 1
-                    
-                    # EVENT TYPE 6: Process Performance Events (every 5 scans)
-                    if self.stats['total_events_sent'] % 5 == 0:
-                        perf_event = await self._create_process_performance_event(proc_info)
-                        if perf_event:
-                            events.append(perf_event)
-                            self.stats['process_performance_events'] += 1
+                    if proc_info.get('memory_rss', 0) > self.high_memory_threshold:
+                        memory_event = await self._create_high_memory_event(proc_info)
+                        if memory_event:
+                            events.append(memory_event)
+                            self.stats['high_memory_events'] += 1
                     
                     # Update tracking
                     self.monitored_processes[pid] = {
@@ -132,66 +150,138 @@ class EnhancedProcessCollector(BaseCollector):
                         'exe': proc_info['exe'],
                         'last_seen': time.time(),
                         'cpu_percent': proc_info.get('cpu_percent', 0),
-                        'memory_rss': proc_info.get('memory_rss', 0)
+                        'memory_rss': proc_info.get('memory_rss', 0),
+                        'create_time': proc_info.get('create_time', 0)
                     }
                     
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
             
-            # EVENT TYPE 7: Process Termination Events
+            # ENHANCED EVENT TYPE 4: Process Termination Events (ALL PROCESSES)
             terminated_pids = self.last_scan_pids - current_pids
             for pid in terminated_pids:
                 if pid in self.monitored_processes:
-                    event = await self._create_process_termination_event(pid, self.monitored_processes[pid])
+                    event = await self._create_enhanced_process_termination_event(pid, self.monitored_processes[pid])
                     if event:
                         events.append(event)
-                        self.stats['process_terminate_events'] += 1
+                        self.stats['total_process_terminate_events'] += 1
+                        
+                        # Count specific process types
+                        process_name = self.monitored_processes[pid].get('name', '')
+                        self._update_process_type_stats(process_name, 'terminate')
+                    
                     del self.monitored_processes[pid]
             
             # Update tracking
             self.last_scan_pids = current_pids
-            self.stats['total_events_sent'] += len(events)
+            self.stats['total_events_generated'] += len(events)
             
             if events:
-                self.logger.info(f"📤 Generated {len(events)} MULTIPLE PROCESS EVENTS for continuous sending")
+                self.logger.info(f"📤 Generated {len(events)} ENHANCED PROCESS EVENTS (all processes)")
+                
+                # Log interesting events
+                for event in events[:3]:  # Log first 3 events
+                    if hasattr(event, 'process_name'):
+                        self.logger.info(f"   📱 {event.event_action}: {event.process_name}")
             
             return events
             
         except Exception as e:
-            self.logger.error(f"❌ Multiple process events collection failed: {e}")
+            self.logger.error(f"❌ Enhanced process events collection failed: {e}")
             return []
     
-    async def _create_process_creation_event(self, proc_info: Dict):
-        """EVENT TYPE 1: Process Creation Event - FIXED"""
+    def _is_interesting_process(self, process_name: str) -> bool:
+        """Check if process is interesting enough for alerts"""
+        if not process_name:
+            return False
+        
+        process_lower = process_name.lower()
+        
+        # Check all interesting process categories
+        for category, processes in self.interesting_processes.items():
+            if any(proc.lower() in process_lower for proc in processes):
+                return True
+        
+        # Check if it's in our general list
+        if process_lower in self.all_executables:
+            return True
+        
+        return False
+    
+    def _update_process_type_stats(self, process_name: str, action: str):
+        """Update statistics for specific process types"""
+        if not process_name:
+            return
+        
+        process_lower = process_name.lower()
+        
+        # Update specific counters
+        if 'notepad' in process_lower:
+            self.stats['notepad_events'] += 1
+        elif 'calc' in process_lower:
+            self.stats['calc_events'] += 1
+        elif any(browser in process_lower for browser in ['chrome', 'firefox', 'edge', 'browser']):
+            self.stats['browser_events'] += 1
+        elif any(office in process_lower for office in ['word', 'excel', 'powerpoint', 'outlook']):
+            self.stats['office_events'] += 1
+        elif any(tool in process_lower for tool in ['cmd', 'powershell', 'wscript', 'cscript']):
+            self.stats['system_tool_events'] += 1
+        elif any(sus in process_lower for sus in ['rundll32', 'regsvr32', 'mshta', 'certutil']):
+            self.stats['suspicious_events'] += 1
+    
+    async def _create_enhanced_process_creation_event(self, proc_info: Dict):
+        """ENHANCED EVENT TYPE 1: Process Creation Event for ALL processes"""
         try:
+            process_name = proc_info.get('name', 'Unknown')
+            severity = self._determine_enhanced_severity(process_name, proc_info)
+            
+            # Create enhanced description
+            description = f"🆕 PROCESS STARTED: {process_name}"
+            if proc_info.get('exe'):
+                description += f" from {proc_info['exe']}"
+            if proc_info.get('username'):
+                description += f" by {proc_info['username']}"
+            
             return EventData(
                 event_type=EventType.PROCESS,
                 event_action=EventAction.CREATE,
                 event_timestamp=datetime.now(),
-                severity="Medium" if proc_info['name'].lower() in self.suspicious_processes else "Info",
+                severity=severity,
                 
                 process_id=proc_info.get('pid'),
-                process_name=proc_info.get('name'),
+                process_name=process_name,
                 process_path=proc_info.get('exe'),
                 command_line=' '.join(proc_info['cmdline']) if proc_info.get('cmdline') else None,
                 process_user=proc_info.get('username'),
                 parent_pid=proc_info.get('ppid'),
                 
-                description=f"🆕 PROCESS CREATED: {proc_info.get('name')} (PID: {proc_info.get('pid')})",
+                description=description,
                 raw_event_data={
-                    'event_subtype': 'process_creation',
+                    'event_subtype': 'enhanced_process_creation',
+                    'process_category': self._get_process_category(process_name),
                     'create_time': proc_info.get('create_time'),
                     'detection_time': time.time(),
-                    'is_suspicious': proc_info['name'].lower() in self.suspicious_processes
+                    'is_interesting': self._is_interesting_process(process_name),
+                    'cpu_percent': proc_info.get('cpu_percent', 0),
+                    'memory_mb': proc_info.get('memory_rss', 0) / (1024 * 1024) if proc_info.get('memory_rss') else 0,
+                    'enhanced_monitoring': True,
+                    'alert_worthy': True
                 }
             )
         except Exception as e:
-            self.logger.error(f"❌ Process creation event failed: {e}")
+            self.logger.error(f"❌ Enhanced process creation event failed: {e}")
             return None
     
-    async def _create_process_termination_event(self, pid: int, proc_info: Dict):
-        """EVENT TYPE 2: Process Termination Event - FIXED"""
+    async def _create_enhanced_process_termination_event(self, pid: int, proc_info: Dict):
+        """ENHANCED EVENT TYPE 2: Process Termination Event for ALL processes"""
         try:
+            process_name = proc_info.get('name', 'Unknown')
+            
+            # Calculate process lifetime
+            lifetime = time.time() - proc_info.get('last_seen', time.time())
+            
+            description = f"❌ PROCESS ENDED: {process_name} (ran for {lifetime:.1f}s)"
+            
             return EventData(
                 event_type=EventType.PROCESS,
                 event_action=EventAction.STOP,
@@ -199,183 +289,168 @@ class EnhancedProcessCollector(BaseCollector):
                 severity="Info",
                 
                 process_id=pid,
-                process_name=proc_info.get('name'),
+                process_name=process_name,
                 process_path=proc_info.get('exe'),
                 
-                description=f"❌ PROCESS TERMINATED: {proc_info.get('name')} (PID: {pid})",
+                description=description,
                 raw_event_data={
-                    'event_subtype': 'process_termination',
+                    'event_subtype': 'enhanced_process_termination',
+                    'process_category': self._get_process_category(process_name),
                     'termination_time': time.time(),
-                    'process_lifetime': time.time() - proc_info.get('last_seen', time.time())
+                    'process_lifetime': lifetime,
+                    'last_cpu_percent': proc_info.get('cpu_percent', 0),
+                    'last_memory_mb': proc_info.get('memory_rss', 0) / (1024 * 1024) if proc_info.get('memory_rss') else 0,
+                    'was_interesting': self._is_interesting_process(process_name),
+                    'enhanced_monitoring': True
                 }
             )
         except Exception as e:
-            self.logger.error(f"❌ Process termination event failed: {e}")
+            self.logger.error(f"❌ Enhanced process termination event failed: {e}")
             return None
     
-    async def _check_process_cpu_event(self, proc_info: Dict):
-        """EVENT TYPE 3: High CPU Usage Event - FIXED"""
+    async def _create_interesting_process_activity_event(self, proc_info: Dict):
+        """ENHANCED EVENT TYPE 3: Interesting Process Activity Event"""
         try:
-            cpu_percent = proc_info.get('cpu_percent', 0)
-            if cpu_percent > self.high_cpu_threshold:
-                return EventData(
-                    event_type=EventType.PROCESS,
-                    event_action=EventAction.RESOURCE_USAGE,
-                    event_timestamp=datetime.now(),
-                    severity="High",
-                    
-                    process_id=proc_info.get('pid'),
-                    process_name=proc_info.get('name'),
-                    cpu_usage=cpu_percent,
-                    
-                    description=f"🔥 HIGH CPU PROCESS: {proc_info.get('name')} using {cpu_percent}% CPU",
-                    raw_event_data={
-                        'event_subtype': 'high_cpu_usage',
-                        'cpu_percent': cpu_percent,
-                        'threshold': self.high_cpu_threshold,
-                        'detection_time': time.time()
-                    }
-                )
-        except Exception as e:
-            self.logger.error(f"❌ CPU event check failed: {e}")
-        return None
-    
-    async def _check_process_memory_event(self, proc_info: Dict):
-        """EVENT TYPE 4: High Memory Usage Event - FIXED"""
-        try:
-            memory_rss = proc_info.get('memory_rss', 0)
-            if memory_rss > self.high_memory_threshold:
-                memory_mb = memory_rss / (1024 * 1024)
-                return EventData(
-                    event_type=EventType.PROCESS,
-                    event_action=EventAction.RESOURCE_USAGE,
-                    event_timestamp=datetime.now(),
-                    severity="Medium",
-                    
-                    process_id=proc_info.get('pid'),
-                    process_name=proc_info.get('name'),
-                    memory_usage=memory_mb,
-                    
-                    description=f"💾 HIGH MEMORY PROCESS: {proc_info.get('name')} using {memory_mb:.1f}MB",
-                    raw_event_data={
-                        'event_subtype': 'high_memory_usage',
-                        'memory_rss': memory_rss,
-                        'memory_vms': proc_info.get('memory_vms', 0),
-                        'memory_mb': memory_mb,
-                        'threshold_mb': self.high_memory_threshold / (1024 * 1024)
-                    }
-                )
-        except Exception as e:
-            self.logger.error(f"❌ Memory event check failed: {e}")
-        return None
-    
-    async def _create_suspicious_process_event(self, proc_info: Dict):
-        """EVENT TYPE 5: Suspicious Process Event - FIXED"""
-        try:
+            process_name = proc_info.get('name', 'Unknown')
+            category = self._get_process_category(process_name)
+            
             return EventData(
                 event_type=EventType.PROCESS,
-                event_action=EventAction.SUSPICIOUS_ACTIVITY,
+                event_action=EventAction.ACCESS,
                 event_timestamp=datetime.now(),
-                severity="High",
+                severity="Medium" if category in ['system_tools', 'security'] else "Info",
                 
                 process_id=proc_info.get('pid'),
-                process_name=proc_info.get('name'),
+                process_name=process_name,
                 process_path=proc_info.get('exe'),
                 command_line=' '.join(proc_info['cmdline']) if proc_info.get('cmdline') else None,
                 
-                description=f"🚨 SUSPICIOUS PROCESS: {proc_info.get('name')} detected",
+                description=f"⭐ INTERESTING PROCESS ACTIVITY: {process_name} ({category})",
                 raw_event_data={
-                    'event_subtype': 'suspicious_process',
-                    'process_category': 'suspicious',
-                    'risk_level': 'high',
-                    'detection_reason': 'known_suspicious_process_name'
+                    'event_subtype': 'interesting_process_activity',
+                    'process_category': category,
+                    'activity_type': 'execution',
+                    'interest_level': 'high' if category in ['system_tools', 'security'] else 'medium',
+                    'cpu_percent': proc_info.get('cpu_percent', 0),
+                    'memory_mb': proc_info.get('memory_rss', 0) / (1024 * 1024) if proc_info.get('memory_rss') else 0,
+                    'enhanced_monitoring': True
                 }
             )
         except Exception as e:
-            self.logger.error(f"❌ Suspicious process event failed: {e}")
+            self.logger.error(f"❌ Interesting process activity event failed: {e}")
             return None
     
-    async def _create_child_process_event(self, proc_info: Dict):
-        """EVENT TYPE 6: Child Process Event - FIXED"""
+    async def _create_high_cpu_event(self, proc_info: Dict):
+        """ENHANCED EVENT TYPE 4: High CPU Usage Event"""
         try:
-            # Only create events for interesting parent-child relationships
-            if proc_info.get('ppid') and proc_info.get('ppid') in self.monitored_processes:
-                parent_info = self.monitored_processes[proc_info['ppid']]
-                
-                return EventData(
-                    event_type=EventType.PROCESS,
-                    event_action=EventAction.CREATE,
-                    event_timestamp=datetime.now(),
-                    severity="Info",
-                    
-                    process_id=proc_info.get('pid'),
-                    process_name=proc_info.get('name'),
-                    parent_pid=proc_info.get('ppid'),
-                    parent_process_name=parent_info.get('name'),
-                    
-                    description=f"👶 CHILD PROCESS: {proc_info.get('name')} spawned by {parent_info.get('name')}",
-                    raw_event_data={
-                        'event_subtype': 'child_process_creation',
-                        'parent_name': parent_info.get('name'),
-                        'parent_exe': parent_info.get('exe'),
-                        'child_name': proc_info.get('name'),
-                        'process_tree_depth': 1
-                    }
-                )
-        except Exception as e:
-            self.logger.error(f"❌ Child process event failed: {e}")
-        return None
-    
-    async def _create_process_performance_event(self, proc_info: Dict):
-        """EVENT TYPE 7: Process Performance Summary Event - FIXED"""
-        try:
-            memory_rss = proc_info.get('memory_rss', 0)
-            memory_mb = memory_rss / (1024 * 1024) if memory_rss > 0 else 0
+            cpu_percent = proc_info.get('cpu_percent', 0)
             
             return EventData(
                 event_type=EventType.PROCESS,
                 event_action=EventAction.RESOURCE_USAGE,
                 event_timestamp=datetime.now(),
-                severity="Info",
+                severity="High" if cpu_percent > 90 else "Medium",
                 
                 process_id=proc_info.get('pid'),
                 process_name=proc_info.get('name'),
-                cpu_usage=proc_info.get('cpu_percent', 0),
-                memory_usage=memory_mb,
+                cpu_usage=cpu_percent,
                 
-                description=f"📊 PROCESS PERFORMANCE: {proc_info.get('name')} stats",
+                description=f"🔥 HIGH CPU USAGE: {proc_info.get('name')} using {cpu_percent:.1f}% CPU",
                 raw_event_data={
-                    'event_subtype': 'process_performance_summary',
-                    'cpu_percent': proc_info.get('cpu_percent', 0),
-                    'memory_rss_mb': memory_mb,
-                    'memory_vms_mb': proc_info.get('memory_vms', 0) / (1024 * 1024) if proc_info.get('memory_vms', 0) > 0 else 0,
-                    'create_time': proc_info.get('create_time'),
-                    'username': proc_info.get('username')
+                    'event_subtype': 'high_cpu_usage',
+                    'cpu_percent': cpu_percent,
+                    'threshold': self.high_cpu_threshold,
+                    'performance_impact': 'high' if cpu_percent > 90 else 'medium',
+                    'enhanced_monitoring': True
                 }
             )
         except Exception as e:
-            self.logger.error(f"❌ Process performance event failed: {e}")
+            self.logger.error(f"❌ High CPU event failed: {e}")
             return None
     
+    async def _create_high_memory_event(self, proc_info: Dict):
+        """ENHANCED EVENT TYPE 5: High Memory Usage Event"""
+        try:
+            memory_rss = proc_info.get('memory_rss', 0)
+            memory_mb = memory_rss / (1024 * 1024)
+            
+            return EventData(
+                event_type=EventType.PROCESS,
+                event_action=EventAction.RESOURCE_USAGE,
+                event_timestamp=datetime.now(),
+                severity="Medium",
+                
+                process_id=proc_info.get('pid'),
+                process_name=proc_info.get('name'),
+                memory_usage=memory_mb,
+                
+                description=f"💾 HIGH MEMORY USAGE: {proc_info.get('name')} using {memory_mb:.1f}MB",
+                raw_event_data={
+                    'event_subtype': 'high_memory_usage',
+                    'memory_rss': memory_rss,
+                    'memory_mb': memory_mb,
+                    'threshold_mb': self.high_memory_threshold / (1024 * 1024),
+                    'enhanced_monitoring': True
+                }
+            )
+        except Exception as e:
+            self.logger.error(f"❌ High memory event failed: {e}")
+            return None
+    
+    def _determine_enhanced_severity(self, process_name: str, proc_info: Dict) -> str:
+        """Determine enhanced severity for ALL processes"""
+        if not process_name:
+            return "Info"
+        
+        process_lower = process_name.lower()
+        
+        # High severity for security tools and system utilities
+        if any(tool in process_lower for tool in ['powershell', 'cmd', 'rundll32', 'regsvr32', 'certutil']):
+            return "High"
+        
+        # Medium severity for interesting applications
+        if any(app in process_lower for app in ['notepad', 'calc', 'chrome', 'firefox']):
+            return "Medium"
+        
+        # High CPU or memory
+        if proc_info.get('cpu_percent', 0) > 80 or proc_info.get('memory_rss', 0) > 500 * 1024 * 1024:
+            return "High"
+        
+        return "Info"
+    
+    def _get_process_category(self, process_name: str) -> str:
+        """Get process category for classification"""
+        if not process_name:
+            return 'unknown'
+        
+        process_lower = process_name.lower()
+        
+        for category, processes in self.interesting_processes.items():
+            if any(proc.lower() in process_lower for proc in processes):
+                return category
+        
+        return 'other'
+    
     def get_stats(self) -> Dict:
-        """Get detailed statistics for multiple event types"""
+        """Get detailed statistics for enhanced process monitoring"""
         base_stats = super().get_stats()
         base_stats.update({
-            'collector_type': 'Process_MultipleEvents_Fixed',
-            'process_create_events': self.stats['process_create_events'],
-            'process_terminate_events': self.stats['process_terminate_events'],
-            'process_cpu_events': self.stats['process_cpu_events'],
-            'process_memory_events': self.stats['process_memory_events'],
-            'process_suspicious_events': self.stats['process_suspicious_events'],
-            'process_child_events': self.stats['process_child_events'],
-            'process_performance_events': self.stats['process_performance_events'],
-            'total_events_sent': self.stats['total_events_sent'],
-            'multiple_event_types': True,
-            'memory_error_fixed': True,
-            'event_types_generated': [
-                'process_creation', 'process_termination', 'high_cpu_usage',
-                'high_memory_usage', 'suspicious_process', 'child_process_creation',
-                'process_performance_summary'
-            ]
+            'collector_type': 'Process_Enhanced_AllProcesses',
+            'total_process_create_events': self.stats['total_process_create_events'],
+            'total_process_terminate_events': self.stats['total_process_terminate_events'],
+            'notepad_events': self.stats['notepad_events'],
+            'calc_events': self.stats['calc_events'],
+            'browser_events': self.stats['browser_events'],
+            'office_events': self.stats['office_events'],
+            'system_tool_events': self.stats['system_tool_events'],
+            'suspicious_events': self.stats['suspicious_events'],
+            'high_cpu_events': self.stats['high_cpu_events'],
+            'high_memory_events': self.stats['high_memory_events'],
+            'total_events_generated': self.stats['total_events_generated'],
+            'monitored_processes_count': len(self.monitored_processes),
+            'enhanced_monitoring': True,
+            'alert_all_processes': True,
+            'process_categories_monitored': list(self.interesting_processes.keys()),
+            'interesting_processes_count': len(self.all_executables)
         })
         return base_stats

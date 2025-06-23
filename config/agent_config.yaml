@@ -1,213 +1,264 @@
-# config/agent_config.yaml - FIXED VERSION
-# EDR Agent Configuration - Fixed for Connection Issues
+# config/agent_config.yaml - SIMPLE RULE-BASED CONFIGURATION
+# EDR Agent Configuration - CHỈ HIỂN THỊ CẢNH BÁO KHI SERVER PHÁT HIỆN VI PHẠM RULE
 
 # ============================================================================
-# AGENT CORE CONFIGURATION - FIXED
+# AGENT CORE CONFIGURATION - SIMPLE MODE
 # ============================================================================
 agent:
-  name: "EDR-SecurityAgent-Fixed"
-  version: "2.0.0-Fixed"
+  name: "EDR-SecurityAgent-RuleBasedOnly"
+  version: "2.1.0-RuleBasedAlerts"
   environment: "production"
+  
+  # Rule-based alert processing only
+  rule_based_alerts_only: true
+  display_only_server_rule_violations: true
+  auto_acknowledge_rule_alerts: true
   
   # Immediate transmission settings
   immediate_transmission: true
   zero_delay_mode: true
   
-  # Heartbeat and Communication - FIXED
-  heartbeat_interval: 30                # Increased for stability
-  heartbeat_timeout: 60                 # Increased timeout
-  max_heartbeat_failures: 5             # Allow more failures before giving up
+  # Heartbeat and Communication
+  heartbeat_interval: 30                
+  heartbeat_timeout: 60                 
+  max_heartbeat_failures: 5             
   
-  # Event Processing - FIXED
-  event_batch_size: 1                   # Send one event immediately
-  event_queue_size: 100                 # Larger queue for offline mode
-  max_memory_usage: 512                 # Adequate memory
+  # Event Processing - SIMPLE MODE
+  event_batch_size: 1                   
+  event_queue_size: 500                 
+  max_memory_usage: 256                 
   
-  # Performance Settings - FIXED
-  max_cpu_usage: 25
-  auto_throttle: true                   # Enable throttling to prevent overload
-  adaptive_polling: true                # Enable adaptive polling
+  # Performance Settings
+  max_cpu_usage: 15
+  auto_throttle: true                   
+  adaptive_polling: true                
   
   # Processing configuration
   immediate_processing: true
-  immediate_send_threshold_ms: 100      # Allow 100ms for processing
-  minimal_polling_interval_ms: 500     # 500ms polling for stability
+  immediate_send_threshold_ms: 100      
+  minimal_polling_interval_ms: 1000    # 1 second polling
 
 # ============================================================================
-# SERVER CONNECTION CONFIGURATION - FIXED
+# SERVER CONNECTION CONFIGURATION
 # ============================================================================
 server:
-  # Primary Server - FIXED to use localhost first
-  host: "127.0.0.1"                    # CHANGED: Use localhost first
+  # Primary Server
+  host: "127.0.0.1"                    
   port: 5000
   protocol: "http"
   base_url: "http://127.0.0.1:5000"
   
-  # Fallback servers for auto-detection
+  # Fallback servers
   fallback_servers:
     - host: "localhost"
       port: 5000
       name: "Local Server"
-    - host: "192.168.20.85"             # Original server as fallback
+    - host: "192.168.20.85"             
       port: 5000
       name: "Remote Server"
-    - host: "127.0.0.1"
-      port: 8000
-      name: "Alt Port 8000"
-    - host: "localhost"
-      port: 3000
-      name: "Alt Port 3000"
   
   # Authentication
   auth_token: "edr_agent_auth_2024"
   
-  # FIXED: Connection Settings for better reliability
-  timeout: 5                            # Reasonable timeout
-  connect_timeout: 2                    # Fast connection timeout
-  read_timeout: 3                       # Fast read timeout
-  max_retries: 1                        # Minimal retries for fast failure detection
-  retry_delay: 0.5                      # Fast retry
+  # Connection Settings
+  timeout: 5                            
+  connect_timeout: 2                    
+  read_timeout: 3                       
+  max_retries: 1                        
+  retry_delay: 0.5                      
   
   # Connection optimization
   keep_alive: true
-  connection_pool_size: 5               # Smaller pool for stability
-  pool_maxsize: 5
-  pool_block: false
+  connection_pool_size: 3               
   
-  # Offline Mode Support - NEW
-  offline_mode_enabled: true            # Enable offline mode
-  offline_queue_size: 1000              # Store up to 1000 events offline
-  auto_reconnect: true                  # Auto-reconnect when server comes online
-  reconnect_interval: 30                # Check every 30 seconds
+  # Offline Mode Support
+  offline_mode_enabled: true            
+  offline_queue_size: 300               
+  auto_reconnect: true                  
+  reconnect_interval: 30                
   
   # SSL/TLS Settings
   ssl_enabled: false
   ssl_verify: false
 
 # ============================================================================
-# DATA COLLECTION CONFIGURATION - FIXED
+# DATA COLLECTION CONFIGURATION - SIMPLE MODE
 # ============================================================================
 collection:
   enabled: true
   
-  # Global Collection Settings - FIXED
+  # Global Collection Settings
   real_time_monitoring: true
   immediate_processing: true
-  polling_interval: 1.0                 # 1 second polling for stability
-  max_events_per_interval: 5            # Limit events per interval
-  event_deduplication: true             # Enable deduplication to reduce noise
+  polling_interval: 2.0                 # 2 seconds polling
+  max_events_per_interval: 10           
+  event_deduplication: false            
   
-  # Event Types - All enabled
-  collect_processes: true
+  # Event Types - BASIC MONITORING
+  collect_processes: true               
   collect_files: true
   collect_network: true
   collect_registry: true
   collect_authentication: true
   collect_system_events: true
   
-  # Process Monitoring - FIXED
+  # Process Monitoring - BASIC MODE
   process_monitoring:
     immediate_detection: true
-    polling_interval_ms: 1000           # 1 second polling
-    monitor_creation: true
-    monitor_termination: true
-    monitor_modification: true
+    polling_interval_ms: 2000           # 2 second polling
+    monitor_creation: true              
+    monitor_termination: true           
+    monitor_modification: false         # Disabled for simplicity
     collect_command_lines: true
-    collect_hashes: false               # Disabled for performance
-    monitor_child_processes: true
+    collect_hashes: false               
+    monitor_child_processes: false     # Disabled for simplicity
   
-  # File Monitoring - FIXED
+  # File Monitoring - BASIC MODE
   file_monitoring:
     enabled: true
     immediate_detection: true
-    polling_interval_ms: 2000           # 2 second polling for files
+    polling_interval_ms: 3000           # 3 second polling
     paths_to_monitor:
       - "C:\\Users\\manhh\\Desktop"
       - "C:\\Users\\manhh\\Documents"
       - "C:\\Users\\manhh\\Downloads"
-      - "C:\\Windows\\System32"
     file_extensions:
       - ".exe"
       - ".dll"
       - ".bat"
       - ".cmd"
       - ".ps1"
-      - ".vbs"
-      - ".js"
-    max_file_size: 50MB                 # Reasonable file size limit
-    collect_hashes: false               # Disabled for performance
+    max_file_size: 50MB                 
+    collect_hashes: false               
     monitor_creation: true
     monitor_modification: true
     monitor_deletion: true
-    monitor_access: false               # Disabled to reduce noise
+    monitor_access: false               
   
-  # Network Monitoring - FIXED
+  # Network Monitoring - BASIC MODE
   network_monitoring:
     immediate_detection: true
-    polling_interval_ms: 2000           # 2 second polling for network
+    polling_interval_ms: 3000           
     monitor_tcp: true
-    monitor_udp: false                  # Disabled to reduce noise
+    monitor_udp: false                  
     monitor_listening_ports: true
     monitor_established_connections: true
-    monitor_outbound_only: false        # Monitor both directions
-    analyze_patterns: false             # Disabled for performance
-    max_connections_tracked: 50         # Reduced for performance
+    monitor_outbound_only: false        
+    analyze_patterns: false             
+    max_connections_tracked: 20         
   
-  # Registry Monitoring - FIXED
+  # Registry Monitoring - BASIC MODE
   registry_monitoring:
     immediate_detection: true
-    polling_interval_ms: 5000           # 5 second polling (registry is slower)
+    polling_interval_ms: 5000           # 5 second polling
     monitor_startup_keys: true
     real_time_monitoring: true
     critical_paths:
       - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
       - "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
-      - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
-      - "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
   
-  # Authentication Monitoring - FIXED
+  # Authentication Monitoring - BASIC MODE
   authentication_monitoring:
     immediate_detection: true
-    polling_interval_ms: 3000           # 3 second polling for auth events
+    polling_interval_ms: 4000           
     monitor_logons: true
     monitor_failed_attempts: true
-    failed_attempt_threshold: 5         # Allow more attempts before alerting
+    failed_attempt_threshold: 5         
   
-  # System Monitoring - FIXED
+  # System Monitoring - BASIC MODE
   system_monitoring:
     immediate_detection: true
-    polling_interval_ms: 5000           # 5 second polling for system metrics
+    polling_interval_ms: 10000          # 10 second polling
     monitor_cpu_usage: true
     monitor_memory_usage: true
     monitor_disk_usage: true
     monitor_performance: true
-    cpu_threshold: 85                   # Alert when CPU > 85%
-    memory_threshold: 85                # Alert when memory > 85%
-    disk_threshold: 90                  # Alert when disk > 90%
+    cpu_threshold: 85                   
+    memory_threshold: 85                
+    disk_threshold: 90                  
 
 # ============================================================================
-# THREAT DETECTION CONFIGURATION - FIXED
+# RULE-BASED ALERT CONFIGURATION - MAIN FEATURE
+# ============================================================================
+rule_based_alerts:
+  enabled: true
+  mode: "server_rules_only"
+  
+  # Alert Display Settings
+  display_settings:
+    show_only_server_rule_violations: true
+    auto_acknowledge_alerts: true
+    alert_display_duration: 8           # 8 seconds
+    play_alert_sound: true
+    show_desktop_notifications: true
+    
+    # Notification positioning
+    notification_position: "top-right"
+    notification_priority: "high"
+  
+  # Rule Processing
+  rule_processing:
+    process_server_rules_immediately: true
+    validate_rule_violations: true
+    require_rule_id_or_name: true
+    
+    # Rule violation indicators
+    rule_violation_keywords:
+      - "rule"
+      - "violation"
+      - "triggered"
+      - "rule_id"
+      - "rule_name"
+  
+  # Acknowledgment Settings
+  acknowledgment:
+    enabled: true
+    auto_acknowledge: true
+    send_to_database: true
+    acknowledgment_endpoint: "/api/v1/alerts/acknowledge"
+    include_metadata: true
+    retry_failed_acknowledgments: true
+    max_retries: 3
+    
+    # Acknowledgment data to include
+    include_in_acknowledgment:
+      - "alert_id"
+      - "rule_id"
+      - "rule_name"
+      - "agent_id"
+      - "severity"
+      - "risk_score"
+      - "detection_method"
+      - "mitre_technique"
+      - "mitre_tactic"
+      - "process_name"
+      - "file_path"
+      - "display_status"
+      - "notification_method"
+
+# ============================================================================
+# THREAT DETECTION CONFIGURATION - DISABLED
 # ============================================================================
 detection:
-  enabled: true
-  immediate_detection: true
+  enabled: false                       # DISABLED - Only use server rules
+  immediate_detection: false           # DISABLED
   
-  # Detection Engines - FIXED
-  local_rules_enabled: true
-  behavioral_analysis: false           # Disabled for performance
-  threat_intelligence: false          # Disabled for performance
+  # Detection Engines - ALL DISABLED
+  local_rules_enabled: false           # DISABLED - Only server rules
+  behavioral_analysis: false           # DISABLED
+  threat_intelligence: false          # DISABLED
   
-  # Detection Thresholds - FIXED
-  suspicious_threshold: 70             # Lower threshold for more detection
-  malicious_threshold: 85              # Reasonable threshold
-  alert_threshold: 75                  # Reasonable threshold
+  # Detection Thresholds - NOT USED
+  suspicious_threshold: 100            # Set high to disable
+  malicious_threshold: 100             # Set high to disable
+  alert_threshold: 100                 # Set high to disable
   
-  # Response Actions
-  send_alerts_immediately: true
-  immediate_response: true
+  # Response Actions - DISABLED
+  send_alerts_immediately: false       # DISABLED - Only server rules
+  immediate_response: false            # DISABLED
 
 # ============================================================================
-# LOGGING CONFIGURATION - FIXED
+# LOGGING CONFIGURATION
 # ============================================================================
 logging:
   level: "INFO"
@@ -216,197 +267,181 @@ logging:
   console_enabled: true
   file_enabled: true
   
-  # File Logging - FIXED
+  # File Logging
   log_directory: "logs"
-  log_file_name: "edr_agent_fixed.log"
+  log_file_name: "edr_agent_rule_based.log"
   max_file_size: "10MB"
   backup_count: 3
   
   # Log Settings
-  log_format: "detailed"               # More detailed for debugging
+  log_format: "detailed"               
   include_timestamps: true
   include_thread_info: false
   
-  # Component-specific Logging - FIXED
+  # Component-specific Logging
   collectors_log_level: "INFO"
   communication_log_level: "INFO"
-  detection_log_level: "INFO"
-  offline_mode_log_level: "INFO"       # NEW: Offline mode logging
+  detection_log_level: "WARNING"       # Higher level since detection disabled
+  rule_alerts_log_level: "INFO"        # Rule alerts logging
+  acknowledgment_log_level: "INFO"     # Acknowledgment logging
 
 # ============================================================================
-# PERFORMANCE OPTIMIZATION - FIXED
+# PERFORMANCE OPTIMIZATION - SIMPLE MODE
 # ============================================================================
 performance:
-  # CPU Management - FIXED
-  max_cpu_usage: 25                    # Reasonable CPU limit
-  cpu_throttling: true                 # Enable throttling
-  priority_class: "normal"             # Normal priority for stability
+  # CPU Management
+  max_cpu_usage: 15                    # Lower CPU usage
+  cpu_throttling: true                 
+  priority_class: "normal"             
   
-  # Memory Management - FIXED
-  max_memory_usage: 512                # Adequate memory
+  # Memory Management
+  max_memory_usage: 256                # Lower memory usage
   memory_optimization: true
-  garbage_collection: true             # Enable GC for stability
+  garbage_collection: true             
   
-  # I/O Optimization - FIXED
+  # I/O Optimization
   async_processing: true
-  batch_processing: false              # Disabled for immediate processing
-  compression_enabled: false          # Disabled for performance
-  buffer_size: 4096                    # Reasonable buffer size
+  batch_processing: false              
+  compression_enabled: false          
+  buffer_size: 1024                    # Smaller buffer
   
-  # Threading - FIXED
-  max_worker_threads: 4                # Reasonable thread count
-  thread_pool_size: 4
+  # Threading
+  max_worker_threads: 2                # Fewer threads
+  thread_pool_size: 2
   async_event_processing: true
   
-  # Caching - FIXED
-  enable_caching: false                # Disabled for immediate processing
+  # Caching
+  enable_caching: false                
   immediate_mode_optimizations: true
 
 # ============================================================================
-# FILTERING CONFIGURATION - FIXED
+# FILTERING CONFIGURATION - MINIMAL FILTERING
 # ============================================================================
 filters:
-  # Minimal Filtering for comprehensive monitoring
-  exclude_system_processes: false     # Monitor all processes
-  exclude_agent_activity: true        # Exclude self
+  # Minimal Filtering for basic monitoring
+  exclude_system_processes: true       # Exclude system processes
+  exclude_agent_activity: true        
   
-  # Process Filtering - FIXED
+  # Process Filtering
   exclude_process_names:
     - "System"
     - "Registry"
     - "MemCompression"
+    - "Idle"
   exclude_process_paths:
     - "C:\\Windows\\System32\\svchost.exe"
   
-  # File Filtering - FIXED
+  # File Filtering
   exclude_file_extensions:
     - ".tmp"
     - ".log"
     - ".cache"
+    - ".bak"
   exclude_file_paths:
     - "C:\\Windows\\Temp"
-    - "C:\\Users\\*/AppData/Local/Temp"
+    - "C:\\Windows\\Logs"
   
-  # Network Filtering - FIXED
-  exclude_loopback: false              # Monitor loopback for testing
+  # Network Filtering
+  exclude_loopback: true               # Exclude loopback for simplicity
   exclude_ports:
     - 135    # RPC
     - 445    # SMB
     - 139    # NetBIOS
   
-  # Size Limits - FIXED
-  max_file_size_mb: 100                # Reasonable file size limit
-  max_command_line_length: 2048        # Adequate command line length
-  max_registry_value_size: 1024        # Adequate registry value size
+  # Size Limits
+  max_file_size_mb: 50                 
+  max_command_line_length: 1024        
+  max_registry_value_size: 512         
 
 # ============================================================================
-# ALERTING CONFIGURATION - FIXED
-# ============================================================================
-alerting:
-  enabled: true
-  immediate_alerting: true
-  
-  # Alert Levels - FIXED
-  send_info_alerts: false              # Reduce noise
-  send_low_alerts: true
-  send_medium_alerts: true
-  send_high_alerts: true
-  send_critical_alerts: true
-  
-  # Alert Throttling - FIXED
-  throttle_duplicate_alerts: true      # Enable throttling
-  duplicate_window: 60                 # 1 minute window
-  max_alerts_per_minute: 10            # Reasonable alert rate
-  
-  # Alert Delivery - FIXED
-  immediate_delivery: true
-  batch_delivery: false
-  batch_interval: 0
-
-# ============================================================================
-# SECURITY NOTIFICATION CONFIGURATION - FIXED
+# SECURITY NOTIFICATION CONFIGURATION - RULE-BASED ONLY
 # ============================================================================
 security_notifications:
   enabled: true
-  immediate_notifications: true
+  mode: "rule_based_only"
   
   # Display Settings
   show_on_screen: true
-  position: "bottom-right"
+  position: "top-right"
   
-  # Alert Filtering - FIXED
-  show_low_alerts: false               # Reduce noise
+  # Alert Filtering - RULE-BASED ONLY
+  show_only_rule_violations: true      # KEY SETTING
+  show_server_generated_alerts_only: true
+  show_low_alerts: true               
   show_medium_alerts: true
   show_high_alerts: true
   show_critical_alerts: true
   
-  # Notification Behavior - FIXED
-  auto_dismiss_timeout: 15             # Reasonable timeout
+  # Notification Behavior
+  auto_dismiss_timeout: 8              # 8 second timeout
   play_sound: true
   persistent_critical: true
   
-  # Rate Limiting - FIXED
-  max_security_alerts_per_minute: 5    # Reasonable rate
+  # Rate Limiting - GENEROUS FOR RULE ALERTS
+  max_security_alerts_per_minute: 10   
   duplicate_suppression_window: 30     # 30 second window
   
   # Priority-based Timeouts
-  critical_alert_timeout: 60
-  high_alert_timeout: 45
-  medium_alert_timeout: 30
-  low_alert_timeout: 15
+  critical_alert_timeout: 15
+  high_alert_timeout: 12
+  medium_alert_timeout: 10
+  low_alert_timeout: 8
   
   # Content Settings
-  include_rule_name: true
+  include_rule_name: true              # KEY SETTING
+  include_rule_id: true                # KEY SETTING
   include_risk_score: true
   include_event_details: true
-  max_description_length: 200
+  max_description_length: 400          # Longer for rule descriptions
   
-  # Advanced Features
-  group_similar_alerts: true           # Group similar alerts
-  escalation_enabled: true
+  # Advanced Features - SIMPLE MODE
+  group_similar_alerts: false          
+  escalation_enabled: false            # Disabled for simplicity
   integration_mode: "immediate"
 
 # ============================================================================
-# MAINTENANCE AND UPDATES - FIXED
+# MAINTENANCE AND UPDATES
 # ============================================================================
 maintenance:
   # Automatic Updates
-  auto_update_enabled: false           # Disabled for stability
+  auto_update_enabled: false           
   
-  # Cleanup Tasks - FIXED
-  cleanup_enabled: true                # Enable cleanup
+  # Cleanup Tasks
+  cleanup_enabled: true                
   cleanup_interval: 3600               # Every hour
   
-  # Data Retention - FIXED
-  event_retention_days: 7              # Keep events for 7 days
-  log_retention_days: 30               # Keep logs for 30 days
-  offline_event_retention_days: 3      # Keep offline events for 3 days
+  # Data Retention
+  event_retention_days: 3              # Shorter retention
+  log_retention_days: 7                
+  offline_event_retention_days: 1      
+  acknowledgment_retention_days: 30    # Keep acknowledgments longer
   
-  # Health Monitoring - FIXED
-  health_check_interval: 60            # Check every minute
+  # Health Monitoring
+  health_check_interval: 60            
   send_health_reports: true
-  health_report_interval: 300          # Every 5 minutes
+  health_report_interval: 300          
 
 # ============================================================================
-# OFFLINE MODE CONFIGURATION - NEW
+# OFFLINE MODE CONFIGURATION
 # ============================================================================
 offline_mode:
   # Core Settings
-  enabled: true                        # Enable offline mode support
-  auto_enable: true                    # Auto-enable when server unavailable
+  enabled: true                        
+  auto_enable: true                    
   
   # Storage Settings
-  max_events_stored: 1000              # Maximum events to store offline
-  storage_path: "offline_data"         # Directory for offline storage
-  compression_enabled: false          # Disable compression for performance
+  max_events_stored: 300               
+  max_acknowledgments_stored: 100     # Store acknowledgments offline
+  storage_path: "offline_data"         
+  compression_enabled: false          
   
   # Reconnection Settings
-  auto_reconnect: true                 # Auto-reconnect when server available
-  reconnect_interval: 30               # Check every 30 seconds
-  max_reconnect_attempts: 0            # Unlimited attempts
+  auto_reconnect: true                 
+  reconnect_interval: 30               
+  max_reconnect_attempts: 0            
   
   # Event Management
-  event_priority_order:                # Priority order for sending events
+  event_priority_order:                
     - "Critical"
     - "High"
     - "Medium"
@@ -414,29 +449,123 @@ offline_mode:
     - "Info"
   
   # Cleanup Settings
-  auto_cleanup: true                   # Auto-cleanup old offline events
-  cleanup_interval: 3600               # Every hour
-  max_storage_size_mb: 100             # Maximum storage size
+  auto_cleanup: true                   
+  cleanup_interval: 1800               
+  max_storage_size_mb: 25              
 
 # ============================================================================
-# ERROR HANDLING CONFIGURATION - NEW
+# ERROR HANDLING CONFIGURATION
 # ============================================================================
 error_handling:
   # Connection Errors
-  max_connection_retries: 3            # Maximum connection retries
-  connection_retry_delay: 1            # Delay between retries (seconds)
-  connection_timeout: 5                # Connection timeout (seconds)
+  max_connection_retries: 2            
+  connection_retry_delay: 1            
+  connection_timeout: 5                
   
   # Processing Errors
-  max_processing_errors: 10            # Maximum processing errors before restart
-  error_backoff_multiplier: 2          # Backoff multiplier for errors
-  max_error_backoff: 60                # Maximum error backoff (seconds)
+  max_processing_errors: 10            
+  error_backoff_multiplier: 2          
+  max_error_backoff: 30                
   
   # Recovery Settings
-  auto_recovery: true                  # Enable auto-recovery
-  recovery_check_interval: 60          # Check every minute
-  restart_on_critical_error: false    # Don't restart on critical errors
+  auto_recovery: true                  
+  recovery_check_interval: 60          
+  restart_on_critical_error: false    
   
   # Logging
-  log_all_errors: true                 # Log all errors
-  error_notification_enabled: true    # Show error notifications
+  log_all_errors: true                 
+  error_notification_enabled: false   # Disabled for simplicity
+
+# ============================================================================
+# ALERT ACKNOWLEDGMENT CONFIGURATION - KEY FEATURE
+# ============================================================================
+alert_acknowledgment:
+  enabled: true
+  
+  # Core Settings
+  auto_acknowledge_rule_violations: true
+  acknowledgment_timeout: 30           
+  include_comprehensive_metadata: true
+  
+  # Server Communication
+  send_acknowledgments_to_server: true
+  acknowledgment_endpoint: "/api/v1/alerts/acknowledge"
+  retry_failed_acknowledgments: true
+  max_acknowledgment_retries: 3
+  acknowledgment_retry_delay: 5
+  
+  # Database Insert Information
+  database_insert_fields:
+    - "alert_id"
+    - "rule_id" 
+    - "rule_name"
+    - "agent_id"
+    - "status"
+    - "acknowledged_at"
+    - "display_status"
+    - "notification_method"
+    - "severity"
+    - "risk_score"
+    - "detection_method"
+    - "mitre_technique"
+    - "mitre_tactic"
+    - "event_id"
+    - "process_name"
+    - "file_path"
+    - "agent_hostname"
+    - "agent_version"
+    - "acknowledgment_timestamp"
+    - "notification_success"
+    - "alert_category"
+  
+  # Tracking
+  track_acknowledgment_status: true
+  log_acknowledgments: true
+  store_acknowledgment_history: true
+
+# ============================================================================
+# DEBUGGING AND DIAGNOSTICS
+# ============================================================================
+debugging:
+  enabled: true
+  
+  # Debug Modes
+  verbose_rule_alert_logging: true     # KEY SETTING
+  trace_server_responses: true         
+  log_acknowledgment_attempts: true    
+  
+  # Performance Monitoring
+  track_processing_times: true
+  monitor_memory_usage: true
+  log_performance_metrics: true
+  
+  # Rule Alert Debugging
+  debug_rule_violation_detection: true 
+  log_notification_attempts: true
+  track_alert_display_success: true
+  log_server_rule_responses: true      # KEY SETTING
+  
+  # Diagnostic Information
+  include_system_info_in_logs: true
+  log_collector_statistics: true
+  periodic_status_reports: true
+  status_report_interval: 300          
+
+# ============================================================================
+# SPECIAL FEATURES - RULE-BASED MODE
+# ============================================================================
+special_features:
+  # Rule-Based Processing
+  server_rule_violations_only: true    # KEY SETTING
+  enhanced_rule_violation_display: true
+  comprehensive_acknowledgment_data: true
+  
+  # User Experience
+  clear_rule_violation_notifications: true
+  detailed_rule_descriptions: true
+  actionable_rule_information: true
+  
+  # Integration Features
+  bidirectional_rule_communication: true
+  real_time_rule_status_updates: true
+  comprehensive_database_integration: true

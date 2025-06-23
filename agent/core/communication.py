@@ -13,6 +13,7 @@ import socket
 import requests
 from typing import Optional, Dict, List, Any
 from datetime import datetime
+import platform
 
 from agent.core.config_manager import ConfigManager
 from agent.schemas.agent_data import AgentRegistrationData, AgentHeartbeatData
@@ -172,10 +173,12 @@ class ServerCommunication:
                 self.logger.debug(f"Periodic server detection error: {e}")
     
     async def _send_queued_events(self):
-        """Send queued offline events"""
-        if not self.offline_events_queue:
+        """Send queued offline events and acknowledgments"""
+        if not self.offline_events_queue and not hasattr(self, 'offline_acknowledgments'):
             return
         
+        # Send queued events
+        if self.offline_events_queue:
         self.logger.info(f"📤 Sending {len(self.offline_events_queue)} queued events...")
         
         events_to_send = self.offline_events_queue.copy()
@@ -193,6 +196,9 @@ class ServerCommunication:
                 self.offline_events_queue.append(event_data)
         
         self.logger.info(f"✅ Sent {sent_count}/{len(events_to_send)} queued events")
+        
+        # Send queued acknowledgments
+        await self.send_queued_acknowledgments()
     
     async def _detect_working_server(self):
         """Auto-detect working EDR server"""
@@ -673,8 +679,8 @@ class ServerCommunication:
             self.logger.error(f"Error closing session: {e}")
     
     def get_server_info(self) -> Dict[str, Any]:
-        """Get server connection information"""
-        return {
+        """Get server connection information including acknowledgment stats"""
+        base_info = {
             'working_server': self.working_server,
             'host': self.server_host,
             'port': self.server_port,
@@ -692,5 +698,110 @@ class ServerCommunication:
             'threats_detected_by_server': self.threats_detected_by_server,
             'alerts_received_from_server': self.alerts_received_from_server,
             'last_threat_detection': self.last_threat_detection.isoformat() if self.last_threat_detection else None,
-            'server_response_processing': True
+            'server_response_processing': True,
+            'alert_acknowledgment_support': True
         }
+        
+        # Add acknowledgment statistics
+        if hasattr(self, 'offline_acknowledgments'):
+            base_info['offline_acknowledgments_queued'] = len(self.offline_acknowledgments)
+        else:
+            base_info['offline_acknowledgments_queued'] = 0
+        
+        return base_info
+    
+    async def send_alert_acknowledgment(self, ack_data: Dict[str, Any]) -> bool:
+        """
+        Send alert acknowledgment to server để insert vào database
+        """
+        try:
+            if self.offline_mode:
+                self.logger.info("📝 Alert acknowledgment stored for offline mode")
+                # Store acknowledgment for later sending
+                if not hasattr(self, 'offline_acknowledgments'):
+                    self.offline_acknowledgments = []
+                self.offline_acknowledgments.append(ack_data)
+                return True
+            
+            url = f"{self.base_url}/api/v1/alerts/acknowledge"
+            
+            # Prepare comprehensive acknowledgment payload for database
+            payload = {
+                # Core acknowledgment data
+                'alert_id': ack_data.get('alert_id'),
+                'agent_id': ack_data.get('agent_id') or self.agent_id,
+                'status': ack_data.get('status', 'acknowledged'),
+                'acknowledged_at': ack_data.get('acknowledged_at'),
+                
+                # Display information
+                'display_status': ack_data.get('display_status', 'displayed'),
+                'notification_method': ack_data.get('notification_method', 'desktop_notification'),
+                'user_action': ack_data.get('user_action', 'auto_acknowledged'),
+                'acknowledgment_type': ack_data.get('acknowledgment_type', 'rule_violation_display'),
+                
+                # Rule information (if available)
+                'rule_id': ack_data.get('rule_id'),
+                'rule_name': ack_data.get('rule_name'),
+                'rule_violation': ack_data.get('rule_violation', True),
+                
+                # Alert metadata
+                'severity': ack_data.get('severity'),
+                'risk_score': ack_data.get('risk_score'),
+                'detection_method': ack_data.get('detection_method'),
+                'mitre_technique': ack_data.get('mitre_technique'),
+                'mitre_tactic': ack_data.get('mitre_tactic'),
+                
+                # Event context
+                'event_id': ack_data.get('event_id'),
+                'process_name': ack_data.get('process_name'),
+                'file_path': ack_data.get('file_path'),
+                
+                # System information
+                'agent_hostname': platform.node(),
+                'agent_version': '2.1.0-RuleBasedAlerts',
+                'acknowledgment_timestamp': datetime.now().isoformat(),
+                
+                # Additional metadata
+                'notification_success': True,
+                'display_duration_seconds': 8,
+                'alert_category': 'security_rule_violation'
+            }
+            
+            response = await self._make_request_with_retry('POST', url, payload)
+            
+            if response and response.get('success'):
+                self.logger.info(f"✅ Alert acknowledgment sent to database: {ack_data.get('alert_id')}")
+                return True
+            else:
+                self.logger.warning(f"⚠️ Alert acknowledgment failed: {response}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"❌ Alert acknowledgment error: {e}")
+            return False
+    
+    async def send_queued_acknowledgments(self):
+        """Send queued acknowledgments when coming back online"""
+        try:
+            if not hasattr(self, 'offline_acknowledgments'):
+                return
+            
+            acknowledgments_to_send = self.offline_acknowledgments.copy()
+            self.offline_acknowledgments.clear()
+            
+            sent_count = 0
+            for ack_data in acknowledgments_to_send:
+                try:
+                    success = await self.send_alert_acknowledgment(ack_data)
+                    if success:
+                        sent_count += 1
+                    else:
+                        self.offline_acknowledgments.append(ack_data)
+                except:
+                    self.offline_acknowledgments.append(ack_data)
+            
+            if sent_count > 0:
+                self.logger.info(f"✅ Sent {sent_count}/{len(acknowledgments_to_send)} queued acknowledgments")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Error sending queued acknowledgments: {e}")
