@@ -1,89 +1,103 @@
-# config/agent_config.yaml - ZERO DELAY CONFIGURATION
-# EDR Agent ZERO DELAY Configuration - Immediate Data Transmission
+# config/agent_config.yaml - FIXED VERSION
+# EDR Agent Configuration - Fixed for Connection Issues
 
 # ============================================================================
-# AGENT CORE CONFIGURATION - ZERO DELAY OPTIMIZED
+# AGENT CORE CONFIGURATION - FIXED
 # ============================================================================
 agent:
-  name: "EDR-SecurityAgent-ZeroDelay"
-  version: "2.0.0-ZeroDelay"
+  name: "EDR-SecurityAgent-Fixed"
+  version: "2.0.0-Fixed"
   environment: "production"
   
-  # ZERO DELAY: Immediate transmission settings
-  immediate_transmission: true           # NEW: Enable immediate transmission
-  zero_delay_mode: true                 # NEW: Enable zero delay processing
+  # Immediate transmission settings
+  immediate_transmission: true
+  zero_delay_mode: true
   
-  # Heartbeat and Communication - ZERO DELAY OPTIMIZED
-  heartbeat_interval: 10                # REDUCED: From 45 to 10 seconds for immediate feedback
-  heartbeat_timeout: 30                 # REDUCED: From 120 to 30 seconds
-  max_heartbeat_failures: 2             # REDUCED: Faster failure detection
+  # Heartbeat and Communication - FIXED
+  heartbeat_interval: 30                # Increased for stability
+  heartbeat_timeout: 60                 # Increased timeout
+  max_heartbeat_failures: 5             # Allow more failures before giving up
   
-  # Event Processing - ZERO DELAY OPTIMIZED
-  event_batch_size: 1                   # ZERO DELAY: Send one event immediately
-  event_queue_size: 10                  # ZERO DELAY: Minimal queue for immediate processing
-  max_memory_usage: 256                 # REDUCED: Minimal memory for immediate processing
+  # Event Processing - FIXED
+  event_batch_size: 1                   # Send one event immediately
+  event_queue_size: 100                 # Larger queue for offline mode
+  max_memory_usage: 512                 # Adequate memory
   
-  # Performance Settings - ZERO DELAY OPTIMIZED
-  max_cpu_usage: 25                     # INCREASED: Allow more CPU for immediate processing
-  auto_throttle: false                  # DISABLED: No throttling for immediate response
-  adaptive_polling: false               # DISABLED: Fixed minimal polling for consistency
+  # Performance Settings - FIXED
+  max_cpu_usage: 25
+  auto_throttle: true                   # Enable throttling to prevent overload
+  adaptive_polling: true                # Enable adaptive polling
   
-  # ZERO DELAY: Processing configuration
-  immediate_processing: true            # NEW: Enable immediate event processing
-  immediate_send_threshold_ms: 1        # NEW: Send within 1 millisecond
-  minimal_polling_interval_ms: 1        # NEW: 1ms polling for immediate detection
-  
-  # ZERO DELAY: Communication optimization
-  connection_pool_size: 20              # NEW: More connections for immediate requests
-  keep_alive_timeout: 30                # NEW: Keep connections alive
-  request_timeout: 2                    # NEW: Fast request timeout
-  immediate_retry_disabled: true        # NEW: No retries for immediate processing
+  # Processing configuration
+  immediate_processing: true
+  immediate_send_threshold_ms: 100      # Allow 100ms for processing
+  minimal_polling_interval_ms: 500     # 500ms polling for stability
 
 # ============================================================================
-# SERVER CONNECTION CONFIGURATION - ZERO DELAY OPTIMIZED
+# SERVER CONNECTION CONFIGURATION - FIXED
 # ============================================================================
 server:
-  # Primary Server
-  host: "192.168.20.85"
+  # Primary Server - FIXED to use localhost first
+  host: "127.0.0.1"                    # CHANGED: Use localhost first
   port: 5000
   protocol: "http"
-  base_url: "http://192.168.20.85:5000"
+  base_url: "http://127.0.0.1:5000"
+  
+  # Fallback servers for auto-detection
+  fallback_servers:
+    - host: "localhost"
+      port: 5000
+      name: "Local Server"
+    - host: "192.168.20.85"             # Original server as fallback
+      port: 5000
+      name: "Remote Server"
+    - host: "127.0.0.1"
+      port: 8000
+      name: "Alt Port 8000"
+    - host: "localhost"
+      port: 3000
+      name: "Alt Port 3000"
   
   # Authentication
   auth_token: "edr_agent_auth_2024"
   
-  # ZERO DELAY: Connection Settings
-  timeout: 2                            # ZERO DELAY: Very fast timeout
-  connect_timeout: 1                    # ZERO DELAY: Fast connection timeout
-  read_timeout: 1                       # ZERO DELAY: Fast read timeout
-  max_retries: 0                        # ZERO DELAY: No retries for immediate processing
-  retry_delay: 0                        # ZERO DELAY: No retry delay
+  # FIXED: Connection Settings for better reliability
+  timeout: 5                            # Reasonable timeout
+  connect_timeout: 2                    # Fast connection timeout
+  read_timeout: 3                       # Fast read timeout
+  max_retries: 1                        # Minimal retries for fast failure detection
+  retry_delay: 0.5                      # Fast retry
   
-  # ZERO DELAY: Connection optimization
-  keep_alive: true                      # Keep connections alive
-  connection_pool_size: 20              # More connections for immediate processing
-  pool_maxsize: 20                      # Maximum pool size
-  pool_block: false                     # Don't block on pool exhaustion
+  # Connection optimization
+  keep_alive: true
+  connection_pool_size: 5               # Smaller pool for stability
+  pool_maxsize: 5
+  pool_block: false
+  
+  # Offline Mode Support - NEW
+  offline_mode_enabled: true            # Enable offline mode
+  offline_queue_size: 1000              # Store up to 1000 events offline
+  auto_reconnect: true                  # Auto-reconnect when server comes online
+  reconnect_interval: 30                # Check every 30 seconds
   
   # SSL/TLS Settings
   ssl_enabled: false
-  ssl_verify: false                     # DISABLED: Skip SSL verification for speed
+  ssl_verify: false
 
 # ============================================================================
-# DATA COLLECTION CONFIGURATION - ZERO DELAY OPTIMIZED
+# DATA COLLECTION CONFIGURATION - FIXED
 # ============================================================================
 collection:
   enabled: true
   
-  # ZERO DELAY: Global Collection Settings
+  # Global Collection Settings - FIXED
   real_time_monitoring: true
-  immediate_processing: true            # NEW: Enable immediate processing
-  zero_delay_enabled: true              # NEW: Enable zero delay mode
-  polling_interval: 0.001               # ZERO DELAY: 1ms polling interval
-  max_events_per_interval: 1            # ZERO DELAY: One event at a time
-  event_deduplication: false            # DISABLED: No deduplication for immediate processing
+  immediate_processing: true
+  polling_interval: 1.0                 # 1 second polling for stability
+  max_events_per_interval: 5            # Limit events per interval
+  event_deduplication: true             # Enable deduplication to reduce noise
   
-  # Event Types - All enabled for immediate monitoring
+  # Event Types - All enabled
   collect_processes: true
   collect_files: true
   collect_network: true
@@ -91,102 +105,109 @@ collection:
   collect_authentication: true
   collect_system_events: true
   
-  # ZERO DELAY: Process Monitoring
+  # Process Monitoring - FIXED
   process_monitoring:
-    immediate_detection: true           # NEW: Immediate process detection
-    polling_interval_ms: 1              # NEW: 1ms polling
+    immediate_detection: true
+    polling_interval_ms: 1000           # 1 second polling
     monitor_creation: true
     monitor_termination: true
     monitor_modification: true
     collect_command_lines: true
-    collect_hashes: false               # DISABLED: Skip expensive operations
+    collect_hashes: false               # Disabled for performance
     monitor_child_processes: true
   
-  # ZERO DELAY: File Monitoring
+  # File Monitoring - FIXED
   file_monitoring:
     enabled: true
-    immediate_detection: true           # NEW: Immediate file detection
-    polling_interval_ms: 1              # NEW: 1ms polling
+    immediate_detection: true
+    polling_interval_ms: 2000           # 2 second polling for files
     paths_to_monitor:
       - "C:\\Users\\manhh\\Desktop"
       - "C:\\Users\\manhh\\Documents"
       - "C:\\Users\\manhh\\Downloads"
+      - "C:\\Windows\\System32"
     file_extensions:
       - ".exe"
       - ".dll"
       - ".bat"
       - ".cmd"
       - ".ps1"
-    max_file_size: 10MB                 # REDUCED: Smaller files for immediate processing
-    collect_hashes: false               # DISABLED: Skip expensive operations
+      - ".vbs"
+      - ".js"
+    max_file_size: 50MB                 # Reasonable file size limit
+    collect_hashes: false               # Disabled for performance
     monitor_creation: true
     monitor_modification: true
     monitor_deletion: true
-    monitor_access: false               # DISABLED: Reduce noise for immediate processing
+    monitor_access: false               # Disabled to reduce noise
   
-  # ZERO DELAY: Network Monitoring
+  # Network Monitoring - FIXED
   network_monitoring:
-    immediate_detection: true           # NEW: Immediate network detection
-    polling_interval_ms: 1              # NEW: 1ms polling
+    immediate_detection: true
+    polling_interval_ms: 2000           # 2 second polling for network
     monitor_tcp: true
-    monitor_udp: false                  # DISABLED: Reduce noise
+    monitor_udp: false                  # Disabled to reduce noise
     monitor_listening_ports: true
     monitor_established_connections: true
-    monitor_outbound_only: true
-    analyze_patterns: false             # DISABLED: Skip analysis for immediate processing
-    max_connections_tracked: 100        # REDUCED: Smaller tracking for immediate processing
+    monitor_outbound_only: false        # Monitor both directions
+    analyze_patterns: false             # Disabled for performance
+    max_connections_tracked: 50         # Reduced for performance
   
-  # ZERO DELAY: Registry Monitoring
+  # Registry Monitoring - FIXED
   registry_monitoring:
-    immediate_detection: true           # NEW: Immediate registry detection
-    polling_interval_ms: 10             # NEW: 10ms polling (registry is slower)
+    immediate_detection: true
+    polling_interval_ms: 5000           # 5 second polling (registry is slower)
     monitor_startup_keys: true
     real_time_monitoring: true
     critical_paths:
       - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
       - "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
+      - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+      - "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
   
-  # ZERO DELAY: Authentication Monitoring
+  # Authentication Monitoring - FIXED
   authentication_monitoring:
-    immediate_detection: true           # NEW: Immediate auth detection
-    polling_interval_ms: 100            # NEW: 100ms polling (auth events are less frequent)
+    immediate_detection: true
+    polling_interval_ms: 3000           # 3 second polling for auth events
     monitor_logons: true
     monitor_failed_attempts: true
-    failed_attempt_threshold: 3         # REDUCED: Lower threshold for immediate alerting
+    failed_attempt_threshold: 5         # Allow more attempts before alerting
   
-  # ZERO DELAY: System Monitoring
+  # System Monitoring - FIXED
   system_monitoring:
-    immediate_detection: true           # NEW: Immediate system detection
-    polling_interval_ms: 10             # NEW: 10ms polling
+    immediate_detection: true
+    polling_interval_ms: 5000           # 5 second polling for system metrics
     monitor_cpu_usage: true
     monitor_memory_usage: true
+    monitor_disk_usage: true
     monitor_performance: true
-    cpu_threshold: 90                   # INCREASED: Higher threshold to reduce noise
-    memory_threshold: 90                # INCREASED: Higher threshold to reduce noise
+    cpu_threshold: 85                   # Alert when CPU > 85%
+    memory_threshold: 85                # Alert when memory > 85%
+    disk_threshold: 90                  # Alert when disk > 90%
 
 # ============================================================================
-# THREAT DETECTION CONFIGURATION - ZERO DELAY OPTIMIZED
+# THREAT DETECTION CONFIGURATION - FIXED
 # ============================================================================
 detection:
   enabled: true
-  immediate_detection: true             # NEW: Immediate threat detection
+  immediate_detection: true
   
-  # ZERO DELAY: Detection Engines
+  # Detection Engines - FIXED
   local_rules_enabled: true
-  behavioral_analysis: false           # DISABLED: Skip slow analysis
-  threat_intelligence: false          # DISABLED: Skip slow lookups
+  behavioral_analysis: false           # Disabled for performance
+  threat_intelligence: false          # Disabled for performance
   
-  # ZERO DELAY: Detection Thresholds
-  suspicious_threshold: 80             # INCREASED: Higher threshold for immediate alerts
-  malicious_threshold: 90              # INCREASED: Higher threshold for immediate alerts
-  alert_threshold: 85                  # INCREASED: Higher threshold for immediate alerts
+  # Detection Thresholds - FIXED
+  suspicious_threshold: 70             # Lower threshold for more detection
+  malicious_threshold: 85              # Reasonable threshold
+  alert_threshold: 75                  # Reasonable threshold
   
-  # ZERO DELAY: Response Actions
-  send_alerts_immediately: true        # NEW: Send alerts immediately
-  immediate_response: true             # NEW: Immediate response actions
+  # Response Actions
+  send_alerts_immediately: true
+  immediate_response: true
 
 # ============================================================================
-# LOGGING CONFIGURATION - ZERO DELAY OPTIMIZED
+# LOGGING CONFIGURATION - FIXED
 # ============================================================================
 logging:
   level: "INFO"
@@ -195,186 +216,227 @@ logging:
   console_enabled: true
   file_enabled: true
   
-  # ZERO DELAY: File Logging
+  # File Logging - FIXED
   log_directory: "logs"
-  log_file_name: "edr_agent_zero_delay.log"
-  max_file_size: "5MB"                 # REDUCED: Smaller files for immediate processing
-  backup_count: 2                      # REDUCED: Fewer backups for immediate processing
+  log_file_name: "edr_agent_fixed.log"
+  max_file_size: "10MB"
+  backup_count: 3
   
-  # ZERO DELAY: Log Settings
-  log_format: "simple"                 # Simple format for immediate logging
+  # Log Settings
+  log_format: "detailed"               # More detailed for debugging
   include_timestamps: true
-  include_thread_info: false           # DISABLED: Reduce logging overhead
+  include_thread_info: false
   
-  # ZERO DELAY: Component-specific Logging
+  # Component-specific Logging - FIXED
   collectors_log_level: "INFO"
   communication_log_level: "INFO"
   detection_log_level: "INFO"
-  immediate_processing_log_level: "DEBUG"  # NEW: Debug immediate processing
+  offline_mode_log_level: "INFO"       # NEW: Offline mode logging
 
 # ============================================================================
-# PERFORMANCE OPTIMIZATION - ZERO DELAY OPTIMIZED
+# PERFORMANCE OPTIMIZATION - FIXED
 # ============================================================================
 performance:
-  # ZERO DELAY: CPU Management
-  max_cpu_usage: 30                    # INCREASED: Allow more CPU for immediate processing
-  cpu_throttling: false                # DISABLED: No throttling for immediate response
-  priority_class: "high"               # INCREASED: High priority for immediate processing
+  # CPU Management - FIXED
+  max_cpu_usage: 25                    # Reasonable CPU limit
+  cpu_throttling: true                 # Enable throttling
+  priority_class: "normal"             # Normal priority for stability
   
-  # ZERO DELAY: Memory Management
-  max_memory_usage: 256                # REDUCED: Minimal memory for immediate processing
+  # Memory Management - FIXED
+  max_memory_usage: 512                # Adequate memory
   memory_optimization: true
-  garbage_collection: false           # DISABLED: Skip GC for immediate processing
+  garbage_collection: true             # Enable GC for stability
   
-  # ZERO DELAY: I/O Optimization
+  # I/O Optimization - FIXED
   async_processing: true
-  batch_processing: false             # DISABLED: No batching for immediate processing
-  compression_enabled: false         # DISABLED: Skip compression for speed
-  buffer_size: 1024                  # REDUCED: Minimal buffer for immediate processing
+  batch_processing: false              # Disabled for immediate processing
+  compression_enabled: false          # Disabled for performance
+  buffer_size: 4096                    # Reasonable buffer size
   
-  # ZERO DELAY: Threading
-  max_worker_threads: 8               # INCREASED: More threads for immediate processing
-  thread_pool_size: 8                # INCREASED: Larger pool for immediate processing
+  # Threading - FIXED
+  max_worker_threads: 4                # Reasonable thread count
+  thread_pool_size: 4
   async_event_processing: true
   
-  # ZERO DELAY: Caching
-  enable_caching: false               # DISABLED: No caching for immediate processing
-  immediate_mode_optimizations: true  # NEW: Enable immediate mode optimizations
+  # Caching - FIXED
+  enable_caching: false                # Disabled for immediate processing
+  immediate_mode_optimizations: true
 
 # ============================================================================
-# FILTERING CONFIGURATION - ZERO DELAY OPTIMIZED
+# FILTERING CONFIGURATION - FIXED
 # ============================================================================
 filters:
-  # ZERO DELAY: Minimal Filtering for immediate processing
-  exclude_system_processes: false     # DISABLED: Monitor everything for immediate detection
-  exclude_agent_activity: true
+  # Minimal Filtering for comprehensive monitoring
+  exclude_system_processes: false     # Monitor all processes
+  exclude_agent_activity: true        # Exclude self
   
-  # ZERO DELAY: Process Filtering - Minimal exclusions
-  exclude_process_names: []           # EMPTY: Monitor all processes for immediate detection
-  exclude_process_paths: []           # EMPTY: Monitor all paths for immediate detection
+  # Process Filtering - FIXED
+  exclude_process_names:
+    - "System"
+    - "Registry"
+    - "MemCompression"
+  exclude_process_paths:
+    - "C:\\Windows\\System32\\svchost.exe"
   
-  # ZERO DELAY: File Filtering - Minimal exclusions
-  exclude_file_extensions: []         # EMPTY: Monitor all files for immediate detection
-  exclude_file_paths: []              # EMPTY: Monitor all paths for immediate detection
+  # File Filtering - FIXED
+  exclude_file_extensions:
+    - ".tmp"
+    - ".log"
+    - ".cache"
+  exclude_file_paths:
+    - "C:\\Windows\\Temp"
+    - "C:\\Users\\*/AppData/Local/Temp"
   
-  # ZERO DELAY: Network Filtering - Minimal exclusions
-  exclude_loopback: false             # DISABLED: Monitor everything for immediate detection
-  exclude_ports: []                   # EMPTY: Monitor all ports for immediate detection
+  # Network Filtering - FIXED
+  exclude_loopback: false              # Monitor loopback for testing
+  exclude_ports:
+    - 135    # RPC
+    - 445    # SMB
+    - 139    # NetBIOS
   
-  # ZERO DELAY: Size Limits - Minimal limits
-  max_file_size_mb: 50                # REDUCED: Smaller files for immediate processing
-  max_command_line_length: 1024       # INCREASED: Allow longer command lines
-  max_registry_value_size: 512        # INCREASED: Allow larger registry values
+  # Size Limits - FIXED
+  max_file_size_mb: 100                # Reasonable file size limit
+  max_command_line_length: 2048        # Adequate command line length
+  max_registry_value_size: 1024        # Adequate registry value size
 
 # ============================================================================
-# ALERTING CONFIGURATION - ZERO DELAY OPTIMIZED
+# ALERTING CONFIGURATION - FIXED
 # ============================================================================
 alerting:
   enabled: true
-  immediate_alerting: true             # NEW: Enable immediate alerting
+  immediate_alerting: true
   
-  # ZERO DELAY: Alert Levels - All enabled for immediate alerting
-  send_info_alerts: true              # ENABLED: Send all alerts immediately
-  send_low_alerts: true               # ENABLED: Send all alerts immediately
-  send_medium_alerts: true            # ENABLED: Send all alerts immediately
+  # Alert Levels - FIXED
+  send_info_alerts: false              # Reduce noise
+  send_low_alerts: true
+  send_medium_alerts: true
   send_high_alerts: true
   send_critical_alerts: true
   
-  # ZERO DELAY: Alert Throttling - Minimal throttling
-  throttle_duplicate_alerts: false    # DISABLED: No throttling for immediate alerting
-  duplicate_window: 0                 # ZERO DELAY: No duplicate window
-  max_alerts_per_minute: 1000         # INCREASED: Allow more alerts for immediate processing
+  # Alert Throttling - FIXED
+  throttle_duplicate_alerts: true      # Enable throttling
+  duplicate_window: 60                 # 1 minute window
+  max_alerts_per_minute: 10            # Reasonable alert rate
   
-  # ZERO DELAY: Alert Delivery
-  immediate_delivery: true            # ENABLED: Immediate alert delivery
-  batch_delivery: false              # DISABLED: No batching for immediate alerting
-  batch_interval: 0                  # ZERO DELAY: No batch interval
+  # Alert Delivery - FIXED
+  immediate_delivery: true
+  batch_delivery: false
+  batch_interval: 0
 
 # ============================================================================
-# SECURITY NOTIFICATION CONFIGURATION - ZERO DELAY OPTIMIZED
+# SECURITY NOTIFICATION CONFIGURATION - FIXED
 # ============================================================================
 security_notifications:
   enabled: true
-  immediate_notifications: true       # NEW: Enable immediate notifications
+  immediate_notifications: true
   
-  # ZERO DELAY: Display Settings
+  # Display Settings
   show_on_screen: true
   position: "bottom-right"
   
-  # ZERO DELAY: Alert Filtering - All enabled for immediate alerting
-  show_low_alerts: true               # ENABLED: Show all alerts immediately
-  show_medium_alerts: true            # ENABLED: Show all alerts immediately
+  # Alert Filtering - FIXED
+  show_low_alerts: false               # Reduce noise
+  show_medium_alerts: true
   show_high_alerts: true
   show_critical_alerts: true
   
-  # ZERO DELAY: Notification Behavior
-  auto_dismiss_timeout: 10            # REDUCED: Faster dismissal for immediate processing
-  play_sound: true                    # ENABLED: Audio alerts for immediate notification
+  # Notification Behavior - FIXED
+  auto_dismiss_timeout: 15             # Reasonable timeout
+  play_sound: true
   persistent_critical: true
   
-  # ZERO DELAY: Rate Limiting - Minimal limiting
-  max_security_alerts_per_minute: 100 # INCREASED: Allow more alerts for immediate processing
-  duplicate_suppression_window: 0     # ZERO DELAY: No suppression window
+  # Rate Limiting - FIXED
+  max_security_alerts_per_minute: 5    # Reasonable rate
+  duplicate_suppression_window: 30     # 30 second window
   
-  # ZERO DELAY: Priority-based Timeouts
-  critical_alert_timeout: 30          # REDUCED: Faster timeout for immediate processing
-  high_alert_timeout: 20              # REDUCED: Faster timeout for immediate processing
-  medium_alert_timeout: 15            # REDUCED: Faster timeout for immediate processing
-  low_alert_timeout: 10               # REDUCED: Faster timeout for immediate processing
+  # Priority-based Timeouts
+  critical_alert_timeout: 60
+  high_alert_timeout: 45
+  medium_alert_timeout: 30
+  low_alert_timeout: 15
   
-  # ZERO DELAY: Content Settings
+  # Content Settings
   include_rule_name: true
   include_risk_score: true
-  include_event_details: true         # ENABLED: Full details for immediate alerts
-  max_description_length: 500         # INCREASED: More details for immediate alerts
+  include_event_details: true
+  max_description_length: 200
   
-  # ZERO DELAY: Advanced Features
-  group_similar_alerts: false         # DISABLED: No grouping for immediate alerts
-  escalation_enabled: true            # ENABLED: Immediate escalation
-  integration_mode: "immediate"       # NEW: Immediate integration mode
+  # Advanced Features
+  group_similar_alerts: true           # Group similar alerts
+  escalation_enabled: true
+  integration_mode: "immediate"
 
 # ============================================================================
-# MAINTENANCE AND UPDATES - ZERO DELAY OPTIMIZED
+# MAINTENANCE AND UPDATES - FIXED
 # ============================================================================
 maintenance:
-  # ZERO DELAY: Automatic Updates
-  auto_update_enabled: false          # DISABLED: No updates during immediate processing
+  # Automatic Updates
+  auto_update_enabled: false           # Disabled for stability
   
-  # ZERO DELAY: Cleanup Tasks
-  cleanup_enabled: false              # DISABLED: No cleanup during immediate processing
+  # Cleanup Tasks - FIXED
+  cleanup_enabled: true                # Enable cleanup
+  cleanup_interval: 3600               # Every hour
   
-  # ZERO DELAY: Data Retention
-  event_retention_days: 1             # REDUCED: Minimal retention for immediate processing
-  log_retention_days: 7               # REDUCED: Minimal retention for immediate processing
+  # Data Retention - FIXED
+  event_retention_days: 7              # Keep events for 7 days
+  log_retention_days: 30               # Keep logs for 30 days
+  offline_event_retention_days: 3      # Keep offline events for 3 days
   
-  # ZERO DELAY: Health Monitoring
-  health_check_interval: 10           # REDUCED: Frequent health checks for immediate processing
-  send_health_reports: true           # ENABLED: Immediate health reporting
+  # Health Monitoring - FIXED
+  health_check_interval: 60            # Check every minute
+  send_health_reports: true
+  health_report_interval: 300          # Every 5 minutes
 
 # ============================================================================
-# ZERO DELAY SPECIFIC CONFIGURATION
+# OFFLINE MODE CONFIGURATION - NEW
 # ============================================================================
-zero_delay:
+offline_mode:
   # Core Settings
-  enabled: true                       # Enable ZERO DELAY mode
-  mode: "immediate"                   # Immediate processing mode
+  enabled: true                        # Enable offline mode support
+  auto_enable: true                    # Auto-enable when server unavailable
   
-  # Performance Settings
-  immediate_send_threshold_ms: 1      # Send within 1 millisecond
-  minimal_polling_interval_ms: 1     # 1ms polling interval
-  immediate_queue_size: 1             # Minimal queue size
+  # Storage Settings
+  max_events_stored: 1000              # Maximum events to store offline
+  storage_path: "offline_data"         # Directory for offline storage
+  compression_enabled: false          # Disable compression for performance
   
-  # Network Settings
-  immediate_connection_pool: 20       # Connection pool for immediate requests
-  immediate_timeout_ms: 2000          # 2 second timeout for immediate requests
-  immediate_retry_disabled: true     # No retries for immediate processing
+  # Reconnection Settings
+  auto_reconnect: true                 # Auto-reconnect when server available
+  reconnect_interval: 30               # Check every 30 seconds
+  max_reconnect_attempts: 0            # Unlimited attempts
   
-  # Processing Settings
-  skip_expensive_operations: true    # Skip hash calculations, etc.
-  prioritize_speed: true             # Prioritize speed over accuracy
-  minimal_validation: true           # Minimal validation for speed
+  # Event Management
+  event_priority_order:                # Priority order for sending events
+    - "Critical"
+    - "High"
+    - "Medium"
+    - "Low"
+    - "Info"
   
-  # Monitoring Settings
-  track_performance: true            # Track immediate processing performance
-  log_response_times: true           # Log response times for optimization
-  alert_on_delays: true              # Alert if delays detected
+  # Cleanup Settings
+  auto_cleanup: true                   # Auto-cleanup old offline events
+  cleanup_interval: 3600               # Every hour
+  max_storage_size_mb: 100             # Maximum storage size
+
+# ============================================================================
+# ERROR HANDLING CONFIGURATION - NEW
+# ============================================================================
+error_handling:
+  # Connection Errors
+  max_connection_retries: 3            # Maximum connection retries
+  connection_retry_delay: 1            # Delay between retries (seconds)
+  connection_timeout: 5                # Connection timeout (seconds)
+  
+  # Processing Errors
+  max_processing_errors: 10            # Maximum processing errors before restart
+  error_backoff_multiplier: 2          # Backoff multiplier for errors
+  max_error_backoff: 60                # Maximum error backoff (seconds)
+  
+  # Recovery Settings
+  auto_recovery: true                  # Enable auto-recovery
+  recovery_check_interval: 60          # Check every minute
+  restart_on_critical_error: false    # Don't restart on critical errors
+  
+  # Logging
+  log_all_errors: true                 # Log all errors
+  error_notification_enabled: true    # Show error notifications
