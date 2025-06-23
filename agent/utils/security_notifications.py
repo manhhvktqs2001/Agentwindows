@@ -1,7 +1,7 @@
 # agent/utils/security_notifications.py - FIXED NOTIFICATION SYSTEM
 """
 Security Alert Notification System - FIXED VERSION
-Hiển thị toast notifications ở góc phải màn hình khi server phát hiện threats
+Hiển thị toast notifications với nhiều phương pháp fallback để đảm bảo luôn hiển thị được
 """
 
 import logging
@@ -15,8 +15,9 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 import traceback
+import subprocess
 
-# --- PLYER NOTIFICATION SETUP - FIXED ---
+# --- PLYER NOTIFICATION SETUP - PRIMARY METHOD ---
 PLYER_AVAILABLE = False
 try:
     from plyer import notification
@@ -26,7 +27,8 @@ except ImportError:
     try:
         # Try installing plyer if not available
         import subprocess
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "plyer"])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "plyer"], 
+                            capture_output=True, timeout=30)
         from plyer import notification
         PLYER_AVAILABLE = True
         print("🔔 Plyer installed and loaded successfully.")
@@ -38,19 +40,18 @@ WIN10TOAST_AVAILABLE = False
 try:
     from win10toast import ToastNotifier
     WIN10TOAST_AVAILABLE = True
-    print("🪟 Windows 10 Toast notifications available as fallback.")
 except ImportError:
     try:
         import subprocess
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "win10toast"])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "win10toast"], 
+                            capture_output=True, timeout=30)
         from win10toast import ToastNotifier
         WIN10TOAST_AVAILABLE = True
-        print("🪟 Windows 10 Toast installed and available.")
     except:
-        print("⚠️ Windows Toast notifications not available.")
+        pass
 
 class SecurityAlertNotifier:
-    """Security Alert Notifier - FIXED VERSION with working notifications"""
+    """Security Alert Notifier - FIXED VERSION with guaranteed notifications"""
     
     def __init__(self, config_manager=None):
         self.logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class SecurityAlertNotifier:
         self.play_sound = True
         self.auto_dismiss_timeout = 15
         
-        # Initialize notification systems
+        # Initialize notification systems - PLYER FIRST
         self.plyer_available = PLYER_AVAILABLE
         self.toast_available = WIN10TOAST_AVAILABLE
         self.toast_notifier = None
@@ -73,7 +74,7 @@ class SecurityAlertNotifier:
         if self.toast_available:
             try:
                 self.toast_notifier = ToastNotifier()
-                self.logger.info("✅ Windows Toast Notifier initialized")
+                self.logger.info("✅ Windows Toast Notifier initialized as fallback")
             except Exception as e:
                 self.logger.error(f"❌ Failed to initialize Toast Notifier: {e}")
                 self.toast_available = False
@@ -214,7 +215,7 @@ class SecurityAlertNotifier:
                 f"Risk: {alert_info['risk_score']}/100"
             )
             
-            # Show notification with multiple methods
+            # Show notification with multiple methods - PLYER FIRST
             success = await self._display_notification_with_fallbacks(alert_info)
             
             if success:
@@ -232,22 +233,22 @@ class SecurityAlertNotifier:
             self.notifications_failed += 1
     
     async def _display_notification_with_fallbacks(self, alert_info: Dict[str, Any]) -> bool:
-        """Display notification using multiple fallback methods"""
+        """Display notification using multiple fallback methods - PLYER FIRST"""
         try:
             title, message = self._prepare_notification_content(alert_info)
             
-            # METHOD 1: Try Windows 10 Toast (most reliable for corner notifications)
-            if self.toast_available and self.toast_notifier:
-                success = await self._show_windows_toast(title, message, alert_info)
-                if success:
-                    self.logger.info("✅ Windows Toast notification shown successfully")
-                    return True
-            
-            # METHOD 2: Try Plyer notification
+            # METHOD 1: Try Plyer notification FIRST (cross-platform, better)
             if self.plyer_available:
                 success = await self._show_plyer_notification(title, message, alert_info)
                 if success:
                     self.logger.info("✅ Plyer notification shown successfully")
+                    return True
+            
+            # METHOD 2: Try Windows 10 Toast (fallback)
+            if self.toast_available and self.toast_notifier:
+                success = await self._show_windows_toast(title, message, alert_info)
+                if success:
+                    self.logger.info("✅ Windows Toast notification shown successfully")
                     return True
             
             # METHOD 3: Try PowerShell balloon tip
@@ -265,8 +266,40 @@ class SecurityAlertNotifier:
             self.logger.error(f"❌ All notification methods failed: {e}")
             return False
     
+    async def _show_plyer_notification(self, title: str, message: str, alert_info: Dict[str, Any]) -> bool:
+        """Show Plyer notification - PRIMARY METHOD"""
+        try:
+            if not self.plyer_available:
+                return False
+            
+            def show_plyer():
+                try:
+                    notification.notify(
+                        title=title,
+                        message=message,
+                        timeout=self.toast_duration,
+                        app_name=self.app_name,
+                        app_icon=self.app_icon
+                    )
+                    return True
+                except Exception as e:
+                    self.logger.error(f"Plyer notification error: {e}")
+                    return False
+            
+            # Run in thread to avoid blocking
+            result = await asyncio.to_thread(show_plyer)
+            
+            if result and self.play_sound:
+                await asyncio.to_thread(self._play_alert_sound)
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"❌ Plyer notification failed: {e}")
+            return False
+    
     async def _show_windows_toast(self, title: str, message: str, alert_info: Dict[str, Any]) -> bool:
-        """Show Windows 10 Toast notification - Best for corner display"""
+        """Show Windows 10 Toast notification - FALLBACK METHOD"""
         try:
             if not self.toast_available or not self.toast_notifier:
                 return False
@@ -288,7 +321,7 @@ class SecurityAlertNotifier:
             # Run in thread to avoid blocking
             result = await asyncio.to_thread(show_toast)
             
-            if self.play_sound:
+            if result and self.play_sound:
                 await asyncio.to_thread(self._play_alert_sound)
             
             return result
@@ -297,54 +330,20 @@ class SecurityAlertNotifier:
             self.logger.error(f"❌ Windows Toast notification failed: {e}")
             return False
     
-    async def _show_plyer_notification(self, title: str, message: str, alert_info: Dict[str, Any]) -> bool:
-        """Show Plyer notification"""
-        try:
-            if not self.plyer_available:
-                return False
-            
-            def show_plyer():
-                try:
-                    notification.notify(
-                        title=title,
-                        message=message,
-                        timeout=self.toast_duration,
-                        app_icon=self.app_icon,
-                        app_name=self.app_name,
-                        toast=True
-                    )
-                    return True
-                except Exception as e:
-                    self.logger.error(f"Plyer notification error: {e}")
-                    return False
-            
-            result = await asyncio.to_thread(show_plyer)
-            
-            if result and self.play_sound:
-                await asyncio.to_thread(self._play_alert_sound)
-            
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"❌ Plyer notification failed: {e}")
-            return False
-    
     async def _show_powershell_balloon(self, title: str, message: str, alert_info: Dict[str, Any]) -> bool:
-        """Show PowerShell balloon tip notification"""
+        """Show PowerShell balloon tip"""
         try:
-            import subprocess
-            
-            # PowerShell script to show balloon tip
+            # PowerShell script for balloon tip
             ps_script = f'''
 Add-Type -AssemblyName System.Windows.Forms
 $balloon = New-Object System.Windows.Forms.NotifyIcon
 $balloon.Icon = [System.Drawing.SystemIcons]::Warning
-$balloon.BalloonTipIcon = "Warning"
-$balloon.BalloonTipText = "{message}"
-$balloon.BalloonTipTitle = "{title}"
+$balloon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Warning
+$balloon.BalloonTipText = "{message.replace('"', '""')}"
+$balloon.BalloonTipTitle = "{title.replace('"', '""')}"
 $balloon.Visible = $true
-$balloon.ShowBalloonTip(10000)
-Start-Sleep -Seconds 1
+$balloon.ShowBalloonTip({self.toast_duration * 1000})
+Start-Sleep -Seconds 2
 $balloon.Dispose()
 '''
             
@@ -373,19 +372,19 @@ $balloon.Dispose()
             return False
     
     def _determine_alert_priority(self, alert_info: Dict[str, Any]) -> str:
-        """Determine alert priority"""
-        rule_name = alert_info.get('rule_name', '')
+        """Determine alert priority based on rule and severity"""
+        rule_name = alert_info.get('rule_name', '').lower()
         severity = alert_info.get('severity', 'MEDIUM').upper()
         risk_score = alert_info.get('risk_score', 50)
         
         # Critical priority
-        if (rule_name in self.critical_rules or 
+        if (rule_name in [rule.lower() for rule in self.critical_rules] or 
             severity == 'CRITICAL' or 
             risk_score >= 90):
             return 'CRITICAL'
         
         # High priority
-        if (rule_name in self.high_priority_rules or 
+        if (rule_name in [rule.lower() for rule in self.high_priority_rules] or 
             severity == 'HIGH' or 
             risk_score >= 70):
             return 'HIGH'
@@ -439,7 +438,7 @@ $balloon.Dispose()
             except:
                 pass
             
-            message = "\\n".join(message_parts)
+            message = "\n".join(message_parts)
             
             return title, message
             
@@ -458,14 +457,14 @@ $balloon.Dispose()
             # Create visual separator
             separator = "=" * 80
             
-            print(f"\\n{separator}")
+            print(f"\n{separator}")
             print(f"🚨 SECURITY ALERT - {priority}")
             print(f"Rule: {rule_name}")
             print(f"Severity: {severity}")
             print(f"Risk Score: {risk_score}/100")
             print(f"Title: {title}")
             print(f"Message: {message}")
-            print(f"{separator}\\n")
+            print(f"{separator}\n")
             
             # Flash console window to get attention
             try:
@@ -498,7 +497,7 @@ $balloon.Dispose()
                     winsound.Beep(frequency, duration)
                 except:
                     # Final fallback - system beep
-                    print("\\a")  # ASCII bell character
+                    print("\a")  # ASCII bell character
                     
         except Exception as e:
             self.logger.debug(f"Sound play error: {e}")

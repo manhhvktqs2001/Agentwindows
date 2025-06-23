@@ -436,7 +436,7 @@ class AgentManager:
                         if notification_data:
                             # Send to security notifier for display
                             if hasattr(self, 'event_processor') and self.event_processor:
-                                self.event_processor.security_notifier.process_server_alerts(
+                                await self.event_processor.security_notifier.process_server_alerts(
                                     {'alerts_generated': [notification_data]}, 
                                     []
                                 )
