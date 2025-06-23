@@ -312,6 +312,12 @@ class EventProcessor:
                 for notification in notifications:
                     await self._send_notification_immediately(notification)
                     
+            if server_response and 'alerts_generated' in server_response and server_response['alerts_generated']:
+                self.logger.info(f"Received {len(server_response['alerts_generated'])} alerts from server")
+                self.stats.alerts_received += len(server_response['alerts_generated'])
+                
+                # Asynchronously process alerts and show notifications
+                await self.security_notifier.process_server_alerts(server_response)
         except Exception as e:
             self._safe_log("error", f"Server response processing failed: {e}")
     
@@ -426,7 +432,7 @@ class EventProcessor:
         try:
             # Process alert through security notifier
             if self.security_notifier:
-                self.security_notifier.process_alert(alert)
+                await self.security_notifier.process_alert(alert)
         except Exception as e:
             self._safe_log("error", f"Alert processing failed: {e}")
     
