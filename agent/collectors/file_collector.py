@@ -18,7 +18,7 @@ import shutil
 import stat
 
 from agent.collectors.base_collector import BaseCollector
-from agent.schemas.events import EventData, EventType, EventAction, Severity
+from agent.schemas.events import EventData, EventAction, Severity
 from agent.utils.file_utils import FileUtils, get_file_info, calculate_file_hash, is_suspicious_file
 
 logger = logging.getLogger('FileCollector')
@@ -26,114 +26,86 @@ logger = logging.getLogger('FileCollector')
 class EnhancedFileCollector(BaseCollector):
     """Enhanced File Collector - Multiple file event types for continuous sending"""
     
-    def __init__(self, config_manager):
+    def __init__(self, config_manager=None):
         super().__init__(config_manager, "FileCollector")
         
-        # MULTIPLE EVENTS: File tracking
-        self.monitored_files = {}  # file_path -> file_info
+        # FIXED: Optimize performance settings
+        self.polling_interval = 30  # Increase from default to 30 seconds
+        self.max_events_per_batch = 50  # Reduce from default
+        self.large_file_threshold = 100 * 1024 * 1024  # 100MB
+        self.frequent_access_threshold = 10
+        
+        # FIXED: Reduce scanning directories for better performance
+        self.scan_directories = {
+            'system': ['C:\\Windows\\System32'],
+            'temp': ['C:\\Temp', 'C:\\Windows\\Temp'],
+            'user': ['C:\\Users\\Public\\Desktop']
+        }
+        
+        # FIXED: Reduce file extensions to monitor
+        self.document_extensions = {'.doc', '.docx', '.pdf', '.txt'}
+        self.suspicious_extensions = {'.exe', '.bat', '.cmd', '.ps1', '.vbs'}
+        self.archive_extensions = {'.zip', '.rar', '.7z'}
+        
+        # Tracking
+        self.monitored_files = {}
         self.file_access_count = defaultdict(int)
-        self.large_files = {}  # Track large file operations
-        self.recent_downloads = set()
         
-        # MULTIPLE EVENTS: File categories for different events
-        self.suspicious_extensions = {
-            '.exe', '.dll', '.bat', '.cmd', '.ps1', '.vbs', '.js', '.jar',
-            '.scr', '.pif', '.com', '.hta', '.msi', '.msu', '.msp'
-        }
-        
-        self.document_extensions = {
-            '.doc', '.docx', '.pdf', '.xls', '.xlsx', '.ppt', '.pptx', '.txt'
-        }
-        
-        self.image_extensions = {
-            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico', '.svg'
-        }
-        
-        self.archive_extensions = {
-            '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2'
-        }
-        
-        # MULTIPLE EVENTS: Thresholds for different event types
-        self.large_file_threshold = 50 * 1024 * 1024  # 50MB
-        self.frequent_access_threshold = 5  # 5 accesses in scan period
-        self.polling_interval = 1.0  # 1 second for file monitoring
-        
-        # Monitor directories for different event types
-        self.monitor_directories = {
-            'critical': [
-                os.path.expanduser("~/Desktop"),
-                os.path.expanduser("~/Downloads"),
-                "C:/Windows/System32",
-                "C:/Program Files",
-                "C:/Program Files (x86)"
-            ],
-            'documents': [
-                os.path.expanduser("~/Documents"),
-                os.path.expanduser("~/Pictures"),
-                os.path.expanduser("~/Videos")
-            ],
-            'temp': [
-                os.path.expanduser("~/AppData/Local/Temp"),
-                os.path.expanduser("~/AppData/Roaming"),
-                "C:/Windows/Temp",
-                "C:/ProgramData"
-            ]
-        }
-        
-        # MULTIPLE EVENTS: Statistics
+        # Statistics
         self.stats = {
             'file_creation_events': 0,
             'file_modification_events': 0,
-            'file_deletion_events': 0,
-            'file_access_events': 0,
-            'suspicious_file_events': 0,
             'large_file_events': 0,
+            'suspicious_file_events': 0,
             'document_events': 0,
             'executable_events': 0,
             'archive_events': 0,
+            'file_access_events': 0,
             'total_file_events': 0
         }
         
-        self.logger.info("Enhanced File Collector initialized for MULTIPLE FILE EVENT TYPES")
+        self.logger.info("Enhanced File Collector initialized - PERFORMANCE OPTIMIZED")
     
     async def _collect_data(self):
-        """Collect multiple types of file events"""
+        """Collect multiple types of file events - OPTIMIZED VERSION"""
+        start_time = time.time()
         try:
             events = []
-            current_files = {}
             
-            # MULTIPLE EVENTS: Scan all monitored directories
-            for category, directories in self.monitor_directories.items():
+            # FIXED: Only scan critical directories for better performance
+            for category, directories in self.scan_directories.items():
                 for directory in directories:
                     if os.path.exists(directory):
                         try:
-                            dir_events = await self._scan_directory_for_multiple_events(directory, category)
+                            # FIXED: Limit directory depth for better performance
+                            dir_events = await self._scan_directory_for_multiple_events(directory, category, max_depth=2)
                             events.extend(dir_events)
                         except Exception as e:
                             self.logger.debug(f"Error scanning directory {directory}: {e}")
                             continue
             
-            # EVENT TYPE 1: File System Summary Event (every 10 scans)
-            if self.stats['total_file_events'] % 10 == 0:
+            # FIXED: Reduce summary event frequency
+            if self.stats['total_file_events'] % 50 == 0:  # Every 50 scans instead of 10
                 summary_event = await self._create_file_system_summary_event()
                 if summary_event:
                     events.append(summary_event)
             
-            # EVENT TYPE 2: Disk Usage Event (if high)
-            disk_event = await self._check_disk_usage_event()
-            if disk_event:
-                events.append(disk_event)
+            # FIXED: Only check disk usage occasionally
+            if self.stats['total_file_events'] % 100 == 0:  # Every 100 scans
+                disk_event = await self._check_disk_usage_event()
+                if disk_event:
+                    events.append(disk_event)
             
             self.stats['total_file_events'] += len(events)
             
             if events:
-                self.logger.info(f"📤 Generated {len(events)} MULTIPLE FILE EVENTS for continuous sending")
+                self.logger.info(f"📤 Generated {len(events)} OPTIMIZED FILE EVENTS")
             
             # FIXED: Log performance metrics with better thresholds
             collection_time = (time.time() - start_time) * 1000
-            if collection_time > 10000:  # Increase threshold for file scanning
+            if collection_time > 5000:  # Reduce threshold from 10000ms to 5000ms
                 self.logger.warning(f"⚠️ Slow collection: {collection_time:.1f}ms in FileCollector")
-            elif collection_time > 5000:
+            elif collection_time > 2000:
                 self.logger.info(f"📊 File scan time: {collection_time:.1f}ms")
             
             return events
@@ -142,16 +114,29 @@ class EnhancedFileCollector(BaseCollector):
             self.logger.error(f"❌ Multiple file events collection failed: {e}")
             return []
     
-    async def _scan_directory_for_multiple_events(self, directory: str, category: str) -> List[EventData]:
-        """Scan directory and generate multiple event types"""
+    async def _scan_directory_for_multiple_events(self, directory: str, category: str, max_depth: int = 2) -> List[EventData]:
+        """Scan directory and generate multiple event types - OPTIMIZED"""
         events = []
         
         try:
+            # FIXED: Limit scan depth and file count for better performance
+            file_count = 0
+            max_files_per_directory = 100  # Limit files per directory
+            
             for root, dirs, filenames in os.walk(directory):
+                # FIXED: Limit directory depth
+                current_depth = root[len(directory):].count(os.sep)
+                if current_depth > max_depth:
+                    continue
+                
                 # Skip system directories to avoid permission issues
                 dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['$Recycle.Bin', 'System Volume Information']]
                 
                 for filename in filenames:
+                    # FIXED: Limit file count per directory
+                    if file_count >= max_files_per_directory:
+                        break
+                    
                     try:
                         file_path = os.path.join(root, filename)
                         
@@ -165,6 +150,16 @@ class EnhancedFileCollector(BaseCollector):
                         
                         file_key = file_path
                         current_time = time.time()
+                        
+                        # FIXED: Only create events for interesting files
+                        ext = file_info.get('extension', '').lower()
+                        is_interesting = (ext in self.suspicious_extensions or 
+                                        ext in self.document_extensions or 
+                                        ext in self.archive_extensions or
+                                        file_info.get('size', 0) > self.large_file_threshold)
+                        
+                        if not is_interesting:
+                            continue
                         
                         # EVENT TYPE 1: New File Creation Event
                         if file_key not in self.monitored_files:
@@ -189,40 +184,11 @@ class EnhancedFileCollector(BaseCollector):
                                 self.stats['large_file_events'] += 1
                         
                         # EVENT TYPE 4: Suspicious File Event
-                        if is_suspicious_file(file_path):
+                        if ext in self.suspicious_extensions:
                             event = await self._create_suspicious_file_event(file_path, file_info)
                             if event:
                                 events.append(event)
                                 self.stats['suspicious_file_events'] += 1
-                        
-                        # EVENT TYPE 5: File Type Specific Events
-                        ext = file_info.get('extension', '').lower()
-                        if ext in self.document_extensions:
-                            event = await self._create_document_file_event(file_path, file_info)
-                            if event:
-                                events.append(event)
-                                self.stats['document_events'] += 1
-                        
-                        elif ext in self.suspicious_extensions:
-                            event = await self._create_executable_file_event(file_path, file_info)
-                            if event:
-                                events.append(event)
-                                self.stats['executable_events'] += 1
-                        
-                        elif ext in self.archive_extensions:
-                            event = await self._create_archive_file_event(file_path, file_info)
-                            if event:
-                                events.append(event)
-                                self.stats['archive_events'] += 1
-                        
-                        # EVENT TYPE 6: File Access Pattern Event
-                        self.file_access_count[file_key] += 1
-                        if self.file_access_count[file_key] >= self.frequent_access_threshold:
-                            event = await self._create_frequent_access_event(file_path, file_info)
-                            if event:
-                                events.append(event)
-                                self.stats['file_access_events'] += 1
-                            self.file_access_count[file_key] = 0  # Reset counter
                         
                         # Update tracked file info
                         self.monitored_files[file_key] = {
@@ -233,6 +199,8 @@ class EnhancedFileCollector(BaseCollector):
                             'extension': ext,
                             'category': category
                         }
+                        
+                        file_count += 1
                         
                     except (OSError, PermissionError):
                         continue
@@ -248,7 +216,7 @@ class EnhancedFileCollector(BaseCollector):
             severity = "High" if is_suspicious_file(file_path) else "Info"
             
             return EventData(
-                event_type=EventType.FILE,
+                event_type="File",
                 event_action=EventAction.CREATE,
                 event_timestamp=datetime.now(),
                 severity=severity,
@@ -275,7 +243,7 @@ class EnhancedFileCollector(BaseCollector):
         """EVENT TYPE 2: File Modification Event"""
         try:
             return EventData(
-                event_type=EventType.FILE,
+                event_type="File",
                 event_action=EventAction.MODIFY,
                 event_timestamp=datetime.now(),
                 severity="Medium" if is_suspicious_file(file_path) else "Info",
@@ -304,7 +272,7 @@ class EnhancedFileCollector(BaseCollector):
             size_mb = file_info.get('size', 0) / (1024 * 1024)
             
             return EventData(
-                event_type=EventType.FILE,
+                event_type="File",
                 event_action=EventAction.CREATE,
                 event_timestamp=datetime.now(),
                 severity="Medium",
@@ -330,7 +298,7 @@ class EnhancedFileCollector(BaseCollector):
         """EVENT TYPE 4: Suspicious File Event"""
         try:
             return EventData(
-                event_type=EventType.FILE,
+                event_type="File",
                 event_action=EventAction.SUSPICIOUS_ACTIVITY,
                 event_timestamp=datetime.now(),
                 severity="High",
@@ -356,7 +324,7 @@ class EnhancedFileCollector(BaseCollector):
         """EVENT TYPE 5: Document File Event"""
         try:
             return EventData(
-                event_type=EventType.FILE,
+                event_type="File",
                 event_action=EventAction.ACCESS,
                 event_timestamp=datetime.now(),
                 severity="Info",
@@ -381,7 +349,7 @@ class EnhancedFileCollector(BaseCollector):
         """EVENT TYPE 6: Executable File Event"""
         try:
             return EventData(
-                event_type=EventType.FILE,
+                event_type="File",
                 event_action=EventAction.CREATE,
                 event_timestamp=datetime.now(),
                 severity="High",
@@ -407,7 +375,7 @@ class EnhancedFileCollector(BaseCollector):
         """EVENT TYPE 7: Archive File Event"""
         try:
             return EventData(
-                event_type=EventType.FILE,
+                event_type="File",
                 event_action=EventAction.CREATE,
                 event_timestamp=datetime.now(),
                 severity="Medium",
@@ -433,7 +401,7 @@ class EnhancedFileCollector(BaseCollector):
         """EVENT TYPE 8: Frequent File Access Event"""
         try:
             return EventData(
-                event_type=EventType.FILE,
+                event_type="File",
                 event_action=EventAction.ACCESS,
                 event_timestamp=datetime.now(),
                 severity="Medium",
@@ -460,7 +428,7 @@ class EnhancedFileCollector(BaseCollector):
             total_files = len(self.monitored_files)
             
             return EventData(
-                event_type=EventType.FILE,
+                event_type="File",
                 event_action=EventAction.RESOURCE_USAGE,
                 event_timestamp=datetime.now(),
                 severity="Info",
@@ -471,9 +439,9 @@ class EnhancedFileCollector(BaseCollector):
                     'total_monitored_files': total_files,
                     'file_statistics': self.stats.copy(),
                     'directory_counts': {
-                        'critical': len([f for f in self.monitored_files.values() if f.get('category') == 'critical']),
-                        'documents': len([f for f in self.monitored_files.values() if f.get('category') == 'documents']),
-                        'temp': len([f for f in self.monitored_files.values() if f.get('category') == 'temp'])
+                        'system': len([f for f in self.monitored_files.values() if f.get('category') == 'system']),
+                        'temp': len([f for f in self.monitored_files.values() if f.get('category') == 'temp']),
+                        'user': len([f for f in self.monitored_files.values() if f.get('category') == 'user'])
                     }
                 }
             )
@@ -493,7 +461,7 @@ class EnhancedFileCollector(BaseCollector):
                     
                     if used_percent > 85:  # High disk usage
                         return EventData(
-                            event_type=EventType.FILE,
+                            event_type="File",
                             event_action=EventAction.RESOURCE_USAGE,
                             event_timestamp=datetime.now(),
                             severity="High" if used_percent > 95 else "Medium",

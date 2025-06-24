@@ -268,6 +268,11 @@ class ServerCommunication:
         Trả về response từ server để event processor có thể xử lý alerts
         """
         try:
+            # ADDED: Debug log for event submission
+            self.logger.info(f"📤 SUBMITTING EVENT TO SERVER: {event_data.event_type} - {event_data.event_action}")
+            if event_data.event_type == 'Authentication':
+                self.logger.info(f"🔐 AUTH EVENT DETAILS: User={event_data.login_user}, Type={event_data.login_type}")
+            
             if self.offline_mode:
                 # Store event for later sending
                 event_payload = self._convert_event_to_payload(event_data)
@@ -276,6 +281,8 @@ class ServerCommunication:
                     self.offline_events_queue.pop(0)
                 
                 self.offline_events_queue.append(event_payload)
+                
+                self.logger.info(f"📤 EVENT STORED OFFLINE: {event_data.event_type}")
                 
                 return {
                     'success': True,
@@ -289,19 +296,28 @@ class ServerCommunication:
             url = f"{self.base_url}/api/v1/events/submit"
             payload = self._convert_event_to_payload(event_data)
             
+            # ADDED: Debug log for payload
+            self.logger.info(f"📤 SENDING PAYLOAD TO {url}: {event_data.event_type}")
+            
             response = await self._make_request_with_retry('POST', url, payload)
             
             if response:
+                # ADDED: Debug log for successful response
+                self.logger.info(f"✅ SERVER RESPONSE RECEIVED: {event_data.event_type} - Success: {response.get('success', False)}")
+                
                 # XỬ LÝ RESPONSE TỪ SERVER ĐỂ PHÁT HIỆN ALERTS
                 processed_response = self._process_server_response(response, event_data)
                 return processed_response
             else:
+                # ADDED: Debug log for failed response
+                self.logger.error(f"❌ NO SERVER RESPONSE: {event_data.event_type}")
+                
                 # Switch to offline mode if server stops responding
                 self.offline_mode = True
                 return await self.submit_event(event_data)  # Retry in offline mode
                 
         except Exception as e:
-            self.logger.debug(f"❌ Event send error: {e}")
+            self.logger.error(f"❌ Event send error: {e}")
             
             if not self.offline_mode:
                 self.offline_mode = True
@@ -522,101 +538,111 @@ class ServerCommunication:
             else:
                 timeout = None
             
+            # ADDED: Debug log for HTTP request
+            self.logger.info(f"🌐 HTTP {method} REQUEST: {url}")
+            if payload:
+                self.logger.info(f"📦 PAYLOAD SIZE: {len(str(payload))} chars")
+            
             if method.upper() == 'GET':
                 async with self.session.get(url, timeout=timeout) as response:
+                    # ADDED: Debug log for response status
+                    self.logger.info(f"📡 HTTP RESPONSE: {response.status} - {url}")
                     return await self._handle_response(response)
                     
             elif method.upper() == 'POST':
                 async with self.session.post(url, json=payload, timeout=timeout) as response:
+                    # ADDED: Debug log for response status
+                    self.logger.info(f"📡 HTTP RESPONSE: {response.status} - {url}")
                     return await self._handle_response(response)
                     
             else:
                 raise Exception(f"Unsupported HTTP method: {method}")
                 
         except asyncio.TimeoutError:
+            self.logger.error(f"⏰ REQUEST TIMEOUT: {url}")
             raise asyncio.TimeoutError(f"Request timeout: {url}")
         except Exception as e:
+            self.logger.error(f"❌ REQUEST ERROR: {url} - {e}")
             raise Exception(f"Request error: {e}")
     
     async def _handle_response(self, response: aiohttp.ClientResponse) -> Optional[Dict]:
         """Handle HTTP response"""
         try:
+            # ADDED: Debug log for response handling
+            self.logger.info(f"📥 HANDLING RESPONSE: Status={response.status}, Content-Type={response.headers.get('content-type', 'unknown')}")
+            
             if response.status == 200:
                 try:
                     data = await response.json()
+                    # ADDED: Debug log for successful JSON response
+                    self.logger.info(f"✅ JSON RESPONSE RECEIVED: {len(str(data))} chars")
                     return data
                 except json.JSONDecodeError:
                     text = await response.text()
+                    # ADDED: Debug log for text response
+                    self.logger.info(f"📄 TEXT RESPONSE RECEIVED: {len(text)} chars")
                     if len(text) < 200:
                         return {'success': True, 'message': text}
                     return None
                     
             elif response.status in [404, 405]:
+                # ADDED: Debug log for 404/405 errors
+                self.logger.error(f"❌ ENDPOINT NOT FOUND: {response.status} - {response.url}")
                 return None
             elif response.status >= 500:
                 text = await response.text()
+                # ADDED: Debug log for server errors
+                self.logger.error(f"❌ SERVER ERROR: {response.status} - {text[:200]}")
                 raise Exception(f"Server error {response.status}: {text}")
             else:
+                # ADDED: Debug log for other status codes
+                self.logger.warning(f"⚠️ UNEXPECTED STATUS: {response.status} - {response.url}")
                 return None
                 
         except Exception as e:
-            self.logger.debug(f"Response handling error: {e}")
+            self.logger.error(f"❌ Response handling error: {e}")
             return None
     
     async def register_agent(self, registration_data: AgentRegistrationData) -> Optional[Dict]:
-        """Register agent with server"""
+        """Register agent with EDR server"""
         try:
-            if self.offline_mode:
-                import uuid
-                agent_id = str(uuid.uuid4())
-                return {
-                    'success': True,
-                    'agent_id': agent_id,
-                    'message': 'Agent registered in offline mode',
-                    'heartbeat_interval': 30,
-                    'offline_mode': True
-                }
+            if not self.working_server:
+                self.logger.warning("⚠️ No server available for registration")
+                return None
             
             url = f"{self.base_url}/api/v1/agents/register"
             
-            payload = {
+            # Create registration payload with FIXED AgentVersion
+            registration_payload = {
                 'hostname': registration_data.hostname,
                 'ip_address': registration_data.ip_address,
+                'mac_address': registration_data.mac_address,
                 'operating_system': registration_data.operating_system,
                 'os_version': registration_data.os_version,
                 'architecture': registration_data.architecture,
-                'agent_version': registration_data.agent_version,
-                'mac_address': registration_data.mac_address,
                 'domain': registration_data.domain,
-                'install_path': registration_data.install_path
+                'agent_version': '2.1.0',  # FIXED: Shortened version to avoid truncation
+                'install_path': registration_data.install_path,
+                'status': 'Active',
+                'cpu_usage': 0.0,
+                'memory_usage': 0.0,
+                'disk_usage': 0.0,
+                'network_latency': 0,
+                'monitoring_enabled': True
             }
             
-            response = await self._make_request_with_retry('POST', url, payload)
+            response = await self._make_request_with_retry('POST', url, registration_payload)
             
             if response and response.get('agent_id'):
+                self.logger.info(f"✅ Agent registered successfully: {response['agent_id']}")
                 return response
             else:
-                # Fallback to offline registration
-                import uuid
-                agent_id = str(uuid.uuid4())
-                return {
-                    'success': True,
-                    'agent_id': agent_id,
-                    'message': 'Agent registered in offline mode',
-                    'heartbeat_interval': 30,
-                    'offline_mode': True
-                }
+                self.logger.error(f"❌ Agent registration failed: {response}")
+                return None
                 
         except Exception as e:
-            # Fallback to offline registration
-            import uuid
-            agent_id = str(uuid.uuid4())
-            return {
-                'success': True,
-                'agent_id': agent_id,
-                'message': 'Agent registered in offline mode (error fallback)',
-                'offline_mode': True
-            }
+            self.logger.error(f"❌ Agent registration error: {e}")
+            return None
     
     async def send_heartbeat(self, heartbeat_data: AgentHeartbeatData) -> Optional[Dict]:
         """Send heartbeat to server"""
@@ -802,3 +828,15 @@ class ServerCommunication:
                 
         except Exception as e:
             self.logger.error(f"❌ Error sending queued acknowledgments: {e}")
+    
+    def is_connected(self) -> bool:
+        """Check if server is connected and responding"""
+        try:
+            return (
+                self.working_server is not None and 
+                not self.offline_mode and
+                hasattr(self, 'working_server') and 
+                self.working_server is not None
+            )
+        except Exception:
+            return False

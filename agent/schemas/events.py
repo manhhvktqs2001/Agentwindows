@@ -43,6 +43,7 @@ class EventAction(str, Enum):
     # Authentication actions
     LOGIN = "Login"
     LOGOUT = "Logout"
+    SESSION = "Session"  # ADDED: For session events
     FAILED = "Failed"
     SUCCESS = "Success"
     

@@ -14,8 +14,8 @@ from datetime import datetime
 from collections import defaultdict, deque
 
 from agent.collectors.base_collector import BaseCollector
-from agent.schemas.events import EventData, EventType, EventAction
-from agent.utils.network_utils import get_connection_info, is_suspicious_connection
+from agent.schemas.events import EventData, EventAction
+from agent.utils.network_utils import NetworkUtils, get_connection_info, is_suspicious_connection
 
 logger = logging.getLogger('NetworkCollector')
 
@@ -193,7 +193,7 @@ class EnhancedNetworkCollector(BaseCollector):
             
             # FIXED: Create network event with ALL required fields populated
             return EventData(
-                event_type=EventType.NETWORK,
+                event_type="Network",
                 event_action=EventAction.CONNECT,
                 event_timestamp=datetime.now(),
                 severity="Medium" if destination_port in self.suspicious_ports else "Info",
@@ -272,7 +272,7 @@ class EnhancedNetworkCollector(BaseCollector):
             
             # FIXED: Create network event with ALL required fields populated
             return EventData(
-                event_type=EventType.NETWORK,
+                event_type="Network",
                 event_action=EventAction.DISCONNECT,
                 event_timestamp=datetime.now(),
                 severity="Info",
@@ -314,7 +314,7 @@ class EnhancedNetworkCollector(BaseCollector):
             
             # FIXED: Create network event with ALL required fields populated
             return EventData(
-                event_type=EventType.NETWORK,
+                event_type="Network",
                 event_action=EventAction.SUSPICIOUS_ACTIVITY,
                 event_timestamp=datetime.now(),
                 severity="High",
@@ -357,7 +357,7 @@ class EnhancedNetworkCollector(BaseCollector):
             
             # FIXED: Create network event with ALL required fields populated
             return EventData(
-                event_type=EventType.NETWORK,
+                event_type="Network",
                 event_action=EventAction.CONNECT,
                 event_timestamp=datetime.now(),
                 severity="Info",
@@ -399,7 +399,7 @@ class EnhancedNetworkCollector(BaseCollector):
             
             # FIXED: Create network event with ALL required fields populated
             return EventData(
-                event_type=EventType.NETWORK,
+                event_type="Network",
                 event_action=EventAction.ACCESS,
                 event_timestamp=datetime.now(),
                 severity="Medium" if source_port in self.suspicious_ports else "Info",
@@ -436,7 +436,7 @@ class EnhancedNetworkCollector(BaseCollector):
             
             # FIXED: Create network event with ALL required fields populated (using defaults for summary)
             return EventData(
-                event_type=EventType.NETWORK,
+                event_type="Network",
                 event_action=EventAction.RESOURCE_USAGE,
                 event_timestamp=datetime.now(),
                 severity="Info",

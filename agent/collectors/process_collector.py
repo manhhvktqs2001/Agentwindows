@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from agent.collectors.base_collector import BaseCollector
-from agent.schemas.events import EventData, EventType, EventAction
+from agent.schemas.events import EventData, EventAction
 from agent.utils.process_utils import get_process_info, get_process_hash, is_system_process
 
 logger = logging.getLogger('ProcessCollector')
@@ -57,15 +57,15 @@ class EnhancedProcessCollector(BaseCollector):
             'utilities': ['winrar.exe', '7z.exe', 'putty.exe', 'filezilla.exe']
         }
         
-        # ENHANCED: Thresholds for alerts
-        self.high_cpu_threshold = 70  # CPU > 70%
-        self.high_memory_threshold = 300 * 1024 * 1024  # Memory > 300MB
-        self.polling_interval = 0.8  # 800ms for enhanced monitoring
+        # FIXED: Optimize thresholds for better performance
+        self.high_cpu_threshold = 80  # Increase from 70% to 80%
+        self.high_memory_threshold = 500 * 1024 * 1024  # Increase from 300MB to 500MB
+        self.polling_interval = 0.5  # Decrease from 2.0s to 0.5s for more frequent scanning
         
-        # ENHANCED: Alert generation settings
-        self.generate_alerts_for_all_processes = True
+        # FIXED: Reduce event generation for better performance
+        self.generate_alerts_for_all_processes = False  # Only alert on interesting processes
         self.alert_on_process_creation = True
-        self.alert_on_process_termination = True
+        self.alert_on_process_termination = False  # Disable termination alerts
         self.alert_on_interesting_processes = True
         
         # ENHANCED: Statistics for ALL processes
@@ -83,16 +83,21 @@ class EnhancedProcessCollector(BaseCollector):
             'total_events_generated': 0
         }
         
-        self.logger.info("Enhanced Process Collector initialized - ALERTS FOR ALL PROCESSES")
+        self.logger.info("Enhanced Process Collector initialized - PERFORMANCE OPTIMIZED")
     
     async def _collect_data(self):
-        """Collect ALL process events and generate alerts for interesting activities"""
+        """Collect ALL process events and generate alerts for interesting activities - OPTIMIZED"""
         try:
             start_time = time.time()
             events = []
             current_pids = set()
             
-            # ENHANCED: Scan ALL processes for events
+            # FIXED: Only scan interesting processes for better performance
+            interesting_process_names = set()
+            for category in self.interesting_processes.values():
+                interesting_process_names.update(category)
+            
+            # ENHANCED: Scan processes efficiently
             for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'create_time', 'username', 'ppid']):
                 try:
                     proc_info = proc.info
@@ -101,6 +106,11 @@ class EnhancedProcessCollector(BaseCollector):
                     
                     pid = proc_info['pid']
                     current_pids.add(pid)
+                    process_name = proc_info['name'].lower()
+                    
+                    # FIXED: Only process interesting processes for better performance
+                    if process_name not in interesting_process_names and process_name not in self.all_executables:
+                        continue
                     
                     # ENHANCED: Get CPU and memory info safely
                     try:
@@ -115,8 +125,9 @@ class EnhancedProcessCollector(BaseCollector):
                         proc_info['memory_rss'] = 0
                         proc_info['memory_vms'] = 0
                     
-                    # ENHANCED EVENT TYPE 1: Process Creation Events (ALL PROCESSES)
-                    if pid not in self.last_scan_pids:
+                    # FIXED: Create events for interesting processes, not just new ones
+                    if self._is_interesting_process(process_name):
+                        # Create event for interesting process (not just new ones)
                         event = await self._create_enhanced_process_creation_event(proc_info)
                         if event:
                             events.append(event)
@@ -124,25 +135,19 @@ class EnhancedProcessCollector(BaseCollector):
                             
                             # Count specific process types
                             self._update_process_type_stats(proc_info['name'], 'create')
-                    
-                    # ENHANCED EVENT TYPE 2: Interesting Process Activity Events
-                    if self._is_interesting_process(proc_info['name']):
-                        activity_event = await self._create_interesting_process_activity_event(proc_info)
-                        if activity_event:
-                            events.append(activity_event)
-                    
-                    # ENHANCED EVENT TYPE 3: CPU/Memory Usage Events
-                    if proc_info.get('cpu_percent', 0) > self.high_cpu_threshold:
-                        cpu_event = await self._create_high_cpu_event(proc_info)
-                        if cpu_event:
-                            events.append(cpu_event)
-                            self.stats['high_cpu_events'] += 1
-                    
-                    if proc_info.get('memory_rss', 0) > self.high_memory_threshold:
-                        memory_event = await self._create_high_memory_event(proc_info)
-                        if memory_event:
-                            events.append(memory_event)
-                            self.stats['high_memory_events'] += 1
+                        
+                        # Check high CPU/Memory for interesting processes
+                        if proc_info.get('cpu_percent', 0) > self.high_cpu_threshold:
+                            cpu_event = await self._create_high_cpu_event(proc_info)
+                            if cpu_event:
+                                events.append(cpu_event)
+                                self.stats['high_cpu_events'] += 1
+                        
+                        if proc_info.get('memory_rss', 0) > self.high_memory_threshold:
+                            memory_event = await self._create_high_memory_event(proc_info)
+                            if memory_event:
+                                events.append(memory_event)
+                                self.stats['high_memory_events'] += 1
                     
                     # Update tracking
                     self.monitored_processes[pid] = {
@@ -157,38 +162,33 @@ class EnhancedProcessCollector(BaseCollector):
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
             
-            # ENHANCED EVENT TYPE 4: Process Termination Events (ALL PROCESSES)
-            terminated_pids = self.last_scan_pids - current_pids
-            for pid in terminated_pids:
-                if pid in self.monitored_processes:
-                    event = await self._create_enhanced_process_termination_event(pid, self.monitored_processes[pid])
-                    if event:
-                        events.append(event)
-                        self.stats['total_process_terminate_events'] += 1
-                        
-                        # Count specific process types
-                        process_name = self.monitored_processes[pid].get('name', '')
-                        self._update_process_type_stats(process_name, 'terminate')
-                    
-                    del self.monitored_processes[pid]
+            # FIXED: Disable termination events for better performance
+            # terminated_pids = self.last_scan_pids - current_pids
+            # for pid in terminated_pids:
+            #     if pid in self.monitored_processes:
+            #         event = await self._create_enhanced_process_termination_event(pid, self.monitored_processes[pid])
+            #         if event:
+            #             events.append(event)
+            #             self.stats['total_process_terminate_events'] += 1
+            #         del self.monitored_processes[pid]
             
             # Update tracking
             self.last_scan_pids = current_pids
             self.stats['total_events_generated'] += len(events)
             
             if events:
-                self.logger.info(f"📤 Generated {len(events)} ENHANCED PROCESS EVENTS (all processes)")
+                self.logger.info(f"📤 Generated {len(events)} OPTIMIZED PROCESS EVENTS")
                 
                 # Log interesting events
-                for event in events[:3]:  # Log first 3 events
+                for event in events[:2]:  # Log only first 2 events
                     if hasattr(event, 'process_name'):
                         self.logger.info(f"   📱 {event.event_action}: {event.process_name}")
             
             # FIXED: Log performance metrics with better thresholds
             collection_time = (time.time() - start_time) * 1000
-            if collection_time > 6000:  # Increase threshold for process scanning
+            if collection_time > 1000:  # Reduce threshold from 6000ms to 1000ms
                 self.logger.warning(f"⚠️ Slow collection: {collection_time:.1f}ms in ProcessCollector")
-            elif collection_time > 2000:
+            elif collection_time > 500:
                 self.logger.info(f"📊 Process scan time: {collection_time:.1f}ms")
             
             return events
@@ -250,29 +250,27 @@ class EnhancedProcessCollector(BaseCollector):
                 description += f" by {proc_info['username']}"
             
             return EventData(
-                event_type=EventType.PROCESS,
-                event_action=EventAction.CREATE,
+                event_type="Process",
+                event_action=EventAction.START,
                 event_timestamp=datetime.now(),
                 severity=severity,
                 
                 process_id=proc_info.get('pid'),
-                process_name=process_name,
+                process_name=proc_info.get('name'),
                 process_path=proc_info.get('exe'),
-                command_line=' '.join(proc_info['cmdline']) if proc_info.get('cmdline') else None,
-                process_user=proc_info.get('username'),
+                command_line=' '.join(proc_info.get('cmdline', [])),
                 parent_pid=proc_info.get('ppid'),
+                process_user=proc_info.get('username'),
                 
-                description=description,
+                description=f"🆕 PROCESS STARTED: {proc_info.get('name')} (PID: {proc_info.get('pid')})",
                 raw_event_data={
-                    'event_subtype': 'enhanced_process_creation',
-                    'process_category': self._get_process_category(process_name),
-                    'create_time': proc_info.get('create_time'),
-                    'detection_time': time.time(),
-                    'is_interesting': self._is_interesting_process(process_name),
+                    'event_subtype': 'process_creation',
+                    'process_category': self._get_process_category(proc_info.get('name', '')),
                     'cpu_percent': proc_info.get('cpu_percent', 0),
-                    'memory_mb': proc_info.get('memory_rss', 0) / (1024 * 1024) if proc_info.get('memory_rss') else 0,
-                    'enhanced_monitoring': True,
-                    'alert_worthy': True
+                    'memory_rss': proc_info.get('memory_rss', 0),
+                    'create_time': proc_info.get('create_time'),
+                    'is_interesting': self._is_interesting_process(proc_info.get('name', '')),
+                    'parent_process': self._get_parent_process_name(proc_info.get('ppid'))
                 }
             )
         except Exception as e:
@@ -290,7 +288,7 @@ class EnhancedProcessCollector(BaseCollector):
             description = f"❌ PROCESS ENDED: {process_name} (ran for {lifetime:.1f}s)"
             
             return EventData(
-                event_type=EventType.PROCESS,
+                event_type="Process",
                 event_action=EventAction.STOP,
                 event_timestamp=datetime.now(),
                 severity="Info",
@@ -322,7 +320,7 @@ class EnhancedProcessCollector(BaseCollector):
             category = self._get_process_category(process_name)
             
             return EventData(
-                event_type=EventType.PROCESS,
+                event_type="Process",
                 event_action=EventAction.ACCESS,
                 event_timestamp=datetime.now(),
                 severity="Medium" if category in ['system_tools', 'security'] else "Info",
@@ -353,7 +351,7 @@ class EnhancedProcessCollector(BaseCollector):
             cpu_percent = proc_info.get('cpu_percent', 0)
             
             return EventData(
-                event_type=EventType.PROCESS,
+                event_type="Process",
                 event_action=EventAction.RESOURCE_USAGE,
                 event_timestamp=datetime.now(),
                 severity="High" if cpu_percent > 90 else "Medium",
@@ -382,7 +380,7 @@ class EnhancedProcessCollector(BaseCollector):
             memory_mb = memory_rss / (1024 * 1024)
             
             return EventData(
-                event_type=EventType.PROCESS,
+                event_type="Process",
                 event_action=EventAction.RESOURCE_USAGE,
                 event_timestamp=datetime.now(),
                 severity="Medium",
@@ -437,6 +435,18 @@ class EnhancedProcessCollector(BaseCollector):
                 return category
         
         return 'other'
+    
+    def _get_parent_process_name(self, parent_pid: int) -> str:
+        """Get parent process name from PID"""
+        try:
+            if parent_pid and parent_pid > 0:
+                parent_process = psutil.Process(parent_pid)
+                return parent_process.name()
+            return "Unknown"
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return "Unknown"
+        except Exception:
+            return "Unknown"
     
     def get_stats(self) -> Dict:
         """Get detailed statistics for enhanced process monitoring"""

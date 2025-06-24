@@ -5,8 +5,9 @@
 # AGENT CORE CONFIGURATION - SIMPLE MODE
 # ============================================================================
 agent:
-  name: "EDR-SecurityAgent-RuleBasedOnly"
-  version: "2.1.0-RuleBasedAlerts"
+  name: "EDR Agent"
+  version: "2.1.0"
+  description: "Enhanced EDR Agent with Rule-Based Alerts"
   environment: "production"
   
   # Rule-based alert processing only

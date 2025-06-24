@@ -29,27 +29,32 @@ class AgentManager:
     
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
+        self.config = config_manager.get_config()
         self.logger = logging.getLogger(__name__)
         
-        # Core components
-        self.communication: Optional[ServerCommunication] = None
-        self.event_processor: Optional[EventProcessor] = None
+        # Agent state
+        self.is_initialized = False
+        self.is_running = False
+        self.is_monitoring = False
+        self.is_paused = False  # NEW: Pause state
+        
+        # Agent identification
+        self.agent_id = None
+        self.is_registered = False
+        
+        # Communication and processing
+        self.communication = None
+        self.event_processor = None
         
         # Data collectors
-        self.collectors: Dict[str, Any] = {}
+        self.collectors = {}
         
-        # Agent state
-        self.agent_id: Optional[str] = None
-        self.is_registered = False
-        self.is_monitoring = False
-        self.last_heartbeat = None
-        self.start_time = datetime.now()
-        
-        # Configuration
-        self.config = self.config_manager.get_config()
-        
-        # Alert system settings
+        # Alert endpoints
         self.alert_endpoints_available = False
+        
+        # Performance tracking
+        self.start_time = None
+        self.last_heartbeat = None
     
     async def initialize(self):
         """Initialize agent manager and components"""
@@ -216,6 +221,7 @@ class AgentManager:
         try:
             self.logger.info("🛑 Stopping agent gracefully...")
             self.is_monitoring = False
+            self.is_running = False
             
             # Stop collectors first
             await self._stop_collectors()
@@ -236,6 +242,60 @@ class AgentManager:
         except Exception as e:
             self.logger.error(f"❌ Agent stop error: {e}")
     
+    async def pause(self):
+        """Pause agent monitoring"""
+        try:
+            if not self.is_paused:
+                self.is_paused = True
+                self.logger.info("⏸️  Agent monitoring PAUSED")
+                
+                # Pause all collectors
+                for name, collector in self.collectors.items():
+                    try:
+                        if hasattr(collector, 'pause'):
+                            await collector.pause()
+                        self.logger.debug(f"⏸️  Paused {name} collector")
+                    except Exception as e:
+                        self.logger.error(f"❌ Failed to pause {name} collector: {e}")
+                
+                # Send pause status to server
+                if self.is_registered:
+                    try:
+                        await self._send_heartbeat(status='Paused')
+                    except:
+                        pass
+        except Exception as e:
+            self.logger.error(f"❌ Agent pause error: {e}")
+    
+    async def resume(self):
+        """Resume agent monitoring"""
+        try:
+            if self.is_paused:
+                self.is_paused = False
+                self.logger.info("▶️  Agent monitoring RESUMED")
+                
+                # Resume all collectors
+                for name, collector in self.collectors.items():
+                    try:
+                        if hasattr(collector, 'resume'):
+                            await collector.resume()
+                        self.logger.debug(f"▶️  Resumed {name} collector")
+                    except Exception as e:
+                        self.logger.error(f"❌ Failed to resume {name} collector: {e}")
+                
+                # Send active status to server
+                if self.is_registered:
+                    try:
+                        await self._send_heartbeat(status='Active')
+                    except:
+                        pass
+        except Exception as e:
+            self.logger.error(f"❌ Agent resume error: {e}")
+    
+    def is_paused_state(self) -> bool:
+        """Check if agent is currently paused"""
+        return self.is_paused
+    
     async def _register_with_server(self):
         """Register agent with EDR server"""
         try:
@@ -251,7 +311,7 @@ class AgentManager:
                 operating_system=system_info['operating_system'],
                 os_version=system_info['os_version'],
                 architecture=system_info['architecture'],
-                agent_version=self.config.get('agent', {}).get('version', '1.0.0'),
+                agent_version='2.1.0',
                 mac_address=system_info.get('mac_address'),
                 domain=system_info.get('domain'),
                 install_path=str(Path(__file__).resolve().parent.parent.parent)

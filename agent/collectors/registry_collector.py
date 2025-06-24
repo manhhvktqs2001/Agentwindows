@@ -19,8 +19,8 @@ from datetime import datetime
 import subprocess
 
 from agent.collectors.base_collector import BaseCollector
-from agent.schemas.events import EventData, EventType, EventAction
-from agent.utils.registry_utils import get_registry_value, is_suspicious_registry_key
+from agent.schemas.events import EventData, EventAction
+from agent.utils.registry_utils import RegistryUtils, get_registry_value, is_suspicious_registry_key
 
 logger = logging.getLogger('RegistryCollector')
 
@@ -72,6 +72,7 @@ class EnhancedRegistryCollector(BaseCollector):
     async def _collect_data(self):
         """Collect registry data - Required by BaseCollector"""
         try:
+            start_time = time.time()
             if not WINREG_AVAILABLE:
                 return []
             
@@ -169,28 +170,26 @@ class EnhancedRegistryCollector(BaseCollector):
             registry_name = key_parts[-1] if key_parts else key_path
             
             event = EventData(
-                event_type=EventType.REGISTRY,
+                event_type="Registry",
                 event_action=action,
                 event_timestamp=datetime.now(),
                 severity=severity,
                 
-                # Registry details - FIXED: Use only server-compatible field names
                 registry_key=key_path,
-                registry_value_name=registry_name,  # Server expects this field
-                registry_value_data=str(registry_value) if registry_value else None,  # Server expects this field
+                registry_value_name=registry_name,
+                registry_value_data=str(registry_value) if registry_value else None,
+                registry_operation="read",
                 
-                # Additional context
-                description=f"Registry {action.lower()}: {key_path}"
+                description=f"🔧 REGISTRY ACCESS: {key_path}\\{registry_name}",
+                raw_event_data={
+                    'event_subtype': 'registry_access',
+                    'registry_hive': key_path.split('\\')[0] if '\\' in key_path else None,
+                    'value_type': type(registry_value).__name__ if registry_value else None,
+                    'value_size': len(str(registry_value)) if registry_value else 0,
+                    'is_system_key': is_suspicious_registry_key(key_path),
+                    'access_time': time.time()
+                }
             )
-            
-            # Add raw event data
-            event.raw_event_data = {
-                'key_path': key_path,
-                'value': registry_value,
-                'is_suspicious': is_suspicious_registry_key(key_path),
-                'hive': key_path.split('\\')[0] if '\\' in key_path else None,
-                'key_name': registry_name
-            }
             
             return event
             

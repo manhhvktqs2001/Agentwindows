@@ -5,7 +5,7 @@ Thu thập nhiều loại thông tin system và gửi events khác nhau cho serv
 """
 
 from agent.collectors.base_collector import BaseCollector
-from agent.schemas.events import EventData, EventType, EventAction, Severity
+from agent.schemas.events import EventData, EventAction
 import psutil
 from datetime import datetime
 import asyncio
@@ -203,7 +203,7 @@ class SystemCollector(BaseCollector):
             severity = self._calculate_system_severity(metrics)
             
             return EventData(
-                event_type=EventType.SYSTEM,
+                event_type="System",
                 event_action=EventAction.RESOURCE_USAGE,
                 event_timestamp=datetime.now(),
                 severity=severity,
@@ -212,11 +212,17 @@ class SystemCollector(BaseCollector):
                 memory_usage=metrics.get('memory_percent'),
                 disk_usage=metrics.get('disk_percent'),
                 
-                description=f"📊 SYSTEM METRICS: CPU {metrics.get('cpu_percent', 0):.1f}% | Memory {metrics.get('memory_percent', 0):.1f}% | Disk {metrics.get('disk_percent', 0):.1f}%",
+                description=f"💻 SYSTEM RESOURCES: CPU {metrics.get('cpu_percent', 0):.1f}%, RAM {metrics.get('memory_percent', 0):.1f}%, Disk {metrics.get('disk_percent', 0):.1f}%",
                 raw_event_data={
-                    'event_subtype': 'system_metrics_summary',
-                    'metrics': metrics,
-                    'system_health_score': self._calculate_health_score(metrics)
+                    'event_subtype': 'system_resource_usage',
+                    'cpu_count': psutil.cpu_count(),
+                    'memory_total_gb': metrics.get('memory_total', 0) / (1024**3),
+                    'memory_available_gb': metrics.get('memory_available', 0) / (1024**3),
+                    'disk_total_gb': metrics.get('disk_total', 0) / (1024**3),
+                    'disk_free_gb': metrics.get('disk_free', 0) / (1024**3),
+                    'system_load': metrics.get('load_average') if hasattr(psutil, 'getloadavg') else None,
+                    'boot_time': metrics.get('boot_time'),
+                    'collection_time': time.time()
                 }
             )
         except Exception as e:
@@ -231,13 +237,13 @@ class SystemCollector(BaseCollector):
             
             if cpu_percent > self.cpu_critical_threshold:
                 event = EventData(
-                    event_type=EventType.SYSTEM,
+                    event_type="System",
                     event_action=EventAction.CPU_SPIKE,
                     event_timestamp=datetime.now(),
                     severity="Critical",
                     
                     cpu_usage=cpu_percent,
-                    description=f"🔥 CRITICAL CPU USAGE: {cpu_percent:.1f}% (Critical threshold: {self.cpu_critical_threshold}%)",
+                    description=f"🚨 CRITICAL CPU USAGE: {cpu_percent:.1f}% (Critical threshold: {self.cpu_critical_threshold}%)",
                     raw_event_data={
                         'event_subtype': 'critical_cpu_usage',
                         'cpu_percent': cpu_percent,
@@ -250,7 +256,7 @@ class SystemCollector(BaseCollector):
                 
             elif cpu_percent > self.cpu_high_threshold:
                 event = EventData(
-                    event_type=EventType.SYSTEM,
+                    event_type="System",
                     event_action=EventAction.RESOURCE_USAGE,
                     event_timestamp=datetime.now(),
                     severity="High",
@@ -280,7 +286,7 @@ class SystemCollector(BaseCollector):
             
             if memory_percent > self.memory_critical_threshold:
                 event = EventData(
-                    event_type=EventType.SYSTEM,
+                    event_type="System",
                     event_action=EventAction.MEMORY_LEAK,
                     event_timestamp=datetime.now(),
                     severity="Critical",
@@ -300,7 +306,7 @@ class SystemCollector(BaseCollector):
                 
             elif memory_percent > self.memory_high_threshold:
                 event = EventData(
-                    event_type=EventType.SYSTEM,
+                    event_type="System",
                     event_action=EventAction.RESOURCE_USAGE,
                     event_timestamp=datetime.now(),
                     severity="High",
@@ -329,7 +335,7 @@ class SystemCollector(BaseCollector):
             
             if disk_percent > self.disk_critical_threshold:
                 event = EventData(
-                    event_type=EventType.SYSTEM,
+                    event_type="System",
                     event_action=EventAction.RESOURCE_USAGE,
                     event_timestamp=datetime.now(),
                     severity="Critical",
@@ -349,7 +355,7 @@ class SystemCollector(BaseCollector):
                 
             elif disk_percent > self.disk_high_threshold:
                 event = EventData(
-                    event_type=EventType.SYSTEM,
+                    event_type="System",
                     event_action=EventAction.RESOURCE_USAGE,
                     event_timestamp=datetime.now(),
                     severity="High",
@@ -379,7 +385,7 @@ class SystemCollector(BaseCollector):
             # Alert if process count is unusually high (> 300 processes)
             if process_count > 300:
                 event = EventData(
-                    event_type=EventType.SYSTEM,
+                    event_type="System",
                     event_action=EventAction.RESOURCE_USAGE,
                     event_timestamp=datetime.now(),
                     severity="Medium",
@@ -408,7 +414,7 @@ class SystemCollector(BaseCollector):
             
             if health_score < 30:  # Poor system health
                 event = EventData(
-                    event_type=EventType.SYSTEM,
+                    event_type="System",
                     event_action=EventAction.ANOMALY_DETECTED,
                     event_timestamp=datetime.now(),
                     severity="High",
@@ -438,7 +444,7 @@ class SystemCollector(BaseCollector):
             uptime = metrics.get('uptime_seconds', 0)
             
             return EventData(
-                event_type=EventType.SYSTEM,
+                event_type="System",
                 event_action=EventAction.SYSTEM_BOOT,
                 event_timestamp=datetime.now(),
                 severity="Info",
@@ -478,7 +484,7 @@ class SystemCollector(BaseCollector):
             
             if len(running_services) > 0:
                 event = EventData(
-                    event_type=EventType.SYSTEM,
+                    event_type="System",
                     event_action=EventAction.ACCESS,
                     event_timestamp=datetime.now(),
                     severity="Info",
@@ -511,7 +517,7 @@ class SystemCollector(BaseCollector):
                     for sensor in sensor_list:
                         if sensor.current and sensor.current > 75:  # High temperature
                             event = EventData(
-                                event_type=EventType.SYSTEM,
+                                event_type="System",
                                 event_action=EventAction.RESOURCE_USAGE,
                                 event_timestamp=datetime.now(),
                                 severity="High" if sensor.current > 85 else "Medium",
@@ -547,7 +553,7 @@ class SystemCollector(BaseCollector):
                 
                 if load_per_core > 2.0:  # High load (> 2.0 per core)
                     event = EventData(
-                        event_type=EventType.SYSTEM,
+                        event_type="System",
                         event_action=EventAction.SYSTEM_LOAD,
                         event_timestamp=datetime.now(),
                         severity="High" if load_per_core > 3.0 else "Medium",
@@ -629,7 +635,7 @@ class SystemCollector(BaseCollector):
             'current_health_score': self._calculate_health_score(self._get_current_metrics_summary()),
             'multiple_event_types': True,
             'system_event_types_generated': [
-                'system_metrics_summary', 'critical_cpu_usage', 'high_cpu_usage',
+                'system_resource_usage', 'critical_cpu_usage', 'high_cpu_usage',
                 'critical_memory_usage', 'high_memory_usage', 'critical_disk_usage',
                 'high_disk_usage', 'high_process_count', 'poor_system_health',
                 'system_boot', 'service_status_check', 'high_temperature', 'high_system_load'

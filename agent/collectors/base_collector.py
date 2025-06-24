@@ -133,12 +133,45 @@ class BaseCollector(ABC):
         except Exception as e:
             self.logger.error(f"❌ {self.collector_name} stop error: {e}")
     
+    async def pause(self):
+        """Pause the collector"""
+        try:
+            if self.is_running and not self._paused:
+                self._paused = True
+                self.logger.info(f"⏸️  {self.collector_name} paused")
+        except Exception as e:
+            self.logger.error(f"❌ {self.collector_name} pause error: {e}")
+    
+    async def resume(self):
+        """Resume the collector"""
+        try:
+            if self.is_running and self._paused:
+                self._paused = False
+                self.logger.info(f"▶️  {self.collector_name} resumed")
+        except Exception as e:
+            self.logger.error(f"❌ {self.collector_name} resume error: {e}")
+    
+    @property
+    def _paused(self):
+        """Get pause state"""
+        return getattr(self, '_collector_paused', False)
+    
+    @_paused.setter
+    def _paused(self, value):
+        """Set pause state"""
+        self._collector_paused = value
+    
     async def _continuous_collection_loop(self):
         """Continuous collection loop for immediate data sending"""
         self.logger.info(f"🔄 Starting continuous collection loop: {self.collector_name}")
         
         while self.is_running:
             try:
+                # Check if collector is paused
+                if self._paused:
+                    await asyncio.sleep(0.1)
+                    continue
+                
                 if self._collecting:
                     await asyncio.sleep(0.001)
                     continue
@@ -188,16 +221,17 @@ class BaseCollector(ABC):
                         self._error_backoff = 1
                     
                     # Log performance if collection is slow
-                    if collection_time > 0.1:  # 100ms threshold
-                        current_time = time.time()
-                        if current_time - self._last_performance_log > 30:  # Log every 30 seconds
-                            self.logger.warning(f"⚠️ Slow collection: {collection_time*1000:.1f}ms in {self.collector_name}")
-                            self._last_performance_log = current_time
+                    if collection_time > 5000:  # Increase from 2000ms to 5000ms
+                        self.logger.warning(f"⚠️ Slow collection: {collection_time:.1f}ms in {self.collector_name}")
+                    
+                    # FIXED: Increase timeout threshold
+                    if collection_time > 10000:  # Increase from 5000ms to 10000ms
+                        self.logger.error(f"⏰ Collection timeout: {collection_time:.1f}ms in {self.collector_name}")
                     
                     # Dynamic polling interval based on activity
                     if events_processed > 0:
-                        # Fast polling when there's activity
-                        await asyncio.sleep(0.1)
+                        # Use polling_interval even when there's activity
+                        await asyncio.sleep(self.polling_interval)
                     else:
                         # Normal polling when quiet
                         await asyncio.sleep(self.polling_interval)
@@ -230,11 +264,8 @@ class BaseCollector(ABC):
                 self.events_sent += 1
                 self.events_collected += 1
                 
-                # Log significant events
-                if event_data.severity in ['High', 'Critical']:
-                    self.logger.info(f"🚨 HIGH PRIORITY EVENT: {event_data.event_type} - {event_data.event_action}")
-                else:
-                    self.logger.debug(f"📤 Event sent: {event_data.event_type} - {event_data.event_action}")
+                # Log significant events - REMOVED HIGH PRIORITY LOG
+                self.logger.debug(f"📤 Event sent: {event_data.event_type} - {event_data.event_action}")
             else:
                 self.logger.warning("⚠️ Event processor not available")
                 self.collection_errors += 1
@@ -399,4 +430,4 @@ class BaseCollector(ABC):
     
     async def start_monitoring(self):
         """Start monitoring - alias for start method"""
-        await self.start()
+        await self.start() 

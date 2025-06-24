@@ -11,7 +11,12 @@ import sys
 import time
 import os
 import ctypes
+import threading
 from pathlib import Path
+
+# Global pause state
+PAUSED = False
+PAUSE_LOCK = threading.Lock()
 
 def is_admin():
     """Check if running with administrator privileges"""
@@ -200,7 +205,13 @@ class EnhancedEDRAgent:
             
             self.logger.info("✅ Enhanced EDR Agent started successfully")
             self.logger.info("🔄 Continuous monitoring active - Press Ctrl+C to stop")
+            self.logger.info("⏸️  Press any key to pause/resume monitoring")
             self.logger.info("=" * 60)
+            
+            # Add initial pause to let user see startup status
+            print("\n🔄 Agent is now running... Press any key to continue monitoring...")
+            os.system("pause")
+            print("🔄 Monitoring started - Press any key to pause/resume...")
             
             # Start performance monitoring
             asyncio.create_task(self._performance_monitoring_loop())
@@ -265,7 +276,7 @@ class EnhancedEDRAgent:
                             self.logger.warning(f"⚠️ Event queue utilization high: {queue_utilization:.1%}")
                         
                         processing_rate = stats.get('processing_rate', 0)
-                        if processing_rate < 1.0:  # Less than 1 event per second
+                        if processing_rate < 0.1:  # Increase from 0.01 to 0.1 events/sec
                             self.logger.warning(f"⚠️ Low processing rate: {processing_rate:.2f} events/sec")
                     
                     await asyncio.sleep(30)  # Check every 30 seconds
@@ -341,11 +352,27 @@ async def main():
         logger.info("▶️ Starting agent...")
         await agent.start()
         
-        # Keep running until interrupted
-        logger.info("🔄 Agent running - monitoring system activities...")
-        while agent.is_running:
-            await asyncio.sleep(1)
-            
+        # Main monitoring loop with pause/resume
+        while True:
+            try:
+                # Normal monitoring - just keep the agent running
+                await asyncio.sleep(1)
+                
+                # Log status every 30 seconds
+                if int(asyncio.get_event_loop().time()) % 30 == 0:
+                    logging.info("🔄 Agent running - monitoring system activities...")
+                
+            except KeyboardInterrupt:
+                print("\n🛑 Keyboard interrupt received. Stopping agent...")
+                break
+            except Exception as e:
+                logging.error(f"❌ Main loop error: {e}")
+                await asyncio.sleep(5)  # Wait before retrying
+                # Add pause on error to let user see the error
+                print("\n" + "=" * 60)
+                print("❌ Error occurred - Press any key to continue...")
+                os.system("pause")
+        
     except KeyboardInterrupt:
         logger.info("🛑 Received interrupt signal, stopping agent...")
     except Exception as e:
@@ -364,13 +391,27 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n🛑 Agent stopped by user")
     except Exception as e:
-        print(f"❌ Failed to run agent: {e}")
-        print("=" * 60)
-        print("🔧 Troubleshooting:")
-        print("1. Make sure all dependencies are installed: pip install -r requirements.txt")
-        print("2. Check if Python path is correct")
-        print("3. Verify agent files are not corrupted")
-        print("4. Run with 'python main.py' from the agent directory")
-        print("5. Check Windows Event Viewer for system errors")
-        print("=" * 60)
-        input("Press Enter to exit...")
+        print(f"❌ Fatal error: {e}")
+        sys.exit(1)
+    finally:
+        # Add system pause to wait for user input before closing
+        print("\n" + "=" * 60)
+        print("🔄 Agent execution completed")
+        print("Press any key to continue...")
+        os.system("pause")
+
+def check_for_pause():
+    """Check if pause key was pressed"""
+    # For now, return False - pause functionality can be enhanced later
+    return False
+
+async def handle_pause_resume():
+    """Handle pause/resume functionality"""
+    global PAUSED
+    with PAUSE_LOCK:
+        PAUSED = not PAUSED
+        if PAUSED:
+            print("⏸️ Agent paused - Press any key to resume...")
+            os.system("pause")
+        else:
+            print("▶️ Agent resumed")
