@@ -179,23 +179,20 @@ class ServerCommunication:
         
         # Send queued events
         if self.offline_events_queue:
-        self.logger.info(f"📤 Sending {len(self.offline_events_queue)} queued events...")
-        
-        events_to_send = self.offline_events_queue.copy()
-        self.offline_events_queue.clear()
-        
-        sent_count = 0
-        for event_data in events_to_send:
-            try:
-                response = await self._make_request_with_retry('POST', f"{self.base_url}/api/v1/events/submit", event_data)
-                if response:
-                    sent_count += 1
-                else:
+            self.logger.info(f"📤 Sending {len(self.offline_events_queue)} queued events...")
+            events_to_send = self.offline_events_queue.copy()
+            self.offline_events_queue.clear()
+            sent_count = 0
+            for event_data in events_to_send:
+                try:
+                    response = await self._make_request_with_retry('POST', f"{self.base_url}/api/v1/events/submit", event_data)
+                    if response:
+                        sent_count += 1
+                    else:
+                        self.offline_events_queue.append(event_data)
+                except:
                     self.offline_events_queue.append(event_data)
-            except:
-                self.offline_events_queue.append(event_data)
-        
-        self.logger.info(f"✅ Sent {sent_count}/{len(events_to_send)} queued events")
+            self.logger.info(f"✅ Sent {sent_count}/{len(events_to_send)} queued events")
         
         # Send queued acknowledgments
         await self.send_queued_acknowledgments()

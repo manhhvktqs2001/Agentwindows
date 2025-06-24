@@ -21,32 +21,32 @@ class SystemCollector(BaseCollector):
     def __init__(self, config_manager):
         super().__init__(config_manager, "SystemCollector")
         
-        # MULTIPLE EVENTS: System tracking with history
-        self.cpu_history = deque(maxlen=60)  # 10 minutes at 10s intervals
-        self.memory_history = deque(maxlen=60)
-        self.disk_history = deque(maxlen=60)
-        self.network_history = deque(maxlen=60)
-        self.process_count_history = deque(maxlen=60)
+        # FIXED: Optimize performance settings
+        self.cpu_history = deque(maxlen=30)  # Reduce from 60
+        self.memory_history = deque(maxlen=30)
+        self.disk_history = deque(maxlen=30)
+        self.network_history = deque(maxlen=30)
+        self.process_count_history = deque(maxlen=30)
         
-        # MULTIPLE EVENTS: Performance thresholds for different events
-        self.cpu_high_threshold = 75
-        self.cpu_critical_threshold = 90
-        self.memory_high_threshold = 80
-        self.memory_critical_threshold = 90
-        self.disk_high_threshold = 85
-        self.disk_critical_threshold = 95
+        # FIXED: Optimize performance thresholds
+        self.cpu_high_threshold = 80  # Increase from 75
+        self.cpu_critical_threshold = 95  # Increase from 90
+        self.memory_high_threshold = 85  # Increase from 80
+        self.memory_critical_threshold = 95  # Increase from 90
+        self.disk_high_threshold = 90  # Increase from 85
+        self.disk_critical_threshold = 98  # Increase from 95
         
-        # MULTIPLE EVENTS: System monitoring settings
-        self.polling_interval = 2  # 2 seconds for continuous system monitoring
+        # FIXED: Optimize polling intervals
+        self.polling_interval = 10  # Increase from 2 seconds
         self.send_regular_metrics = True
-        self.metrics_send_interval = 8  # Send regular metrics every 8 seconds
+        self.metrics_send_interval = 30  # Increase from 8 seconds
         self.last_metrics_send = 0
         
-        # MULTIPLE EVENTS: Event categories
+        # FIXED: Reduce event frequency
         self.boot_events_sent = False
         self.system_alerts = []
         
-        # MULTIPLE EVENTS: Statistics
+        # Statistics
         self.stats = {
             'cpu_usage_events': 0,
             'memory_usage_events': 0,
@@ -60,10 +60,10 @@ class SystemCollector(BaseCollector):
             'total_system_events': 0
         }
         
-        self.logger.info("Enhanced System Collector initialized for MULTIPLE SYSTEM EVENT TYPES")
+        self.logger.info("Enhanced System Collector initialized - PERFORMANCE OPTIMIZED")
     
     async def _collect_data(self):
-        """Collect multiple types of system events"""
+        """Collect multiple types of system events - PERFORMANCE OPTIMIZED"""
         try:
             collection_start = time.time()
             events = []
@@ -71,7 +71,7 @@ class SystemCollector(BaseCollector):
             # Collect current system metrics
             current_metrics = await self._collect_current_system_metrics()
             
-            # EVENT TYPE 1: Regular System Metrics (every N seconds)
+            # FIXED: Reduce event frequency - only send critical events
             current_time = time.time()
             if (current_time - self.last_metrics_send) >= self.metrics_send_interval:
                 metrics_event = await self._create_system_metrics_event(current_metrics)
@@ -80,27 +80,27 @@ class SystemCollector(BaseCollector):
                     self.stats['system_performance_events'] += 1
                     self.last_metrics_send = current_time
             
-            # EVENT TYPE 2: CPU Usage Events (threshold-based)
+            # FIXED: Only check critical thresholds
             cpu_events = await self._check_cpu_usage_events(current_metrics)
             events.extend(cpu_events)
             
-            # EVENT TYPE 3: Memory Usage Events (threshold-based)
             memory_events = await self._check_memory_usage_events(current_metrics)
             events.extend(memory_events)
             
-            # EVENT TYPE 4: Disk Usage Events (threshold-based)
-            disk_events = await self._check_disk_usage_events(current_metrics)
-            events.extend(disk_events)
+            # FIXED: Reduce disk and process checks
+            if self.stats['total_system_events'] % 5 == 0:  # Every 5 scans
+                disk_events = await self._check_disk_usage_events(current_metrics)
+                events.extend(disk_events)
+                
+                process_events = await self._check_process_count_events(current_metrics)
+                events.extend(process_events)
             
-            # EVENT TYPE 5: Process Count Events
-            process_events = await self._check_process_count_events(current_metrics)
-            events.extend(process_events)
+            # FIXED: Reduce health checks
+            if self.stats['total_system_events'] % 10 == 0:  # Every 10 scans
+                health_events = await self._check_system_health_events(current_metrics)
+                events.extend(health_events)
             
-            # EVENT TYPE 6: System Health Events (based on trends)
-            health_events = await self._check_system_health_events(current_metrics)
-            events.extend(health_events)
-            
-            # EVENT TYPE 7: Boot/Uptime Events (once per boot)
+            # Boot event (once per boot)
             if not self.boot_events_sent:
                 boot_event = await self._create_system_boot_event(current_metrics)
                 if boot_event:
@@ -108,18 +108,18 @@ class SystemCollector(BaseCollector):
                     self.stats['boot_events'] += 1
                     self.boot_events_sent = True
             
-            # EVENT TYPE 8: Service Status Events (periodic)
-            if self.stats['total_system_events'] % 25 == 0:  # Every 25 scans
+            # FIXED: Reduce service and hardware checks
+            if self.stats['total_system_events'] % 50 == 0:  # Every 50 scans
                 service_events = await self._check_service_status_events()
                 events.extend(service_events)
+                
+                temp_events = await self._check_temperature_events()
+                events.extend(temp_events)
             
-            # EVENT TYPE 9: Hardware Temperature Events (if available)
-            temp_events = await self._check_temperature_events()
-            events.extend(temp_events)
-            
-            # EVENT TYPE 10: System Load Events
-            load_events = await self._check_system_load_events(current_metrics)
-            events.extend(load_events)
+            # FIXED: Reduce load checks
+            if self.stats['total_system_events'] % 15 == 0:  # Every 15 scans
+                load_events = await self._check_system_load_events(current_metrics)
+                events.extend(load_events)
             
             # Update history
             self._update_system_history(current_metrics)
@@ -129,6 +129,13 @@ class SystemCollector(BaseCollector):
             
             if events:
                 self.logger.info(f"📤 Generated {len(events)} MULTIPLE SYSTEM EVENTS for continuous sending")
+            
+            # FIXED: Log performance metrics with better thresholds
+            collection_time = (time.time() - collection_start) * 1000
+            if collection_time > 5000:  # Increase from 1000ms to 5000ms
+                self.logger.warning(f"⚠️ Slow collection: {collection_time:.1f}ms in SystemCollector")
+            elif collection_time > 2000:
+                self.logger.info(f"📊 Collection time: {collection_time:.1f}ms in SystemCollector")
             
             return events
             

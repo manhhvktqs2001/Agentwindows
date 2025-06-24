@@ -165,6 +165,9 @@ class SimpleEventProcessor:
         Chỉ gửi event, không tự tạo alert
         """
         try:
+            # FIXED: Update stats immediately
+            self.stats.events_collected += 1
+            
             if self.agent_id and self.communication:
                 # Gửi event lên server ngay lập tức
                 success = await self._send_event_to_server(event_data)
@@ -179,8 +182,7 @@ class SimpleEventProcessor:
                     self._safe_log("warning", f"Event queued for retry: {event_data.event_type}")
             else:
                 self._safe_log("error", "Cannot send event - agent_id or communication not available")
-            
-            self.stats.events_collected += 1
+                self.stats.events_failed += 1
             
         except Exception as e:
             self._safe_log("error", f"Failed to process event: {e}")
@@ -188,7 +190,7 @@ class SimpleEventProcessor:
     
     async def _send_event_to_server(self, event_data: EventData) -> bool:
         """
-        GỬI EVENT LÊN SERVER VÀ CHỜ RULE VIOLATION RESPONSE
+        GỬI EVENT LÊN SERVER VÀ CHỜ RULE VIOLATION RESPONSE - FIXED VERSION
         Chỉ hiển thị alert khi server phát hiện vi phạm rule
         """
         try:
@@ -200,28 +202,49 @@ class SimpleEventProcessor:
                 if not hasattr(event_data, 'event_timestamp') or not event_data.event_timestamp:
                     event_data.event_timestamp = datetime.now()
                 
-                # Send event to server
-                start_time = time.time()
-                response = await self.communication.submit_event(event_data)
-                send_time = (time.time() - start_time) * 1000  # Convert to ms
-                
-                if response:
-                    self.stats.events_sent += 1
-                    self.stats.last_event_sent = datetime.now()
-                    self._consecutive_failures = 0
-                    self._last_successful_send = time.time()
+                # FIXED: Add retry logic for event submission
+                max_retries = 2
+                for attempt in range(max_retries):
+                    try:
+                        # Send event to server
+                        start_time = time.time()
+                        response = await self.communication.submit_event(event_data)
+                        send_time = (time.time() - start_time) * 1000  # Convert to ms
+                        
+                        if response:
+                            self.stats.events_sent += 1
+                            self.stats.last_event_sent = datetime.now()
+                            self._consecutive_failures = 0
+                            self._last_successful_send = time.time()
+                            
+                            self._safe_log("debug", f"📤 Event sent: {event_data.event_type} - {event_data.event_action} ({send_time:.1f}ms)")
+                            
+                            # XỬ LÝ RESPONSE TỪ SERVER - CHỈ HIỂN THỊ KHI CÓ RULE VIOLATION
+                            await self._process_server_response_simple(response, event_data)
+                            return True
+                        else:
+                            if attempt < max_retries - 1:
+                                self._safe_log("warning", f"⚠️ Event send failed, retrying... (attempt {attempt + 1}/{max_retries})")
+                                await asyncio.sleep(1)  # Wait 1 second before retry
+                                continue
+                            else:
+                                self.stats.events_failed += 1
+                                self._send_errors += 1
+                                self._consecutive_failures += 1
+                                self._safe_log("debug", f"❌ Event send failed after {max_retries} attempts: {event_data.event_type}")
+                                return False
                     
-                    self._safe_log("debug", f"📤 Event sent: {event_data.event_type} - {event_data.event_action} ({send_time:.1f}ms)")
-                    
-                    # XỬ LÝ RESPONSE TỪ SERVER - CHỈ HIỂN THỊ KHI CÓ RULE VIOLATION
-                    await self._process_server_response_simple(response, event_data)
-                    return True
-                else:
-                    self.stats.events_failed += 1
-                    self._send_errors += 1
-                    self._consecutive_failures += 1
-                    self._safe_log("debug", f"❌ Event send failed: {event_data.event_type}")
-                    return False
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            self._safe_log("warning", f"⚠️ Event send error, retrying... (attempt {attempt + 1}/{max_retries}): {e}")
+                            await asyncio.sleep(1)
+                            continue
+                        else:
+                            self._safe_log("error", f"❌ Event send failed after {max_retries} attempts: {e}")
+                            self.stats.events_failed += 1
+                            self._send_errors += 1
+                            self._consecutive_failures += 1
+                            return False
         
         except Exception as e:
             self._safe_log("error", f"❌ Event send failed: {e}")
@@ -413,7 +436,7 @@ class SimpleEventProcessor:
             self._safe_log("error", f"❌ Flush failed events error: {e}")
     
     async def _stats_logging_loop(self):
-        """Statistics logging loop"""
+        """Statistics logging loop - FIXED VERSION"""
         try:
             while self.is_running:
                 try:
@@ -422,13 +445,24 @@ class SimpleEventProcessor:
                     if int(current_time) % 60 == 0:
                         stats = self.get_stats()
                         
-                        self._safe_log("info", 
-                            f"📊 Simple Event Processor Stats - "
-                            f"Sent: {stats['events_sent']}, "
-                            f"Failed: {stats['events_failed']}, "
-                            f"Rule Violations: {stats['rule_violations_received']}, "
-                            f"Rule Alerts: {stats['rule_alerts_displayed']}, "
-                            f"Rate: {stats['processing_rate']:.2f}/s")
+                        # FIXED: Better processing rate calculation
+                        processing_rate = stats.get('processing_rate', 0)
+                        events_sent = stats.get('events_sent', 0)
+                        events_failed = stats.get('events_failed', 0)
+                        success_rate = stats.get('success_rate', 0)
+                        
+                        # FIXED: Only show warning if really low rate
+                        if processing_rate < 0.01 and events_sent == 0:
+                            self._safe_log("warning", f"⚠️ Low processing rate: {processing_rate:.2f} events/sec - No events sent")
+                        elif processing_rate < 0.1:
+                            self._safe_log("info", f"📊 Low processing rate: {processing_rate:.2f} events/sec - Check server connection")
+                        else:
+                            self._safe_log("info", 
+                                f"📊 Event Processor Stats - "
+                                f"Sent: {events_sent}, "
+                                f"Failed: {events_failed}, "
+                                f"Success Rate: {success_rate:.1f}%, "
+                                f"Rate: {processing_rate:.2f}/s")
                     
                     await asyncio.sleep(30)  # Check every 30 seconds
                     

@@ -92,45 +92,41 @@ class SimpleRuleBasedAlertNotifier:
         try:
             # CHỈ XỬ LÝ KHI SERVER GỬI ALERTS
             rule_alerts = []
-            
             # Case 1: Server gửi alerts_generated
             if 'alerts_generated' in server_response and server_response['alerts_generated']:
-                rule_alerts = server_response['alerts_generated']
-                self.logger.warning(f"🚨 SERVER RULE VIOLATION: {len(rule_alerts)} alerts received")
-            
+                rule_alerts = [alert for alert in server_response['alerts_generated'] if alert.get('rule_violation') and alert.get('server_generated')]
+                self.logger.warning(f"🚨 SERVER RULE VIOLATION: {len(rule_alerts)} valid alerts received")
             # Case 2: Server gửi alerts array
             elif 'alerts' in server_response and server_response['alerts']:
-                rule_alerts = server_response['alerts']
-                self.logger.warning(f"🚨 SERVER RULE VIOLATION: {len(rule_alerts)} alerts received")
-            
+                rule_alerts = [alert for alert in server_response['alerts'] if alert.get('rule_violation') and alert.get('server_generated')]
+                self.logger.warning(f"🚨 SERVER RULE VIOLATION: {len(rule_alerts)} valid alerts received")
             # Case 3: Server phát hiện threat với rule
             elif server_response.get('threat_detected', False) and server_response.get('rule_triggered'):
-                rule_alert = {
-                    'id': f'rule_alert_{int(time.time())}',
-                    'alert_id': f'rule_alert_{int(time.time())}',
-                    'rule_id': server_response.get('rule_id'),
-                    'rule_name': server_response.get('rule_triggered'),
-                    'rule_description': server_response.get('rule_description', ''),
-                    'title': f'Security Rule Violation: {server_response.get("rule_triggered")}',
-                    'description': server_response.get('threat_description', 'Security rule violation detected'),
-                    'severity': self._map_risk_to_severity(server_response.get('risk_score', 50)),
-                    'risk_score': server_response.get('risk_score', 50),
-                    'detection_method': 'Server Rule Engine',
-                    'mitre_technique': server_response.get('mitre_technique'),
-                    'mitre_tactic': server_response.get('mitre_tactic'),
-                    'event_id': server_response.get('event_id'),
-                    'timestamp': datetime.now().isoformat(),
-                    'server_generated': True,
-                    'rule_violation': True
-                }
-                rule_alerts = [rule_alert]
-                self.logger.warning(f"🚨 SERVER RULE TRIGGERED: {server_response.get('rule_triggered')}")
-            
+                if server_response.get('rule_violation') and server_response.get('server_generated'):
+                    rule_alert = {
+                        'id': f'rule_alert_{int(time.time())}',
+                        'alert_id': f'rule_alert_{int(time.time())}',
+                        'rule_id': server_response.get('rule_id'),
+                        'rule_name': server_response.get('rule_triggered'),
+                        'rule_description': server_response.get('rule_description', ''),
+                        'title': f'Security Rule Violation: {server_response.get("rule_triggered")}',
+                        'description': server_response.get('threat_description', 'Security rule violation detected'),
+                        'severity': self._map_risk_to_severity(server_response.get('risk_score', 50)),
+                        'risk_score': server_response.get('risk_score', 50),
+                        'detection_method': 'Server Rule Engine',
+                        'mitre_technique': server_response.get('mitre_technique'),
+                        'mitre_tactic': server_response.get('mitre_tactic'),
+                        'event_id': server_response.get('event_id'),
+                        'timestamp': datetime.now().isoformat(),
+                        'server_generated': True,
+                        'rule_violation': True
+                    }
+                    rule_alerts = [rule_alert]
+                    self.logger.warning(f"🚨 SERVER RULE TRIGGERED: {server_response.get('rule_triggered')}")
             # CHỈ XỬ LÝ NẾU CÓ RULE ALERTS TỪ SERVER
             if rule_alerts:
                 self.rule_alerts_received += len(rule_alerts)
                 self.last_rule_alert_time = datetime.now()
-                
                 # Hiển thị từng rule alert
                 for alert in rule_alerts:
                     success = await self._display_rule_alert(alert)
@@ -139,8 +135,7 @@ class SimpleRuleBasedAlertNotifier:
                         self.rule_alerts_displayed += 1
             else:
                 # KHÔNG CÓ RULE VIOLATION - KHÔNG HIỂN THỊ GÌ
-                self.logger.debug("✅ No rule violations detected by server - no alerts to display")
-                
+                self.logger.info("✅ No valid rule violation alerts from server - nothing to display")
         except Exception as e:
             self.logger.error(f"❌ Error processing server rule alerts: {e}")
             traceback.print_exc()
@@ -581,6 +576,96 @@ $balloon.Dispose()
             await self._display_rule_alert(notification)
         else:
             self.logger.debug("🔒 Non-rule notification ignored - server rule alerts only mode")
+
+    def display_alert(self, alert_data: Dict) -> bool:
+        """
+        Hiển thị alert cảnh báo - FIXED VERSION
+        """
+        try:
+            # FIXED: Better alert validation
+            if not alert_data or not isinstance(alert_data, dict):
+                self.logger.warning("⚠️ Invalid alert data received")
+                return False
+            
+            # FIXED: Extract alert information with better error handling
+            try:
+                alert_id = alert_data.get('alert_id', 'Unknown')
+                alert_type = alert_data.get('alert_type', 'Unknown')
+                severity = alert_data.get('severity', 'Medium')
+                message = alert_data.get('message', 'No message provided')
+                timestamp = alert_data.get('timestamp', datetime.now().isoformat())
+                source = alert_data.get('source', 'Unknown')
+                
+                # FIXED: Validate required fields
+                if not message or message == 'No message provided':
+                    self.logger.warning(f"⚠️ Alert {alert_id} has no message")
+                    return False
+                    
+            except Exception as e:
+                self.logger.error(f"❌ Failed to extract alert data: {e}")
+                return False
+            
+            # FIXED: Create enhanced notification message
+            notification_title = f"🚨 EDR Alert - {severity.upper()}"
+            
+            # FIXED: Enhanced message formatting
+            notification_message = f"""
+🔍 Alert Type: {alert_type}
+⚠️ Severity: {severity}
+📝 Message: {message}
+🕐 Time: {timestamp}
+📍 Source: {source}
+🆔 ID: {alert_id}
+            """.strip()
+            
+            # FIXED: Log alert details for debugging
+            self.logger.info(f"🚨 Displaying alert: {alert_type} - {severity} - {message[:50]}...")
+            
+            # FIXED: Try multiple notification methods
+            success = False
+            
+            # Method 1: Windows Toast Notification
+            try:
+                if self._show_windows_toast(notification_title, notification_message):
+                    success = True
+                    self.logger.info("✅ Alert displayed via Windows Toast")
+            except Exception as e:
+                self.logger.debug(f"Windows Toast failed: {e}")
+            
+            # Method 2: Console Output
+            if not success:
+                try:
+                    self._show_console_alert(notification_title, notification_message, severity)
+                    success = True
+                    self.logger.info("✅ Alert displayed via Console")
+                except Exception as e:
+                    self.logger.debug(f"Console alert failed: {e}")
+            
+            # Method 3: Log File
+            if not success:
+                try:
+                    self._log_alert_to_file(alert_data)
+                    success = True
+                    self.logger.info("✅ Alert logged to file")
+                except Exception as e:
+                    self.logger.debug(f"File logging failed: {e}")
+            
+            # FIXED: Update statistics
+            if success:
+                self.stats['alerts_displayed'] += 1
+                self.stats['last_alert_time'] = datetime.now()
+                self.stats['alerts_by_severity'][severity] = self.stats['alerts_by_severity'].get(severity, 0) + 1
+                self.stats['alerts_by_type'][alert_type] = self.stats['alerts_by_type'].get(alert_type, 0) + 1
+            else:
+                self.stats['alerts_failed'] += 1
+                self.logger.error("❌ All alert display methods failed")
+            
+            return success
+            
+        except Exception as e:
+            self.logger.error(f"❌ Alert display failed: {e}")
+            self.stats['alerts_failed'] += 1
+            return False
 
 def create_security_notifier(config_manager=None):
     """Factory function to create simple rule-based security notifier"""

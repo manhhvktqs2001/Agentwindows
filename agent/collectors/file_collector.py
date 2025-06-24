@@ -129,6 +129,13 @@ class EnhancedFileCollector(BaseCollector):
             if events:
                 self.logger.info(f"📤 Generated {len(events)} MULTIPLE FILE EVENTS for continuous sending")
             
+            # FIXED: Log performance metrics with better thresholds
+            collection_time = (time.time() - start_time) * 1000
+            if collection_time > 10000:  # Increase threshold for file scanning
+                self.logger.warning(f"⚠️ Slow collection: {collection_time:.1f}ms in FileCollector")
+            elif collection_time > 5000:
+                self.logger.info(f"📊 File scan time: {collection_time:.1f}ms")
+            
             return events
             
         except Exception as e:

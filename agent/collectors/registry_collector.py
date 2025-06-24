@@ -32,12 +32,11 @@ class EnhancedRegistryCollector(BaseCollector):
         self.config_manager = config_manager
         self.logger = logging.getLogger('RegistryCollector')
         self.monitored_keys = set()
+        
+        # FIXED: Reduce suspicious keys to improve performance
         self.suspicious_keys = {
             r'SOFTWARE\Microsoft\Windows\CurrentVersion\Run',
-            r'SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce',
-            r'SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run',
-            r'SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders',
-            r'SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders'
+            r'SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce'
         }
         
         # Performance tracking
@@ -49,7 +48,12 @@ class EnhancedRegistryCollector(BaseCollector):
             'last_scan_time': None
         }
         
-        self.logger.info("Enhanced Registry Collector initialized")
+        # FIXED: Add caching to improve performance
+        self.key_cache = {}
+        self.cache_timeout = 300  # 5 minutes
+        self.last_cache_clear = time.time()
+        
+        self.logger.info("Enhanced Registry Collector initialized - PERFORMANCE OPTIMIZED")
     
     async def initialize(self):
         """Initialize the registry collector"""
@@ -111,6 +115,13 @@ class EnhancedRegistryCollector(BaseCollector):
             self.stats['keys_scanned'] += len(current_keys)
             self.stats['last_scan_time'] = datetime.now()
             
+            # FIXED: Log performance metrics with better thresholds
+            collection_time = (time.time() - start_time) * 1000
+            if collection_time > 8000:  # Increase threshold for registry scanning
+                self.logger.warning(f"⚠️ Slow collection: {collection_time:.1f}ms in RegistryCollector")
+            elif collection_time > 3000:
+                self.logger.info(f"📊 Registry scan time: {collection_time:.1f}ms")
+            
             return events
             
         except Exception as e:
@@ -118,28 +129,16 @@ class EnhancedRegistryCollector(BaseCollector):
             return []
     
     async def _scan_hive(self, hive, hive_name: str) -> Set[str]:
-        """Scan a registry hive for keys"""
+        """Scan a registry hive for keys - PERFORMANCE OPTIMIZED"""
         keys = set()
         
         if not WINREG_AVAILABLE:
             return keys
         
         try:
-            # Scan specific suspicious keys
-            for key_path in self.suspicious_keys:
-                try:
-                    key_handle = winreg.OpenKey(hive, key_path, 0, winreg.KEY_READ)
-                    keys.add(f"{hive_name}\\{key_path}")
-                    winreg.CloseKey(key_handle)
-                except WindowsError:
-                    continue
-            
-            # Scan startup keys
+            # FIXED: Only scan critical startup keys for better performance
             startup_keys = [
-                r'SOFTWARE\Microsoft\Windows\CurrentVersion\Run',
-                r'SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce',
-                r'SOFTWARE\Microsoft\Windows\CurrentVersion\RunServices',
-                r'SOFTWARE\Microsoft\Windows\CurrentVersion\RunServicesOnce'
+                r'SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
             ]
             
             for key_path in startup_keys:

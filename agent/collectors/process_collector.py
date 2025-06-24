@@ -88,7 +88,7 @@ class EnhancedProcessCollector(BaseCollector):
     async def _collect_data(self):
         """Collect ALL process events and generate alerts for interesting activities"""
         try:
-            scan_start = time.time()
+            start_time = time.time()
             events = []
             current_pids = set()
             
@@ -183,6 +183,13 @@ class EnhancedProcessCollector(BaseCollector):
                 for event in events[:3]:  # Log first 3 events
                     if hasattr(event, 'process_name'):
                         self.logger.info(f"   📱 {event.event_action}: {event.process_name}")
+            
+            # FIXED: Log performance metrics with better thresholds
+            collection_time = (time.time() - start_time) * 1000
+            if collection_time > 6000:  # Increase threshold for process scanning
+                self.logger.warning(f"⚠️ Slow collection: {collection_time:.1f}ms in ProcessCollector")
+            elif collection_time > 2000:
+                self.logger.info(f"📊 Process scan time: {collection_time:.1f}ms")
             
             return events
             

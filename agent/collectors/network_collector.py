@@ -75,6 +75,7 @@ class EnhancedNetworkCollector(BaseCollector):
     async def _collect_data(self):
         """Collect network data with COMPLETE field population"""
         try:
+            start_time = time.time()  # FIXED: Add start time tracking
             events = []
             current_connections = {}
             
@@ -146,6 +147,13 @@ class EnhancedNetworkCollector(BaseCollector):
             # Update tracking
             self.monitored_connections = current_connections
             self.stats['total_network_events'] += len(events)
+            
+            # FIXED: Log performance metrics with better thresholds
+            collection_time = (time.time() - start_time) * 1000
+            if collection_time > 4000:  # Increase threshold for network scanning
+                self.logger.warning(f"⚠️ Slow collection: {collection_time:.1f}ms in NetworkCollector")
+            elif collection_time > 1500:
+                self.logger.info(f"📊 Network scan time: {collection_time:.1f}ms")
             
             if events:
                 self.logger.info(f"📤 Generated {len(events)} COMPLETE NETWORK EVENTS")
