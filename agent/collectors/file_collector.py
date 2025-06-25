@@ -67,9 +67,6 @@ class EnhancedFileCollector(BaseCollector):
         self.logger.info("Enhanced File Collector initialized - PERFORMANCE OPTIMIZED")
     
     async def _collect_data(self):
-        if self._paused:
-            self.logger.info("⏸️  FileCollector paused - exiting _collect_data")
-            return
         """Collect multiple types of file events - OPTIMIZED VERSION"""
         start_time = time.time()
         try:

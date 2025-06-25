@@ -12,6 +12,7 @@ import psutil
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 from pathlib import Path
+import os
 
 from agent.core.communication import ServerCommunication
 from agent.core.config_manager import ConfigManager
@@ -39,7 +40,8 @@ class AgentManager:
         self.is_paused = False  # NEW: Pause state
         
         # Agent identification
-        self.agent_id = None
+        self.agent_id_file = os.path.join(os.path.dirname(__file__), 'agent_id.txt')
+        self.agent_id = self._load_agent_id()
         self.is_registered = False
         
         # Communication and processing
@@ -328,43 +330,52 @@ class AgentManager:
         return self.is_paused
     
     async def _register_with_server(self):
-        """Register agent with EDR server"""
+        """Register agent with EDR server, using persistent agent_id if available"""
         try:
             self.logger.info("Registering with EDR server...")
-            
             # Get system information
             system_info = self._get_system_info()
-            
-            # Create registration data
-            registration_data = AgentRegistrationData(
-                hostname=system_info['hostname'],
-                ip_address=system_info['ip_address'],
-                operating_system=system_info['operating_system'],
-                os_version=system_info['os_version'],
-                architecture=system_info['architecture'],
-                agent_version='2.1.0',
-                mac_address=system_info.get('mac_address'),
-                domain=system_info.get('domain'),
-                install_path=str(Path(__file__).resolve().parent.parent.parent)
-            )
-            
+            # If agent_id exists, try to update registration (reuse agent_id)
+            if self.agent_id:
+                self.logger.info(f"Using existing agent_id: {self.agent_id}")
+                registration_data = AgentRegistrationData(
+                    hostname=system_info['hostname'],
+                    ip_address=system_info['ip_address'],
+                    operating_system=system_info['operating_system'],
+                    os_version=system_info['os_version'],
+                    architecture=system_info['architecture'],
+                    agent_version='2.1.0',
+                    mac_address=system_info.get('mac_address'),
+                    domain=system_info.get('domain'),
+                    install_path=str(Path(__file__).resolve().parent.parent.parent)
+                )
+                # Optionally, attach agent_id to the payload if needed by the communication layer
+                # registration_data.agent_id = self.agent_id  # Only if the server expects it as a separate field
+            else:
+                registration_data = AgentRegistrationData(
+                    hostname=system_info['hostname'],
+                    ip_address=system_info['ip_address'],
+                    operating_system=system_info['operating_system'],
+                    os_version=system_info['os_version'],
+                    architecture=system_info['architecture'],
+                    agent_version='2.1.0',
+                    mac_address=system_info.get('mac_address'),
+                    domain=system_info.get('domain'),
+                    install_path=str(Path(__file__).resolve().parent.parent.parent)
+                )
             # Send registration request
             response = await self.communication.register_agent(registration_data)
-            
             if response and response.get('success'):
                 self.agent_id = response.get('agent_id')
                 self.is_registered = True
+                self._save_agent_id(self.agent_id)
                 self.logger.info(f"Agent registered: {self.agent_id}")
-                
                 # Update configuration with server settings
                 if 'heartbeat_interval' in response:
                     self.config['agent']['heartbeat_interval'] = response['heartbeat_interval']
-                
                 self.logger.info(f"[REGISTER] Hostname: {system_info['hostname']} | AgentID: {self.agent_id}")
-                
             else:
                 raise Exception("Registration failed")
-                
         except Exception as e:
             self.logger.error(f"Registration failed: {e}")
             raise
@@ -616,3 +627,25 @@ class AgentManager:
                 'disk_usage': 0.0,
                 'network_latency': 0
             }
+
+    def _load_agent_id(self):
+        """Load agent_id from file if exists, else None"""
+        try:
+            if os.path.exists(self.agent_id_file):
+                with open(self.agent_id_file, 'r') as f:
+                    agent_id = f.read().strip()
+                    if agent_id:
+                        self.logger.info(f"Loaded persistent agent_id: {agent_id}")
+                        return agent_id
+        except Exception as e:
+            self.logger.error(f"Failed to load agent_id: {e}")
+        return None
+
+    def _save_agent_id(self, agent_id):
+        """Save agent_id to file for persistence"""
+        try:
+            with open(self.agent_id_file, 'w') as f:
+                f.write(agent_id)
+            self.logger.info(f"Saved persistent agent_id: {agent_id}")
+        except Exception as e:
+            self.logger.error(f"Failed to save agent_id: {e}")
