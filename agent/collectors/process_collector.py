@@ -90,6 +90,9 @@ class EnhancedProcessCollector(BaseCollector):
         self.logger.info("Enhanced Process Collector initialized - PERFORMANCE OPTIMIZED")
     
     async def _collect_data(self):
+        if self._paused:
+            self.logger.info("⏸️  ProcessCollector paused - exiting _collect_data")
+            return
         """Collect process events - ENHANCED to include existing processes"""
         try:
             start_time = time.time()

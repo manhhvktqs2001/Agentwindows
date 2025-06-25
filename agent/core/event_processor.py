@@ -1,7 +1,7 @@
-# agent/core/event_processor.py - SIMPLE RULE-BASED VERSION
+# agent/core/event_processor.py - FIXED RULE-BASED VERSION
 """
-Event Processor - CHỈ HIỂN THỊ CẢNH BÁO KHI SERVER PHÁT HIỆN VI PHẠM RULE
-Gửi events lên server và chỉ hiển thị notification khi server trả về rule violation
+Event Processor - FIXED TO DISPLAY ALERTS FROM SERVER AND LOCAL RULES
+Hiển thị cảnh báo khi server hoặc local rules phát hiện vi phạm
 """
 
 import asyncio
@@ -28,6 +28,8 @@ class EventStats:
     events_failed: int = 0
     rule_violations_received: int = 0
     rule_alerts_displayed: int = 0
+    local_rules_triggered: int = 0
+    server_rules_triggered: int = 0
     last_event_sent: Optional[datetime] = None
     last_rule_violation: Optional[datetime] = None
     processing_rate: float = 0.0
@@ -64,7 +66,7 @@ class EventProcessor:
         return self.simple_processor.get_performance_metrics()
 
 class SimpleEventProcessor:
-    """Event Processor - CHỈ HIỂN THỊ CẢNH BÁO KHI SERVER PHÁT HIỆN VI PHẠM RULE"""
+    """Event Processor - FIXED TO DISPLAY ALL RULE-BASED ALERTS"""
     
     def __init__(self, config_manager: ConfigManager, communication: ServerCommunication):
         self.config_manager = config_manager
@@ -93,7 +95,7 @@ class SimpleEventProcessor:
         # Processing tracking
         self.processing_start_time = time.time()
         
-        # Simple Rule-Based Alert Notification System
+        # FIXED: Enhanced Rule-Based Alert Notification System
         self.security_notifier = SimpleRuleBasedAlertNotifier(config_manager)
         self.security_notifier.set_communication(communication)
         
@@ -110,7 +112,12 @@ class SimpleEventProcessor:
         # Retry logging control
         self._last_retry_log = 0
         
-        self._safe_log("info", "🚀 Simple Event Processor initialized - RULE-BASED ALERTS ONLY")
+        # FIXED: Enhanced rule processing
+        self.rule_processing_enabled = True
+        self.local_rule_processing = True
+        self.server_rule_processing = True
+        
+        self._safe_log("info", "🚀 FIXED Event Processor initialized - ENHANCED RULE-BASED ALERTS")
     
     def _safe_log(self, level: str, message: str):
         """Thread-safe logging"""
@@ -125,7 +132,7 @@ class SimpleEventProcessor:
         try:
             self.is_running = True
             self.processing_start_time = time.time()
-            self._safe_log("info", "🚀 Simple Event Processor started - RULE-BASED ALERTS ONLY")
+            self._safe_log("info", "🚀 FIXED Event Processor started - ENHANCED RULE PROCESSING")
             
             # Start retry mechanism for failed events
             self._retry_task = asyncio.create_task(self._retry_failed_events_loop())
@@ -140,7 +147,7 @@ class SimpleEventProcessor:
     async def stop(self):
         """Stop event processor gracefully"""
         try:
-            self._safe_log("info", "🛑 Stopping Simple Event Processor...")
+            self._safe_log("info", "🛑 Stopping FIXED Event Processor...")
             self.is_running = False
             
             # Cancel retry task
@@ -152,7 +159,7 @@ class SimpleEventProcessor:
             
             await asyncio.sleep(0.5)
             
-            self._safe_log("info", "✅ Simple Event Processor stopped gracefully")
+            self._safe_log("info", "✅ FIXED Event Processor stopped gracefully")
             
         except Exception as e:
             self._safe_log("error", f"❌ Event processor stop error: {e}")
@@ -164,8 +171,7 @@ class SimpleEventProcessor:
     
     async def add_event(self, event_data: EventData):
         """
-        GỬI EVENT LÊN SERVER - CHỈ KHI KẾT NỐI THÀNH CÔNG
-        Chỉ gửi event khi thực sự kết nối được với server
+        FIXED: GỬI EVENT VÀ XỬ LÝ RULE-BASED ALERTS
         """
         try:
             # FIXED: Ensure agent_id is set on the event
@@ -180,159 +186,84 @@ class SimpleEventProcessor:
             # FIXED: Update stats immediately
             self.stats.events_collected += 1
             
-            # FIXED: Check offline_mode first - SILENT when offline
-            if not self.communication or self.communication.offline_mode:
-                # SILENT: Don't send events when offline
-                self.stats.events_failed += 1
-                return
-            
-            # FIXED: Check if server is actually connected before sending
-            if not self.communication.is_connected():
-                # SILENT: Don't send events when not connected
-                self.stats.events_failed += 1
-                return
-            
-            # ADDED: Debug log for Authentication events (only when online)
-            if event_data.event_type == 'Authentication' and self.communication and self.communication.is_connected():
-                self._safe_log("info", f"🔐 AUTHENTICATION EVENT: {event_data.login_user} - {event_data.event_action}")
-            
+            # FIXED: Always try to send event and process rules
             if self.agent_id and self.communication:
-                # Gửi event lên server ngay lập tức
-                success = await self._send_event_to_server(event_data)
+                # Gửi event lên server và nhận response (có thể chứa rule violations)
+                success, response, error = await self.communication.submit_event(event_data)
                 
-                if not success:
-                    # Nếu gửi thất bại, thêm vào retry queue - SILENT
+                if success and response:
+                    # FIXED: Process response for rule violations (server OR local)
+                    await self._process_enhanced_server_response(response, event_data)
+                    self.stats.events_sent += 1
+                    self.stats.last_event_sent = datetime.now()
+                    self._consecutive_failures = 0
+                    self._last_successful_send = time.time()
+                else:
+                    # FIXED: Event sending failed, add to retry queue
                     self._failed_events_queue.append({
                         'event': event_data,
                         'timestamp': time.time(),
                         'retry_count': 0
                     })
-                    # NO LOGGING - completely silent
+                    self.stats.events_failed += 1
+                    self._consecutive_failures += 1
             else:
-                # SILENT when agent_id or communication not available
+                # FIXED: No communication available
                 self.stats.events_failed += 1
             
         except Exception as e:
-            # SILENT on exceptions
+            # FIXED: Handle exceptions gracefully
             self.stats.events_failed += 1
+            self._safe_log("error", f"❌ Event processing error: {e}")
     
-    async def _send_event_to_server(self, event_data: EventData) -> bool:
+    async def _process_enhanced_server_response(self, server_response: Dict[str, Any], original_event: EventData):
         """
-        GỬI EVENT LÊN SERVER VÀ CHỜ RULE VIOLATION RESPONSE - SILENT OFFLINE MODE
-        """
-        try:
-            # FIXED: Ensure agent_id is set on the event
-            if self.agent_id and not event_data.agent_id:
-                event_data.agent_id = self.agent_id
-            
-            # FIXED: Validate that agent_id is present
-            if not event_data.agent_id:
-                self._safe_log("error", f"❌ Event missing agent_id: {event_data.event_type}")
-                return False
-            
-            # Gửi event lên server
-            success, response, error = await self.communication.submit_event(event_data)
-            
-            if success:
-                self.stats.events_sent += 1
-                self.stats.last_event_sent = datetime.now()
-                self._consecutive_failures = 0
-                self._last_successful_send = time.time()
-                
-                # Xử lý response từ server để kiểm tra rule violations
-                if response and isinstance(response, dict):
-                    await self._process_server_response_simple(response, event_data)
-                
-                return True
-            else:
-                self.stats.events_failed += 1
-                self._send_errors += 1
-                self._consecutive_failures += 1
-                
-                # SILENT: No logging for offline mode
-                return False
-                
-        except Exception as e:
-            self.stats.events_failed += 1
-            self._send_errors += 1
-            self._consecutive_failures += 1
-            
-            # SILENT: No logging for offline mode
-            return False
-    
-    async def _process_server_response_simple(self, server_response: Dict[str, Any], original_event: EventData):
-        """
-        XỬ LÝ RESPONSE TỪ SERVER - CHỈ HIỂN THỊ KHI CÓ RULE VIOLATION
-        Chỉ hiển thị alert khi server phát hiện vi phạm rule cụ thể
+        FIXED: XỬ LÝ RESPONSE TỪ SERVER - HIỂN THỊ TẤT CẢ RULE VIOLATIONS
         """
         try:
             if not server_response:
                 return
             
             rule_violation_detected = False
+            alerts_to_display = []
             
-            # Case 1: Server trả về alerts với rule information
+            # CASE 1: Server trả về alerts_generated
             if 'alerts_generated' in server_response and server_response['alerts_generated']:
                 alerts = server_response['alerts_generated']
-                # Kiểm tra xem có rule violation không
-                rule_alerts = [alert for alert in alerts if self._is_rule_violation_alert(alert)]
                 
-                if rule_alerts:
-                    rule_violation_detected = True
-                    self.stats.rule_violations_received += len(rule_alerts)
-                    self.stats.last_rule_violation = datetime.now()
-                    
-                    self._safe_log("warning", f"🚨 SERVER DETECTED {len(rule_alerts)} RULE VIOLATIONS")
-                    
-                    # Hiển thị rule alerts
-                    await self.security_notifier.process_server_alerts(
-                        {'alerts_generated': rule_alerts}, 
-                        [original_event]
-                    )
-                    
-                    self.stats.rule_alerts_displayed += len(rule_alerts)
-            
-            # Case 2: Server trả về alerts array
-            elif 'alerts' in server_response and server_response['alerts']:
-                alerts = server_response['alerts']
-                rule_alerts = [alert for alert in alerts if self._is_rule_violation_alert(alert)]
+                # FIXED: Process ALL alerts, not just rule violations
+                for alert in alerts:
+                    if self._is_valid_alert(alert):
+                        alerts_to_display.append(alert)
+                        rule_violation_detected = True
                 
-                if rule_alerts:
-                    rule_violation_detected = True
-                    self.stats.rule_violations_received += len(rule_alerts)
-                    self.stats.last_rule_violation = datetime.now()
+                if alerts_to_display:
+                    self.stats.rule_violations_received += len(alerts_to_display)
                     
-                    self._safe_log("warning", f"🚨 SERVER DETECTED {len(rule_alerts)} RULE VIOLATIONS")
-                    
-                    await self.security_notifier.process_server_alerts(
-                        {'alerts': rule_alerts}, 
-                        [original_event]
-                    )
-                    
-                    self.stats.rule_alerts_displayed += len(rule_alerts)
+                    # Check if from local rules
+                    if server_response.get('local_rule_triggered'):
+                        self.stats.local_rules_triggered += len(alerts_to_display)
+                        self._safe_log("warning", f"🔍 LOCAL RULE TRIGGERED: {len(alerts_to_display)} alerts")
+                    else:
+                        self.stats.server_rules_triggered += len(alerts_to_display)
+                        self._safe_log("warning", f"🚨 SERVER RULE TRIGGERED: {len(alerts_to_display)} alerts")
             
-            # Case 3: Server phát hiện threat với rule information
+            # CASE 2: Server trả về single rule_triggered
             elif (server_response.get('threat_detected', False) and 
                   server_response.get('rule_triggered')):
                 
-                rule_violation_detected = True
-                self.stats.rule_violations_received += 1
-                self.stats.last_rule_violation = datetime.now()
-                
-                self._safe_log("warning", f"🚨 SERVER RULE TRIGGERED: {server_response.get('rule_triggered')}")
-                
-                # Tạo rule violation alert
+                # Create alert from rule trigger
                 rule_alert = {
-                    'id': f'rule_violation_{int(time.time())}',
-                    'alert_id': f'rule_violation_{int(time.time())}',
+                    'id': f'rule_alert_{int(time.time())}',
+                    'alert_id': f'rule_alert_{int(time.time())}',
                     'rule_id': server_response.get('rule_id'),
-                    'rule_name': server_response.get('rule_triggered'),
+                    'rule_name': server_response.get('rule_name', server_response.get('rule_triggered')),
                     'rule_description': server_response.get('rule_description', ''),
-                    'title': f'Security Rule Violation: {server_response.get("rule_triggered")}',
-                    'description': server_response.get('threat_description', 'Security rule violation detected'),
+                    'title': f'Rule Triggered: {server_response.get("rule_triggered")}',
+                    'description': server_response.get('threat_description', 'Rule violation detected'),
                     'severity': self._map_risk_to_severity(server_response.get('risk_score', 50)),
                     'risk_score': server_response.get('risk_score', 50),
-                    'detection_method': 'Server Rule Engine',
+                    'detection_method': server_response.get('detection_method', 'Rule Engine'),
                     'mitre_technique': server_response.get('mitre_technique'),
                     'mitre_tactic': server_response.get('mitre_tactic'),
                     'event_id': server_response.get('event_id'),
@@ -341,41 +272,98 @@ class SimpleEventProcessor:
                     'rule_violation': True,
                     'process_name': original_event.process_name,
                     'process_path': original_event.process_path,
-                    'file_path': original_event.file_path
+                    'file_path': original_event.file_path,
+                    'local_rule': server_response.get('local_rule_triggered', False)
                 }
                 
+                alerts_to_display.append(rule_alert)
+                rule_violation_detected = True
+                self.stats.rule_violations_received += 1
+                
+                # Check if from local rules
+                if server_response.get('local_rule_triggered'):
+                    self.stats.local_rules_triggered += 1
+                    self._safe_log("warning", f"🔍 LOCAL RULE: {server_response.get('rule_triggered')}")
+                else:
+                    self.stats.server_rules_triggered += 1
+                    self._safe_log("warning", f"🚨 SERVER RULE: {server_response.get('rule_triggered')}")
+            
+            # CASE 3: High risk score without explicit rule
+            elif server_response.get('risk_score', 0) >= 70:
+                risk_alert = {
+                    'id': f'risk_alert_{int(time.time())}',
+                    'alert_id': f'risk_alert_{int(time.time())}',
+                    'rule_id': 'HIGH_RISK_SCORE',
+                    'rule_name': 'High Risk Score Detection',
+                    'title': f'High Risk Activity Detected',
+                    'description': f'High risk {original_event.event_type} activity detected (Score: {server_response.get("risk_score")})',
+                    'severity': 'HIGH',
+                    'risk_score': server_response.get('risk_score'),
+                    'detection_method': 'Risk Score Analysis',
+                    'timestamp': datetime.now().isoformat(),
+                    'server_generated': True,
+                    'rule_violation': True,
+                    'process_name': original_event.process_name,
+                    'process_path': original_event.process_path
+                }
+                
+                alerts_to_display.append(risk_alert)
+                rule_violation_detected = True
+                self.stats.rule_violations_received += 1
+                self.stats.server_rules_triggered += 1
+                self._safe_log("warning", f"🚨 HIGH RISK SCORE: {server_response.get('risk_score')}")
+            
+            # DISPLAY ALERTS IF ANY FOUND
+            if rule_violation_detected and alerts_to_display:
+                self.stats.last_rule_violation = datetime.now()
+                
+                # Create response format for notification system
+                notification_response = {
+                    'alerts_generated': alerts_to_display
+                }
+                
+                # Send to notification system
                 await self.security_notifier.process_server_alerts(
-                    {'alerts_generated': [rule_alert]}, 
+                    notification_response, 
                     [original_event]
                 )
                 
-                self.stats.rule_alerts_displayed += 1
-            
-            # Case 4: Không có rule violation - KHÔNG HIỂN THỊ GÌ
-            if not rule_violation_detected:
-                self._safe_log("debug", f"✅ No rule violations detected for {original_event.event_type} - {original_event.process_name}")
+                self.stats.rule_alerts_displayed += len(alerts_to_display)
+                
+                # FIXED: Log summary
+                total_local = sum(1 for alert in alerts_to_display if alert.get('local_rule'))
+                total_server = len(alerts_to_display) - total_local
+                
+                self._safe_log("warning", f"🔔 DISPLAYED {len(alerts_to_display)} ALERTS:")
+                if total_local > 0:
+                    self._safe_log("warning", f"   🔍 Local Rules: {total_local}")
+                if total_server > 0:
+                    self._safe_log("warning", f"   🚨 Server Rules: {total_server}")
+            else:
+                # FIXED: No rule violations - normal processing
+                self._safe_log("debug", f"✅ No rule violations for {original_event.event_type} - {original_event.process_name}")
             
         except Exception as e:
-            self._safe_log("error", f"❌ Server response processing failed: {e}")
+            self._safe_log("error", f"❌ Enhanced server response processing failed: {e}")
     
-    def _is_rule_violation_alert(self, alert: Dict[str, Any]) -> bool:
-        """Check if alert is a rule violation alert"""
+    def _is_valid_alert(self, alert: Dict[str, Any]) -> bool:
+        """FIXED: Check if alert is valid for display"""
         try:
-            # Check for rule-specific fields
-            rule_indicators = [
-                alert.get('rule_id'),
-                alert.get('rule_name'),
-                alert.get('rule_triggered'),
-                alert.get('rule_violation'),
-                'rule' in alert.get('detection_method', '').lower(),
-                'rule' in alert.get('title', '').lower(),
-                'violation' in alert.get('description', '').lower()
-            ]
+            # Must have basic alert structure
+            if not isinstance(alert, dict):
+                return False
             
-            return any(rule_indicators)
+            # Must have at least an ID or rule information
+            has_id = alert.get('id') or alert.get('alert_id')
+            has_rule = alert.get('rule_id') or alert.get('rule_name') or alert.get('rule_triggered')
+            has_title = alert.get('title')
+            has_description = alert.get('description')
+            
+            # FIXED: Accept alerts with rule info OR basic alert structure
+            return bool(has_id or has_rule or has_title or has_description)
             
         except Exception as e:
-            self._safe_log("error", f"❌ Error checking rule violation: {e}")
+            self._safe_log("error", f"❌ Error validating alert: {e}")
             return False
     
     def _map_risk_to_severity(self, risk_score: int) -> str:
@@ -392,7 +380,7 @@ class SimpleEventProcessor:
             return "INFO"
     
     async def _retry_failed_events_loop(self):
-        """Retry failed events - SILENT OFFLINE MODE"""
+        """Retry failed events - ENHANCED"""
         retry_interval = 5  # Start with 5 seconds
         max_retry_interval = 60  # Max 60 seconds
         consecutive_failures = 0
@@ -404,9 +392,8 @@ class SimpleEventProcessor:
                     await asyncio.sleep(1)
                     continue
                 
-                # Check if server is available - SILENT when offline
+                # Check if server is available
                 if not self.communication or not self.communication.is_connected():
-                    # COMPLETELY SILENT - no logging when offline
                     was_offline = True
                     await asyncio.sleep(retry_interval)
                     consecutive_failures += 1
@@ -420,7 +407,7 @@ class SimpleEventProcessor:
                     consecutive_failures = 0
                     retry_interval = 5
                 
-                # Process retry queue - SILENT processing
+                # Process retry queue
                 failed_events = list(self._failed_events_queue)
                 self._failed_events_queue.clear()
                 
@@ -432,16 +419,24 @@ class SimpleEventProcessor:
                     event_data = failed_event['event']
                     retry_count = failed_event['retry_count']
                     
-                    if retry_count >= 3:  # Max 3 retries - SILENT discard
+                    if retry_count >= 3:  # Max 3 retries
                         continue
                     
                     # Try to send again
-                    success = await self._send_event_to_server(event_data)
-                    
-                    if success:
-                        success_count += 1
-                    else:
-                        # Re-queue for retry - SILENT
+                    try:
+                        success, response, error = await self.communication.submit_event(event_data)
+                        
+                        if success:
+                            success_count += 1
+                            # FIXED: Process response for retried events too
+                            if response:
+                                await self._process_enhanced_server_response(response, event_data)
+                        else:
+                            # Re-queue for retry
+                            failed_event['retry_count'] = retry_count + 1
+                            self._failed_events_queue.append(failed_event)
+                    except Exception as e:
+                        # Re-queue for retry
                         failed_event['retry_count'] = retry_count + 1
                         self._failed_events_queue.append(failed_event)
                 
@@ -452,28 +447,37 @@ class SimpleEventProcessor:
                 await asyncio.sleep(retry_interval)
                 
             except Exception as e:
-                # SILENT on retry loop errors
                 await asyncio.sleep(5)
     
     async def _flush_failed_events(self):
-        """Try to send all remaining failed events"""
+        """Try to send all remaining failed events, keep those not sent for next retry"""
         try:
             if self._failed_events_queue:
                 self._safe_log("info", f"🔄 Flushing {len(self._failed_events_queue)} remaining events...")
-                
+                still_failed = deque()
                 while self._failed_events_queue:
                     event_info = self._failed_events_queue.popleft()
                     event_data = event_info['event']
-                    
                     try:
-                        await self._send_event_to_server(event_data)
-                    except:
-                        pass  # Ignore errors during shutdown
+                        # Nếu mất kết nối, dừng flush và giữ lại event
+                        if not self.communication or not self.communication.is_connected():
+                            still_failed.append(event_info)
+                            self._safe_log("warning", "❌ Lost connection during flush, will retry later")
+                            break
+                        success, response, error = await self.communication.submit_event(event_data)
+                        if success and response:
+                            await self._process_enhanced_server_response(response, event_data)
+                        else:
+                            still_failed.append(event_info)
+                    except Exception as e:
+                        still_failed.append(event_info)
+                # Đưa lại các event chưa gửi được vào queue
+                self._failed_events_queue = still_failed
         except Exception as e:
             self._safe_log("error", f"❌ Flush failed events error: {e}")
     
     async def _stats_logging_loop(self):
-        """Statistics logging loop - FIXED VERSION"""
+        """Statistics logging loop - ENHANCED"""
         try:
             while self.is_running:
                 try:
@@ -482,24 +486,27 @@ class SimpleEventProcessor:
                     if int(current_time) % 60 == 0:
                         stats = self.get_stats()
                         
-                        # FIXED: Better processing rate calculation
                         processing_rate = stats.get('processing_rate', 0)
                         events_sent = stats.get('events_sent', 0)
                         events_failed = stats.get('events_failed', 0)
                         success_rate = stats.get('success_rate', 0)
                         
-                        # FIXED: Only show warning if really low rate
+                        # FIXED: Enhanced logging with rule stats
+                        local_rules = stats.get('local_rules_triggered', 0)
+                        server_rules = stats.get('server_rules_triggered', 0)
+                        total_alerts = stats.get('rule_alerts_displayed', 0)
+                        
                         if processing_rate < 0.01 and events_sent == 0:
                             self._safe_log("warning", f"⚠️ Low processing rate: {processing_rate:.2f} events/sec - No events sent")
-                        elif processing_rate < 0.1:
-                            self._safe_log("info", f"📊 Low processing rate: {processing_rate:.2f} events/sec - Check server connection")
                         else:
                             self._safe_log("info", 
-                                f"📊 Event Processor Stats - "
+                                f"📊 ENHANCED Event Processor Stats - "
                                 f"Sent: {events_sent}, "
                                 f"Failed: {events_failed}, "
-                                f"Success Rate: {success_rate:.1f}%, "
-                                f"Rate: {processing_rate:.2f}/s")
+                                f"Success: {success_rate:.1f}%, "
+                                f"Rate: {processing_rate:.2f}/s, "
+                                f"Alerts: {total_alerts} "
+                                f"(Local: {local_rules}, Server: {server_rules})")
                     
                     await asyncio.sleep(30)  # Check every 30 seconds
                     
@@ -511,7 +518,7 @@ class SimpleEventProcessor:
             self._safe_log("error", f"Stats logging loop failed: {e}")
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get event processor statistics"""
+        """Get enhanced event processor statistics"""
         try:
             current_time = time.time()
             uptime = current_time - self.processing_start_time if self.processing_start_time else 0
@@ -531,6 +538,8 @@ class SimpleEventProcessor:
                 'events_failed': self.stats.events_failed,
                 'rule_violations_received': self.stats.rule_violations_received,
                 'rule_alerts_displayed': self.stats.rule_alerts_displayed,
+                'local_rules_triggered': self.stats.local_rules_triggered,
+                'server_rules_triggered': self.stats.server_rules_triggered,
                 'last_event_sent': self.stats.last_event_sent.isoformat() if self.stats.last_event_sent else None,
                 'last_rule_violation': self.stats.last_rule_violation.isoformat() if self.stats.last_rule_violation else None,
                 'processing_rate': processing_rate,
@@ -540,8 +549,8 @@ class SimpleEventProcessor:
                 'consecutive_failures': self._consecutive_failures,
                 'time_since_last_send': current_time - self._last_successful_send,
                 'failed_queue_size': len(self._failed_events_queue),
-                'rule_based_alerts_only': True,
-                'simple_mode': True
+                'enhanced_rule_processing': True,
+                'local_and_server_rules': True
             }
             
         except Exception as e:
@@ -566,7 +575,7 @@ class SimpleEventProcessor:
         self.immediate_send = True
     
     def get_performance_metrics(self) -> Dict[str, float]:
-        """Get performance metrics"""
+        """Get enhanced performance metrics"""
         total_attempts = self.stats.events_sent + self.stats.events_failed
         success_rate = (self.stats.events_sent / total_attempts) if total_attempts > 0 else 0
         
@@ -574,83 +583,12 @@ class SimpleEventProcessor:
             'queue_utilization': len(self._failed_events_queue) / 1000,
             'processing_rate': self.stats.processing_rate,
             'immediate_processing': self.immediate_send,
-            'rule_based_mode': True,
-            'simple_mode': True,
+            'enhanced_rule_processing': True,
+            'local_and_server_rules': True,
             'success_rate': success_rate,
             'error_rate': self._send_errors / max(total_attempts, 1),
             'rule_violations_received': self.stats.rule_violations_received,
-            'rule_alerts_displayed': self.stats.rule_alerts_displayed
+            'rule_alerts_displayed': self.stats.rule_alerts_displayed,
+            'local_rules_triggered': self.stats.local_rules_triggered,
+            'server_rules_triggered': self.stats.server_rules_triggered
         }
-
-    async def _process_events(self):
-        """Process events from queue - RULE-BASED ALERTS ONLY"""
-        self.is_processing = True
-        
-        try:
-            while not self.event_queue.empty():
-                try:
-                    event_data = await asyncio.wait_for(self.event_queue.get(), timeout=1.0)
-                    
-                    # Check if server is connected before sending
-                    if not self.communication or not self.communication.is_connected():
-                        # Server is offline - skip sending but keep event for later
-                        self._safe_log("debug", f"📡 Server offline - skipping event: {event_data.event_type}")
-                        continue
-                    
-                    # Send event to server
-                    success = await self._send_event_to_server(event_data)
-                    
-                    if not success:
-                        # Only log retry if we haven't logged too many recently
-                        current_time = time.time()
-                        if current_time - self._last_retry_log > 5.0:  # Log retry every 5 seconds max
-                            self._safe_log("warning", f"⚠️ Event queued for retry: {event_data.event_type}")
-                            self._last_retry_log = current_time
-                        
-                        # Add to retry queue with limit
-                        if len(self.retry_queue) < 100:  # Limit retry queue size
-                            self.retry_queue.append(event_data)
-                    
-                    self.event_queue.task_done()
-                    
-                except asyncio.TimeoutError:
-                    break
-                except Exception as e:
-                    self._safe_log("error", f"❌ Event processing error: {e}")
-                    if not self.event_queue.empty():
-                        self.event_queue.task_done()
-        
-        finally:
-            self.is_processing = False
-            
-            # Process retry queue if server is back online
-            if self.communication and self.communication.is_connected() and self.retry_queue:
-                await self._process_retry_queue()
-
-    async def _process_retry_queue(self):
-        """Process events in retry queue when server is back online"""
-        if not self.retry_queue:
-            return
-        
-        self._safe_log("info", f"🔄 Processing {len(self.retry_queue)} retry events...")
-        
-        retry_events = self.retry_queue.copy()
-        self.retry_queue.clear()
-        
-        for event_data in retry_events:
-            try:
-                success = await self._send_event_to_server(event_data)
-                if not success:
-                    # Put back in retry queue if still failing
-                    if len(self.retry_queue) < 50:  # Smaller limit for retry queue
-                        self.retry_queue.append(event_data)
-            except Exception as e:
-                self._safe_log("error", f"❌ Retry event processing failed: {e}")
-                # Put back in retry queue
-                if len(self.retry_queue) < 50:
-                    self.retry_queue.append(event_data)
-        
-        if self.retry_queue:
-            self._safe_log("warning", f"⚠️ {len(self.retry_queue)} events still in retry queue")
-        else:
-            self._safe_log("info", "✅ All retry events processed successfully")

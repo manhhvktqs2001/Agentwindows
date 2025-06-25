@@ -70,6 +70,9 @@ class EnhancedRegistryCollector(BaseCollector):
             raise
     
     async def _collect_data(self):
+        if self._paused:
+            self.logger.info("⏸️  RegistryCollector paused - exiting _collect_data")
+            return
         """Collect registry data - Required by BaseCollector"""
         try:
             start_time = time.time()

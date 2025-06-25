@@ -70,6 +70,9 @@ class EnhancedAuthenticationCollector(BaseCollector):
         self.logger.info("Enhanced Authentication Collector initialized - PERFORMANCE OPTIMIZED")
     
     async def _collect_data(self):
+        if self._paused:
+            self.logger.info("⏸️  AuthenticationCollector paused - exiting _collect_data")
+            return
         """Collect authentication events - ENHANCED for better performance"""
         try:
             start_time = time.time()
