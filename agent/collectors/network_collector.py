@@ -73,13 +73,13 @@ class EnhancedNetworkCollector(BaseCollector):
         self.logger.info("🌐 FIXED Network Collector initialized - COMPLETE DATA COLLECTION")
     
     async def _collect_data(self):
-        """Collect network data with COMPLETE field population"""
+        """Collect network data - ONLY for NEW connections to reduce event spam"""
         try:
             start_time = time.time()  # FIXED: Add start time tracking
             events = []
             current_connections = {}
             
-            self.logger.debug("🌐 Collecting COMPLETE network data...")
+            self.logger.debug("🌐 Collecting network data for NEW connections only...")
             
             # Scan all network connections
             connections = psutil.net_connections(kind='inet')
@@ -97,32 +97,34 @@ class EnhancedNetworkCollector(BaseCollector):
                     
                     current_connections[conn_key] = conn
                     
-                    # EVENT TYPE 1: New Connection Established Event with COMPLETE data
-                    if conn_key not in self.monitored_connections and conn.raddr:
-                        event = await self._create_complete_connection_established_event(conn)
-                        if event:
-                            events.append(event)
-                            self.stats['connection_established_events'] += 1
-                    
-                    # EVENT TYPE 2: Suspicious Connection Event with COMPLETE data
-                    if conn.raddr and is_suspicious_connection(conn):
-                        event = await self._create_complete_suspicious_connection_event(conn)
-                        if event:
-                            events.append(event)
-                            self.stats['suspicious_connection_events'] += 1
-                    
-                    # EVENT TYPE 3: External Connection Event with COMPLETE data
-                    if conn.raddr and self._is_external_connection(conn):
-                        event = await self._create_complete_external_connection_event(conn)
-                        if event:
-                            events.append(event)
-                            self.stats['external_connection_events'] += 1
-                    
-                    # EVENT TYPE 4: Listening Port Event with COMPLETE data
-                    if not conn.raddr and conn.status == 'LISTEN':
-                        event = await self._create_complete_listening_port_event(conn)
-                        if event:
-                            events.append(event)
+                    # FIXED: Only create events for NEW connections, not all connections
+                    if conn_key not in self.monitored_connections:
+                        # EVENT TYPE 1: New Connection Established Event with COMPLETE data
+                        if conn.raddr:
+                            event = await self._create_complete_connection_established_event(conn)
+                            if event:
+                                events.append(event)
+                                self.stats['connection_established_events'] += 1
+                        
+                        # EVENT TYPE 2: Suspicious Connection Event with COMPLETE data
+                        if conn.raddr and is_suspicious_connection(conn):
+                            event = await self._create_complete_suspicious_connection_event(conn)
+                            if event:
+                                events.append(event)
+                                self.stats['suspicious_connection_events'] += 1
+                        
+                        # EVENT TYPE 3: External Connection Event with COMPLETE data
+                        if conn.raddr and self._is_external_connection(conn):
+                            event = await self._create_complete_external_connection_event(conn)
+                            if event:
+                                events.append(event)
+                                self.stats['external_connection_events'] += 1
+                        
+                        # EVENT TYPE 4: Listening Port Event with COMPLETE data
+                        if not conn.raddr and conn.status == 'LISTEN':
+                            event = await self._create_complete_listening_port_event(conn)
+                            if event:
+                                events.append(event)
                     
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue

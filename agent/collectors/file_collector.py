@@ -115,7 +115,7 @@ class EnhancedFileCollector(BaseCollector):
             return []
     
     async def _scan_directory_for_multiple_events(self, directory: str, category: str, max_depth: int = 2) -> List[EventData]:
-        """Scan directory and generate multiple event types - OPTIMIZED"""
+        """Scan directory and generate events for NEW/MODIFIED files only - OPTIMIZED"""
         events = []
         
         try:
@@ -161,6 +161,13 @@ class EnhancedFileCollector(BaseCollector):
                         if not is_interesting:
                             continue
                         
+                        # FIXED: Only create events for NEW or MODIFIED files
+                        file_modified = False
+                        if file_key in self.monitored_files:
+                            old_modify_time = self.monitored_files[file_key].get('modify_time', 0)
+                            new_modify_time = file_info.get('modify_time', 0)
+                            file_modified = new_modify_time > old_modify_time
+                        
                         # EVENT TYPE 1: New File Creation Event
                         if file_key not in self.monitored_files:
                             event = await self._create_file_creation_event(file_path, file_info, category)
@@ -168,23 +175,22 @@ class EnhancedFileCollector(BaseCollector):
                                 events.append(event)
                                 self.stats['file_creation_events'] += 1
                         
-                        # EVENT TYPE 2: File Modification Event
-                        elif (file_key in self.monitored_files and 
-                              file_info.get('modify_time', 0) > self.monitored_files[file_key].get('modify_time', 0)):
+                        # EVENT TYPE 2: File Modification Event (only if actually modified)
+                        elif file_modified:
                             event = await self._create_file_modification_event(file_path, file_info, category)
                             if event:
                                 events.append(event)
                                 self.stats['file_modification_events'] += 1
                         
-                        # EVENT TYPE 3: Large File Event
-                        if file_info.get('size', 0) > self.large_file_threshold:
+                        # EVENT TYPE 3: Large File Event (only for new or modified files)
+                        if (file_key not in self.monitored_files or file_modified) and file_info.get('size', 0) > self.large_file_threshold:
                             event = await self._create_large_file_event(file_path, file_info)
                             if event:
                                 events.append(event)
                                 self.stats['large_file_events'] += 1
                         
-                        # EVENT TYPE 4: Suspicious File Event
-                        if ext in self.suspicious_extensions:
+                        # EVENT TYPE 4: Suspicious File Event (only for new or modified files)
+                        if (file_key not in self.monitored_files or file_modified) and ext in self.suspicious_extensions:
                             event = await self._create_suspicious_file_event(file_path, file_info)
                             if event:
                                 events.append(event)
@@ -204,11 +210,19 @@ class EnhancedFileCollector(BaseCollector):
                         
                     except (OSError, PermissionError):
                         continue
-                        
+                    except Exception as e:
+                        self.logger.debug(f"Error processing file {filename}: {e}")
+                        continue
+                
+                # FIXED: Break if we've reached the file limit
+                if file_count >= max_files_per_directory:
+                    break
+            
+            return events
+            
         except Exception as e:
-            self.logger.debug(f"Directory scan error for {directory}: {e}")
-        
-        return events
+            self.logger.error(f"Error scanning directory {directory}: {e}")
+            return []
     
     async def _create_file_creation_event(self, file_path: str, file_info: Dict, category: str):
         """EVENT TYPE 1: File Creation Event"""

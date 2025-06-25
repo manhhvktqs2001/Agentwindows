@@ -86,7 +86,7 @@ class EnhancedProcessCollector(BaseCollector):
         self.logger.info("Enhanced Process Collector initialized - PERFORMANCE OPTIMIZED")
     
     async def _collect_data(self):
-        """Collect ALL process events and generate alerts for interesting activities - OPTIMIZED"""
+        """Collect process events - ONLY for NEW processes to reduce event spam"""
         try:
             start_time = time.time()
             events = []
@@ -125,9 +125,9 @@ class EnhancedProcessCollector(BaseCollector):
                         proc_info['memory_rss'] = 0
                         proc_info['memory_vms'] = 0
                     
-                    # FIXED: Create events for interesting processes, not just new ones
-                    if self._is_interesting_process(process_name):
-                        # Create event for interesting process (not just new ones)
+                    # FIXED: Only create events for NEW processes, not all interesting processes
+                    if pid not in self.monitored_processes and self._is_interesting_process(process_name):
+                        # Create event for NEW interesting process only
                         event = await self._create_enhanced_process_creation_event(proc_info)
                         if event:
                             events.append(event)
@@ -136,7 +136,7 @@ class EnhancedProcessCollector(BaseCollector):
                             # Count specific process types
                             self._update_process_type_stats(proc_info['name'], 'create')
                         
-                        # Check high CPU/Memory for interesting processes
+                        # Check high CPU/Memory for NEW interesting processes
                         if proc_info.get('cpu_percent', 0) > self.high_cpu_threshold:
                             cpu_event = await self._create_high_cpu_event(proc_info)
                             if cpu_event:
