@@ -73,17 +73,26 @@ class EnhancedNetworkCollector(BaseCollector):
         self.logger.info("🌐 FIXED Network Collector initialized - COMPLETE DATA COLLECTION")
     
     async def _collect_data(self):
-        """Collect network data - ONLY for NEW connections to reduce event spam"""
+        """Collect network events - ENHANCED for better performance"""
         try:
-            start_time = time.time()  # FIXED: Add start time tracking
+            start_time = time.time()
             events = []
             current_connections = {}
             
-            self.logger.debug("🌐 Collecting network data for NEW connections only...")
+            # FIXED: Check server connectivity before processing
+            is_connected = False
+            if hasattr(self, 'event_processor') and self.event_processor:
+                if hasattr(self.event_processor, 'communication') and self.event_processor.communication:
+                    is_connected = not self.event_processor.communication.offline_mode
             
-            # Scan all network connections
-            connections = psutil.net_connections(kind='inet')
+            # ENHANCED: Get network connections efficiently
+            try:
+                connections = psutil.net_connections(kind='inet')
+            except Exception as e:
+                self.logger.debug(f"Network connections scan failed: {e}")
+                return []
             
+            # FIXED: Process connections efficiently
             for conn in connections:
                 try:
                     if not conn.laddr:
@@ -150,23 +159,22 @@ class EnhancedNetworkCollector(BaseCollector):
             self.monitored_connections = current_connections
             self.stats['total_network_events'] += len(events)
             
-            # FIXED: Log performance metrics with better thresholds
-            collection_time = (time.time() - start_time) * 1000
-            if collection_time > 4000:  # Increase threshold for network scanning
-                self.logger.warning(f"⚠️ Slow collection: {collection_time:.1f}ms in NetworkCollector")
-            elif collection_time > 1500:
-                self.logger.info(f"📊 Network scan time: {collection_time:.1f}ms")
-            
-            if events:
+            # FIXED: Only log events when connected to server
+            if events and is_connected:
                 self.logger.info(f"📤 Generated {len(events)} COMPLETE NETWORK EVENTS")
                 # Log sample event details
                 for event in events[:2]:  # Log first 2 events
                     self.logger.info(f"📤 Network event: {event.source_ip}:{event.source_port} -> {event.destination_ip}:{event.destination_port} ({event.protocol})")
             
+            # FIXED: Log performance metrics
+            collection_time = (time.time() - start_time) * 1000
+            if collection_time > 1000:
+                self.logger.warning(f"⚠️ Slow network collection: {collection_time:.1f}ms")
+            
             return events
             
         except Exception as e:
-            self.logger.error(f"❌ Complete network events collection failed: {e}")
+            self.logger.error(f"❌ Network events collection failed: {e}")
             return []
     
     async def _create_complete_connection_established_event(self, conn):

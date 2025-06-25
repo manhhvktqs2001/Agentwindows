@@ -141,6 +141,13 @@ class ServerCommunication:
                 self.offline_mode = True
                 self._setup_offline_mode()
             
+            # ALWAYS start periodic server detection task
+            # This ensures we can detect connection loss and reconnect automatically
+            if not hasattr(self, '_periodic_task_started'):
+                self._periodic_task_started = True
+                asyncio.create_task(self._periodic_server_detection())
+                self.logger.info("🔄 Periodic server detection task started")
+            
         except Exception as e:
             self.logger.error(f"❌ Communication initialization failed: {e}")
             self.offline_mode = True
@@ -150,27 +157,47 @@ class ServerCommunication:
         """Setup offline mode"""
         self.logger.info("🔄 Setting up offline mode...")
         self.offline_events_queue = []
-        asyncio.create_task(self._periodic_server_detection())
+        
+        # Only start periodic detection task if not already started
+        if not hasattr(self, '_periodic_task_started'):
+            self._periodic_task_started = True
+            asyncio.create_task(self._periodic_server_detection())
+            self.logger.info("🔄 Periodic server detection task started")
     
     async def _periodic_server_detection(self):
-        """Periodically check for server availability"""
+        """Periodically check for server availability - CONTINUOUS RECONNECTION"""
+        last_reconnection_attempt = 0
+        reconnection_interval = 2  # Try every 2 seconds when offline
+        
         while True:
             try:
-                await asyncio.sleep(30)
+                current_time = time.time()
                 
+                # If offline, continuously try to reconnect every 2 seconds
                 if self.offline_mode:
-                    working_server = await self._detect_working_server()
-                    
-                    if working_server:
-                        self.logger.info("✅ Server detected! Reconnecting...")
-                        self.working_server = working_server
-                        await self.initialize()
+                    if current_time - last_reconnection_attempt >= reconnection_interval:
+                        self.logger.info("🔄 Attempting to reconnect to server...")
+                        last_reconnection_attempt = current_time
                         
-                        if not self.offline_mode:
+                        # Try force reconnection for more aggressive attempts
+                        if await self.force_reconnection():
+                            self.logger.info("✅ Successfully reconnected to server!")
                             await self._send_queued_events()
-                            
+                        else:
+                            self.logger.debug("📡 Reconnection failed - will try again in 2 seconds")
+                    
+                    # Sleep for a short time to avoid busy loop
+                    await asyncio.sleep(0.5)
+                
+                # If online, check connection every 10 seconds
+                else:
+                    # Detect connection loss
+                    await self._detect_connection_loss()
+                    await asyncio.sleep(10)
+                    
             except Exception as e:
                 self.logger.debug(f"Periodic server detection error: {e}")
+                await asyncio.sleep(2)  # Wait 2 seconds on error
     
     async def _send_queued_events(self):
         """Send queued offline events and acknowledgments"""
@@ -215,16 +242,16 @@ class ServerCommunication:
         return None
     
     async def _test_server_connection(self, server):
-        """Test connection to a specific server"""
+        """Test connection to a specific server - FAST TIMEOUT"""
         try:
             host = server['host']
             port = server['port']
             
-            # Test TCP connection
+            # Test TCP connection with shorter timeout
             def test_tcp():
                 try:
                     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(2)
+                    sock.settimeout(1)  # Reduced from 2 to 1 second
                     result = sock.connect_ex((host, port))
                     sock.close()
                     return result == 0
@@ -262,68 +289,47 @@ class ServerCommunication:
         except Exception as e:
             return False
     
-    async def submit_event(self, event_data: EventData) -> Optional[Dict]:
+    async def submit_event(self, event_data: EventData) -> tuple[bool, Optional[Dict], Optional[str]]:
         """
-        GỬI EVENT LÊN SERVER VÀ XỬ LÝ RESPONSE
-        Trả về response từ server để event processor có thể xử lý alerts
+        Submit event to server - FIXED to return (success, response, error)
         """
         try:
-            # ADDED: Debug log for event submission
-            self.logger.info(f"📤 SUBMITTING EVENT TO SERVER: {event_data.event_type} - {event_data.event_action}")
-            if event_data.event_type == 'Authentication':
-                self.logger.info(f"🔐 AUTH EVENT DETAILS: User={event_data.login_user}, Type={event_data.login_type}")
+            # FIXED: Test connection before sending
+            if not await self.test_connection():
+                self.logger.debug("📡 Server not connected - skipping event submission")
+                return False, None, "Server not connected"
             
             if self.offline_mode:
-                # Store event for later sending
-                event_payload = self._convert_event_to_payload(event_data)
-                
-                if len(self.offline_events_queue) >= self.max_offline_events:
-                    self.offline_events_queue.pop(0)
-                
-                self.offline_events_queue.append(event_payload)
-                
-                self.logger.info(f"📤 EVENT STORED OFFLINE: {event_data.event_type}")
-                
-                return {
-                    'success': True,
-                    'event_id': f'offline_{int(time.time())}',
-                    'message': 'Event stored in offline mode',
-                    'offline_mode': True,
-                    'threat_detected': False,
-                    'risk_score': 0
-                }
+                return False, None, "Server offline"
             
-            url = f"{self.base_url}/api/v1/events/submit"
+            if not self.working_server:
+                return False, None, "No working server"
+            
+            # Convert event to payload
             payload = self._convert_event_to_payload(event_data)
             
-            # ADDED: Debug log for payload
-            self.logger.info(f"📤 SENDING PAYLOAD TO {url}: {event_data.event_type}")
+            # FIXED: Handle case where payload conversion failed
+            if payload is None:
+                return False, None, "Event payload conversion failed - missing agent_id"
             
+            # Send to server
+            url = f"{self.base_url}/api/v1/events/submit"
             response = await self._make_request_with_retry('POST', url, payload)
             
             if response:
-                # ADDED: Debug log for successful response
-                self.logger.info(f"✅ SERVER RESPONSE RECEIVED: {event_data.event_type} - Success: {response.get('success', False)}")
+                # Update last successful connection time
+                self.last_successful_connection = time.time()
                 
-                # XỬ LÝ RESPONSE TỪ SERVER ĐỂ PHÁT HIỆN ALERTS
+                # Process server response for threat detection
                 processed_response = self._process_server_response(response, event_data)
-                return processed_response
+                return True, processed_response, None
             else:
-                # ADDED: Debug log for failed response
-                self.logger.error(f"❌ NO SERVER RESPONSE: {event_data.event_type}")
-                
-                # Switch to offline mode if server stops responding
-                self.offline_mode = True
-                return await self.submit_event(event_data)  # Retry in offline mode
+                # FIXED: Mark as disconnected if no response
+                self.logger.debug("📡 No response from server - marking as disconnected")
+                return False, None, "No response from server"
                 
         except Exception as e:
-            self.logger.error(f"❌ Event send error: {e}")
-            
-            if not self.offline_mode:
-                self.offline_mode = True
-                return await self.submit_event(event_data)
-            
-            return None
+            return False, None, str(e)
     
     def _process_server_response(self, response: Dict[str, Any], original_event: EventData) -> Dict[str, Any]:
         """
@@ -418,18 +424,48 @@ class ServerCommunication:
             }
     
     def _convert_event_to_payload(self, event_data: EventData) -> Dict:
-        """Convert event data to API payload"""
+        """Convert event data to API payload - FIXED to match server schema"""
         try:
+            # FIXED: Validate agent_id is present
+            if not event_data.agent_id:
+                self.logger.error(f"❌ CRITICAL: Event missing agent_id - Type: {event_data.event_type}, Action: {event_data.event_action}")
+                return None
+            
+            # Normalize severity to server format (Info, Low, Medium, High, Critical)
+            severity_mapping = {
+                'INFO': 'Info',
+                'LOW': 'Low', 
+                'MEDIUM': 'Medium',
+                'HIGH': 'High',
+                'CRITICAL': 'Critical',
+                'Info': 'Info',
+                'Low': 'Low',
+                'Medium': 'Medium', 
+                'High': 'High',
+                'Critical': 'Critical'
+            }
+            normalized_severity = severity_mapping.get(event_data.severity, 'Info')
+            
+            # Normalize event_type to server format
+            event_type_mapping = {
+                'Process': 'Process',
+                'File': 'File', 
+                'Network': 'Network',
+                'Registry': 'Registry',
+                'Authentication': 'Authentication',
+                'System': 'System'
+            }
+            normalized_event_type = event_type_mapping.get(event_data.event_type, 'System')
+            
             payload = {
-                # Core event fields
-                # Core event fields
+                # Core event fields - EXACTLY matching server schema
                 'agent_id': event_data.agent_id,
-                'event_type': event_data.event_type,
+                'event_type': normalized_event_type,
                 'event_action': event_data.event_action,
                 'event_timestamp': event_data.event_timestamp.isoformat(),
-                'severity': event_data.severity,
+                'severity': normalized_severity,
                 
-                # Process fields
+                # Process fields - only if they exist
                 'process_id': event_data.process_id,
                 'process_name': event_data.process_name,
                 'process_path': event_data.process_path,
@@ -439,7 +475,7 @@ class ServerCommunication:
                 'process_user': event_data.process_user,
                 'process_hash': event_data.process_hash,
                 
-                # File fields
+                # File fields - only if they exist
                 'file_path': event_data.file_path,
                 'file_name': event_data.file_name,
                 'file_size': event_data.file_size,
@@ -447,7 +483,7 @@ class ServerCommunication:
                 'file_extension': event_data.file_extension,
                 'file_operation': event_data.file_operation,
                 
-                # Network fields
+                # Network fields - only if they exist
                 'source_ip': event_data.source_ip,
                 'destination_ip': event_data.destination_ip,
                 'source_port': event_data.source_port,
@@ -455,86 +491,99 @@ class ServerCommunication:
                 'protocol': event_data.protocol,
                 'direction': event_data.direction,
                 
-                # Registry fields
+                # Registry fields - only if they exist
                 'registry_key': event_data.registry_key,
                 'registry_value_name': event_data.registry_value_name,
                 'registry_value_data': event_data.registry_value_data,
                 'registry_operation': event_data.registry_operation,
                 
-                # Authentication fields
+                # Authentication fields - only if they exist
                 'login_user': event_data.login_user,
                 'login_type': event_data.login_type,
                 'login_result': event_data.login_result,
                 
-                # System fields
-                'cpu_usage': event_data.cpu_usage,
-                'memory_usage': event_data.memory_usage,
-                'disk_usage': event_data.disk_usage,
-                
-                # Metadata fields
-                'description': event_data.description,
-                'threat_level': 'None',
-                'risk_score': 0,
-                'analyzed': True,
-                'analyzed_at': datetime.now().isoformat(),
-                
-                # Raw event data
+                # Raw event data - only if it exists
                 'raw_event_data': event_data.raw_event_data or {}
             }
             
-            # Convert None values to null for JSON
+            # Remove None values to avoid validation errors
+            cleaned_payload = {}
             for key, value in payload.items():
-                if value is None:
-                    payload[key] = None
+                if value is not None:
+                    cleaned_payload[key] = value
             
-            return payload
+            # Debug logging for payload
+            self.logger.debug(f"📦 EVENT PAYLOAD CREATED:")
+            self.logger.debug(f"   🎯 Type: {cleaned_payload.get('event_type')}")
+            self.logger.debug(f"   🔧 Action: {cleaned_payload.get('event_action')}")
+            self.logger.debug(f"   📊 Severity: {cleaned_payload.get('severity')}")
+            self.logger.debug(f"   🆔 Agent ID: {cleaned_payload.get('agent_id')}")
+            self.logger.debug(f"   📋 Fields: {list(cleaned_payload.keys())}")
+            
+            return cleaned_payload
             
         except Exception as e:
             self.logger.error(f"❌ Event payload conversion failed: {e}")
             return {
                 'agent_id': event_data.agent_id or 'unknown',
-                'event_type': event_data.event_type or 'Unknown',
+                'event_type': event_data.event_type or 'System',
                 'event_action': event_data.event_action or 'Unknown',
                 'event_timestamp': datetime.now().isoformat(),
-                'severity': event_data.severity or 'Info',
-                'description': str(event_data.description) or 'Error converting event data'
+                'severity': 'Info'
             }
     
     async def _make_request_with_retry(self, method: str, url: str, payload: Optional[Dict] = None) -> Optional[Dict]:
-        """Make HTTP request with retry logic"""
-        if self.offline_mode:
+        """Make HTTP request with retry logic - FAST OFFLINE MODE"""
+        # Allow testing connection even when offline (for reconnection attempts)
+        if self.offline_mode and '/health' not in url and '/status' not in url:
             return None
         
-        for attempt in range(self.max_retries + 1):
+        # Use shorter timeouts when trying to reconnect
+        max_retries = 1 if self.offline_mode else self.max_retries
+        retry_delay = 0.5 if self.offline_mode else self.retry_delay
+        
+        for attempt in range(max_retries + 1):
             try:
                 self.connection_attempts += 1
                 response = await self._make_request_internal(method, url, payload)
                 
                 if response is not None:
                     self.successful_connections += 1
+                    self.last_successful_connection = time.time()
                     return response
                 
             except Exception as e:
                 self.failed_connections += 1
                 
-                if attempt < self.max_retries:
-                    await asyncio.sleep(self.retry_delay)
+                # Check if it's a connection error
+                if "Cannot connect to host" in str(e) or "Connection refused" in str(e):
+                    # Immediately mark as offline on connection failure
+                    self._mark_as_offline("Server connection refused")
+                    break
+                
+                if attempt < max_retries:
+                    await asyncio.sleep(retry_delay)
         
-        # All attempts failed
+        # All attempts failed - mark as disconnected
         if not self.offline_mode:
-            self.offline_mode = True
+            self._mark_as_offline("All request attempts failed")
         
         return None
     
     async def _make_request_internal(self, method: str, url: str, payload: Optional[Dict] = None, 
                                    timeout_override: Optional[float] = None) -> Optional[Dict]:
         """Internal method to make HTTP request"""
-        if self.offline_mode or not self.session or self._session_closed:
+        # Allow testing connection even when offline (for reconnection attempts)
+        if (self.offline_mode and '/health' not in url and '/status' not in url) or not self.session or self._session_closed:
             return None
         
         try:
+            # Use shorter timeouts when offline for faster reconnection
             if timeout_override:
                 timeout = aiohttp.ClientTimeout(total=timeout_override)
+            elif self.offline_mode:
+                # Very short timeouts when offline for quick reconnection attempts
+                timeout = aiohttp.ClientTimeout(total=3, connect=1, sock_read=2)
             else:
                 timeout = None
             
@@ -585,6 +634,20 @@ class ServerCommunication:
                         return {'success': True, 'message': text}
                     return None
                     
+            elif response.status == 422:
+                # FIXED: Better handling of validation errors
+                try:
+                    error_data = await response.json()
+                    self.logger.error(f"❌ VALIDATION ERROR (422):")
+                    self.logger.error(f"   📋 Error: {error_data}")
+                    if 'detail' in error_data:
+                        self.logger.error(f"   🔍 Details: {error_data['detail']}")
+                    return None
+                except json.JSONDecodeError:
+                    text = await response.text()
+                    self.logger.error(f"❌ VALIDATION ERROR (422): {text}")
+                    return None
+                    
             elif response.status in [404, 405]:
                 # ADDED: Debug log for 404/405 errors
                 self.logger.error(f"❌ ENDPOINT NOT FOUND: {response.status} - {response.url}")
@@ -596,7 +659,8 @@ class ServerCommunication:
                 raise Exception(f"Server error {response.status}: {text}")
             else:
                 # ADDED: Debug log for other status codes
-                self.logger.warning(f"⚠️ UNEXPECTED STATUS: {response.status} - {response.url}")
+                text = await response.text()
+                self.logger.warning(f"⚠️ UNEXPECTED STATUS: {response.status} - {text[:200]}")
                 return None
                 
         except Exception as e:
@@ -832,11 +896,207 @@ class ServerCommunication:
     def is_connected(self) -> bool:
         """Check if server is connected and responding"""
         try:
-            return (
-                self.working_server is not None and 
-                not self.offline_mode and
-                hasattr(self, 'working_server') and 
-                self.working_server is not None
-            )
+            # Check if we have a working server and are not in offline mode
+            if not self.working_server or self.offline_mode:
+                return False
+            
+            # Check if we have an active session
+            if not self.session or self._session_closed:
+                self.offline_mode = True
+                return False
+            
+            # Check if we have recent successful connections
+            if self.last_successful_connection:
+                # Consider connected if we had a successful connection in the last 15 seconds
+                time_since_last_success = time.time() - self.last_successful_connection
+                if time_since_last_success < 15:  # Increased from 10 to 15 seconds
+                    return True
+                else:
+                    # Connection is stale - mark as offline
+                    self.offline_mode = True
+                    return False
+            
+            # If no recent success, we're not connected
+            self.offline_mode = True
+            return False
+            
         except Exception:
+            self.offline_mode = True
+            return False
+    
+    async def test_connection(self) -> bool:
+        """Test actual connection to server - FAST TIMEOUT"""
+        try:
+            if not self.working_server:
+                self.logger.debug("📡 No working server configured")
+                return False
+            
+            self.logger.debug(f"📡 Testing HTTP connection to: {self.base_url}/health")
+            
+            # Try to make a simple health check request with short timeout
+            response = await self._make_request_with_retry('GET', f"{self.base_url}/health")
+            if response:
+                self.last_successful_connection = time.time()
+                self.logger.debug("📡 HTTP connection test successful")
+                return True
+            else:
+                self.logger.debug("📡 HTTP connection test failed - no response")
+                return False
+            
+        except Exception as e:
+            self.logger.debug(f"📡 HTTP connection test error: {e}")
+            return False
+    
+    async def attempt_reconnection(self) -> bool:
+        """Attempt to reconnect to server - FAST AND AGGRESSIVE"""
+        try:
+            if self.offline_mode:
+                # Try to reconnect immediately without waiting
+                self.logger.debug("🔄 Attempting to reconnect to server...")
+                
+                # Test if server is available
+                working_server = await self._detect_working_server()
+                if working_server:
+                    self.working_server = working_server
+                    self.server_host = working_server['host']
+                    self.server_port = working_server['port']
+                    self.base_url = f"http://{self.server_host}:{self.server_port}"
+                    
+                    # Test connection with shorter timeout
+                    if await self.test_connection():
+                        self.offline_mode = False
+                        self.logger.info("✅ Successfully reconnected to server")
+                        return True
+                    else:
+                        self.logger.debug("📡 Server detected but not responding")
+                        return False
+                else:
+                    self.logger.debug("📡 No server available for reconnection")
+                    return False
+            else:
+                # If not in offline mode, try to detect server anyway
+                working_server = await self._detect_working_server()
+                if working_server:
+                    self.working_server = working_server
+                    self.server_host = working_server['host']
+                    self.server_port = working_server['port']
+                    self.base_url = f"http://{self.server_host}:{self.server_port}"
+                    
+                    if await self.test_connection():
+                        self.logger.info("✅ Server connection verified")
+                        return True
+                    
+        except Exception as e:
+            self.logger.debug(f"Reconnection attempt failed: {e}")
+            return False
+        
+        return False
+    
+    async def _detect_connection_loss(self):
+        """Detect if connection is lost and update status immediately"""
+        try:
+            if self.offline_mode:
+                return
+            
+            # Check if we have recent successful connections
+            if self.last_successful_connection:
+                time_since_last_success = time.time() - self.last_successful_connection
+                if time_since_last_success > 15:  # More than 15 seconds since last success
+                    self.logger.info("📡 Connection lost - entering offline mode")
+                    self.offline_mode = True
+                    return
+            
+            # If no recent success and we're not in offline mode, mark as offline
+            if not self.last_successful_connection and not self.offline_mode:
+                self.logger.info("📡 No recent connection - entering offline mode")
+                self.offline_mode = True
+                
+        except Exception as e:
+            self.logger.debug(f"Connection loss detection error: {e}")
+            self.offline_mode = True
+    
+    def _mark_as_offline(self, reason: str = "Connection error"):
+        """Immediately mark communication as offline"""
+        if not self.offline_mode:
+            self.logger.info(f"📡 {reason} - entering offline mode")
+            self.offline_mode = True
+    
+    async def force_reconnection(self) -> bool:
+        """Force reconnection attempt - bypass normal checks"""
+        try:
+            self.logger.debug("🔄 Force reconnection attempt...")
+            
+            # Clear any cached connection state
+            self.last_successful_connection = None
+            
+            # Try to detect working server
+            working_server = await self._detect_working_server()
+            if working_server:
+                self.working_server = working_server
+                self.server_host = working_server['host']
+                self.server_port = working_server['port']
+                self.base_url = f"http://{self.server_host}:{self.server_port}"
+                
+                self.logger.debug(f"📡 Server detected: {self.base_url}")
+                
+                # Reinitialize the session for the new server
+                await self.close()
+                
+                # Setup timeout configuration with longer timeouts for reconnection
+                timeout = aiohttp.ClientTimeout(
+                    total=10,  # Increased from 8 to 10 seconds
+                    connect=3,  # Increased from 2 to 3 seconds
+                    sock_read=5,  # Increased from 3 to 5 seconds
+                    sock_connect=3  # Increased from 2 to 3 seconds
+                )
+                
+                # Setup headers
+                headers = {
+                    'Content-Type': 'application/json',
+                    'X-Agent-Token': self.auth_token,
+                    'User-Agent': 'EDR-Agent/2.0-ServerResponse',
+                    'Connection': 'keep-alive',
+                    'Accept': 'application/json'
+                }
+                
+                # Setup connector
+                connector = aiohttp.TCPConnector(
+                    limit=self.connection_pool_size,
+                    limit_per_host=self.connection_pool_size,
+                    ttl_dns_cache=300,
+                    use_dns_cache=True,
+                    keepalive_timeout=self.keep_alive_timeout,
+                    enable_cleanup_closed=True,
+                    force_close=False,
+                    ssl=False
+                )
+                
+                self.session = aiohttp.ClientSession(
+                    timeout=timeout,
+                    headers=headers,
+                    connector=connector,
+                    raise_for_status=False
+                )
+                self._session_closed = False
+                
+                self.logger.debug("📡 Session reinitialized, testing connection...")
+                
+                # Test connection with detailed logging
+                try:
+                    if await self.test_connection():
+                        self.offline_mode = False
+                        self.logger.info("✅ Force reconnection successful")
+                        return True
+                    else:
+                        self.logger.debug("📡 Force reconnection failed - HTTP test failed")
+                        return False
+                except Exception as e:
+                    self.logger.debug(f"📡 HTTP connection test error: {e}")
+                    return False
+            else:
+                self.logger.debug("📡 Force reconnection failed - no server detected")
+                return False
+                
+        except Exception as e:
+            self.logger.debug(f"Force reconnection error: {e}")
             return False

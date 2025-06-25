@@ -189,6 +189,10 @@ class AgentManager:
             # Register with server
             await self._register_with_server()
             
+            # FIXED: Ensure agent_id is available
+            if not self.agent_id:
+                raise Exception("Agent registration failed - no agent_id received")
+            
             # Set agent_id for event processor
             if self.event_processor and self.agent_id:
                 self.event_processor.set_agent_id(self.agent_id)
@@ -199,6 +203,12 @@ class AgentManager:
             
             # Start event processor
             await self.event_processor.start()
+            
+            # FIXED: Set agent_id on all collectors before starting
+            for name, collector in self.collectors.items():
+                if hasattr(collector, 'set_agent_id'):
+                    collector.set_agent_id(self.agent_id)
+                    self.logger.debug(f"[{name.upper()}_COLLECTOR] Set AgentID: {self.agent_id}")
             
             # Start collectors
             await self._start_collectors()

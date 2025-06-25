@@ -164,15 +164,36 @@ class SimpleEventProcessor:
     
     async def add_event(self, event_data: EventData):
         """
-        GỬI EVENT LÊN SERVER - SIMPLE VERSION
-        Chỉ gửi event, không tự tạo alert
+        GỬI EVENT LÊN SERVER - CHỈ KHI KẾT NỐI THÀNH CÔNG
+        Chỉ gửi event khi thực sự kết nối được với server
         """
         try:
+            # FIXED: Ensure agent_id is set on the event
+            if self.agent_id and not event_data.agent_id:
+                event_data.agent_id = self.agent_id
+            
+            # FIXED: Skip events without agent_id
+            if not event_data.agent_id:
+                self.stats.events_failed += 1
+                return
+            
             # FIXED: Update stats immediately
             self.stats.events_collected += 1
             
-            # ADDED: Debug log for Authentication events
-            if event_data.event_type == 'Authentication':
+            # FIXED: Check offline_mode first - SILENT when offline
+            if not self.communication or self.communication.offline_mode:
+                # SILENT: Don't send events when offline
+                self.stats.events_failed += 1
+                return
+            
+            # FIXED: Check if server is actually connected before sending
+            if not self.communication.is_connected():
+                # SILENT: Don't send events when not connected
+                self.stats.events_failed += 1
+                return
+            
+            # ADDED: Debug log for Authentication events (only when online)
+            if event_data.event_type == 'Authentication' and self.communication and self.communication.is_connected():
                 self._safe_log("info", f"🔐 AUTHENTICATION EVENT: {event_data.login_user} - {event_data.event_action}")
             
             if self.agent_id and self.communication:
@@ -180,91 +201,63 @@ class SimpleEventProcessor:
                 success = await self._send_event_to_server(event_data)
                 
                 if not success:
-                    # Nếu gửi thất bại, thêm vào retry queue
+                    # Nếu gửi thất bại, thêm vào retry queue - SILENT
                     self._failed_events_queue.append({
                         'event': event_data,
                         'timestamp': time.time(),
                         'retry_count': 0
                     })
-                    self._safe_log("warning", f"Event queued for retry: {event_data.event_type}")
+                    # NO LOGGING - completely silent
             else:
-                self._safe_log("error", "Cannot send event - agent_id or communication not available")
+                # SILENT when agent_id or communication not available
                 self.stats.events_failed += 1
             
         except Exception as e:
-            self._safe_log("error", f"Failed to process event: {e}")
+            # SILENT on exceptions
             self.stats.events_failed += 1
     
     async def _send_event_to_server(self, event_data: EventData) -> bool:
         """
-        GỬI EVENT LÊN SERVER VÀ CHỜ RULE VIOLATION RESPONSE - OPTIMIZED VERSION
-        Chỉ gửi khi server kết nối thành công
+        GỬI EVENT LÊN SERVER VÀ CHỜ RULE VIOLATION RESPONSE - SILENT OFFLINE MODE
         """
         try:
-            # FIXED: Check server connection before sending
-            if not self.communication or self.communication.offline_mode:
-                self._safe_log("debug", f"📤 Event queued (offline mode): {event_data.event_type}")
-                return False
-            
-            # FIXED: Check if server is responding
-            if not hasattr(self.communication, 'working_server') or not self.communication.working_server:
-                self._safe_log("debug", f"📤 Event queued (no server): {event_data.event_type}")
-                return False
-            
-            # FIXED: Add debug log for server connection
-            self._safe_log("debug", f"📤 Sending event to server: {event_data.event_type} - {event_data.event_action}")
-            
-            # ADDED: Special debug for Authentication events
-            if event_data.event_type == 'Authentication':
-                self._safe_log("info", f"🔐 SENDING AUTHENTICATION EVENT: {event_data.login_user} - {event_data.event_action}")
-            
-            async with self._processing_lock:
-                # Set agent ID
+            # FIXED: Ensure agent_id is set on the event
+            if self.agent_id and not event_data.agent_id:
                 event_data.agent_id = self.agent_id
+            
+            # FIXED: Validate that agent_id is present
+            if not event_data.agent_id:
+                self._safe_log("error", f"❌ Event missing agent_id: {event_data.event_type}")
+                return False
+            
+            # Gửi event lên server
+            success, response, error = await self.communication.submit_event(event_data)
+            
+            if success:
+                self.stats.events_sent += 1
+                self.stats.last_event_sent = datetime.now()
+                self._consecutive_failures = 0
+                self._last_successful_send = time.time()
                 
-                # Add timestamp if missing
-                if not hasattr(event_data, 'event_timestamp') or not event_data.event_timestamp:
-                    event_data.event_timestamp = datetime.now()
+                # Xử lý response từ server để kiểm tra rule violations
+                if response and isinstance(response, dict):
+                    await self._process_server_response_simple(response, event_data)
                 
-                # FIXED: Optimized retry logic
-                max_retries = 1  # Reduce retries for better performance
-                for attempt in range(max_retries):
-                    try:
-                        # Send event to server
-                        start_time = time.time()
-                        response = await self.communication.submit_event(event_data)
-                        send_time = (time.time() - start_time) * 1000  # Convert to ms
-                        
-                        if response:
-                            self.stats.events_sent += 1
-                            self.stats.last_event_sent = datetime.now()
-                            self._consecutive_failures = 0
-                            self._last_successful_send = time.time()
-                            
-                            self._safe_log("debug", f"📤 Event sent successfully: {event_data.event_type} - {event_data.event_action} ({send_time:.1f}ms)")
-                            
-                            # XỬ LÝ RESPONSE TỪ SERVER - CHỈ HIỂN THỊ KHI CÓ RULE VIOLATION
-                            await self._process_server_response_simple(response, event_data)
-                            return True
-                        else:
-                            self.stats.events_failed += 1
-                            self._send_errors += 1
-                            self._consecutive_failures += 1
-                            self._safe_log("debug", f"❌ Event send failed (no response): {event_data.event_type}")
-                            return False
-                    
-                    except Exception as e:
-                        self._safe_log("error", f"❌ Event send failed (exception): {e}")
-                        self.stats.events_failed += 1
-                        self._send_errors += 1
-                        self._consecutive_failures += 1
-                        return False
-        
+                return True
+            else:
+                self.stats.events_failed += 1
+                self._send_errors += 1
+                self._consecutive_failures += 1
+                
+                # SILENT: No logging for offline mode
+                return False
+                
         except Exception as e:
-            self._safe_log("error", f"❌ Event send failed: {e}")
             self.stats.events_failed += 1
             self._send_errors += 1
             self._consecutive_failures += 1
+            
+            # SILENT: No logging for offline mode
             return False
     
     async def _process_server_response_simple(self, server_response: Dict[str, Any], original_event: EventData):
@@ -399,38 +392,68 @@ class SimpleEventProcessor:
             return "INFO"
     
     async def _retry_failed_events_loop(self):
-        """Retry failed events periodically"""
-        retry_interval = 10  # Retry every 10 seconds
-        max_retries = 3
+        """Retry failed events - SILENT OFFLINE MODE"""
+        retry_interval = 5  # Start with 5 seconds
+        max_retry_interval = 60  # Max 60 seconds
+        consecutive_failures = 0
+        was_offline = False  # Track if we were offline
         
         while self.is_running:
             try:
-                if self._failed_events_queue:
-                    self._safe_log("info", f"🔄 Retrying {len(self._failed_events_queue)} failed events...")
+                if not self._failed_events_queue:
+                    await asyncio.sleep(1)
+                    continue
+                
+                # Check if server is available - SILENT when offline
+                if not self.communication or not self.communication.is_connected():
+                    # COMPLETELY SILENT - no logging when offline
+                    was_offline = True
+                    await asyncio.sleep(retry_interval)
+                    consecutive_failures += 1
+                    retry_interval = min(retry_interval * 1.5, max_retry_interval)
+                    continue
+                
+                # NOTIFY ONLY when coming back online
+                if was_offline:
+                    self._safe_log("info", "✅ SERVER CONNECTION RESTORED - Resuming event transmission")
+                    was_offline = False
+                    consecutive_failures = 0
+                    retry_interval = 5
+                
+                # Process retry queue - SILENT processing
+                failed_events = list(self._failed_events_queue)
+                self._failed_events_queue.clear()
+                
+                success_count = 0
+                for failed_event in failed_events:
+                    if not self.is_running:
+                        break
                     
-                    events_to_retry = []
-                    while self._failed_events_queue and len(events_to_retry) < 5:  # Max 5 at a time
-                        events_to_retry.append(self._failed_events_queue.popleft())
+                    event_data = failed_event['event']
+                    retry_count = failed_event['retry_count']
                     
-                    for event_info in events_to_retry:
-                        event_data = event_info['event']
-                        retry_count = event_info['retry_count']
-                        
-                        if retry_count < max_retries:
-                            success = await self._send_event_to_server(event_data)
-                            
-                            if not success:
-                                event_info['retry_count'] += 1
-                                event_info['timestamp'] = time.time()
-                                self._failed_events_queue.append(event_info)
-                        else:
-                            self._safe_log("error", f"❌ Event discarded after {max_retries} retries: {event_data.event_type}")
+                    if retry_count >= 3:  # Max 3 retries - SILENT discard
+                        continue
+                    
+                    # Try to send again
+                    success = await self._send_event_to_server(event_data)
+                    
+                    if success:
+                        success_count += 1
+                    else:
+                        # Re-queue for retry - SILENT
+                        failed_event['retry_count'] = retry_count + 1
+                        self._failed_events_queue.append(failed_event)
+                
+                # Only log if we successfully sent some events
+                if success_count > 0:
+                    self._safe_log("info", f"✅ Resumed: {success_count} events sent")
                 
                 await asyncio.sleep(retry_interval)
                 
             except Exception as e:
-                self._safe_log("error", f"❌ Retry loop error: {e}")
-                await asyncio.sleep(retry_interval)
+                # SILENT on retry loop errors
+                await asyncio.sleep(5)
     
     async def _flush_failed_events(self):
         """Try to send all remaining failed events"""

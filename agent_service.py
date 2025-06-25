@@ -18,7 +18,7 @@ from pathlib import Path
 agent_path = Path(__file__).parent
 sys.path.insert(0, str(agent_path))
 
-from main import EDRAgent
+from main import EnhancedEDRAgent
 
 class EDRAgentService(win32serviceutil.ServiceFramework):
     """EDR Agent Windows Service"""
@@ -101,7 +101,7 @@ class EDRAgentService(win32serviceutil.ServiceFramework):
             asyncio.set_event_loop(self.loop)
             
             # Create and initialize agent
-            self.agent = EDRAgent()
+            self.agent = EnhancedEDRAgent()
             
             # Run the agent
             self.loop.run_until_complete(self._service_main())
@@ -117,8 +117,7 @@ class EDRAgentService(win32serviceutil.ServiceFramework):
         """Main service execution with agent"""
         try:
             # Initialize agent
-            if not await self.agent.initialize():
-                raise Exception("Agent initialization failed")
+            await self.agent.initialize()
             
             self.logger.info("✅ Agent initialized successfully")
             
@@ -288,7 +287,7 @@ def main():
             print("   (Press Ctrl+C to stop)")
             
             try:
-                agent = EDRAgent()
+                agent = EnhancedEDRAgent()
                 asyncio.run(agent.initialize())
                 asyncio.run(agent.start())
             except KeyboardInterrupt:

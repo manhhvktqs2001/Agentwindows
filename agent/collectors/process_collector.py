@@ -83,14 +83,24 @@ class EnhancedProcessCollector(BaseCollector):
             'total_events_generated': 0
         }
         
+        # FIXED: Add counter for existing process events
+        self.existing_process_counter = 0
+        self.last_existing_process_log = 0
+        
         self.logger.info("Enhanced Process Collector initialized - PERFORMANCE OPTIMIZED")
     
     async def _collect_data(self):
-        """Collect process events - ONLY for NEW processes to reduce event spam"""
+        """Collect process events - ENHANCED to include existing processes"""
         try:
             start_time = time.time()
             events = []
             current_pids = set()
+            
+            # FIXED: Check server connectivity before processing
+            is_connected = False
+            if hasattr(self, 'event_processor') and self.event_processor:
+                if hasattr(self.event_processor, 'communication') and self.event_processor.communication:
+                    is_connected = not self.event_processor.communication.offline_mode
             
             # FIXED: Only scan interesting processes for better performance
             interesting_process_names = set()
@@ -125,7 +135,7 @@ class EnhancedProcessCollector(BaseCollector):
                         proc_info['memory_rss'] = 0
                         proc_info['memory_vms'] = 0
                     
-                    # FIXED: Only create events for NEW processes, not all interesting processes
+                    # FIXED: Create events for NEW processes
                     if pid not in self.monitored_processes and self._is_interesting_process(process_name):
                         # Create event for NEW interesting process only
                         event = await self._create_enhanced_process_creation_event(proc_info)
@@ -137,6 +147,29 @@ class EnhancedProcessCollector(BaseCollector):
                             self._update_process_type_stats(proc_info['name'], 'create')
                         
                         # Check high CPU/Memory for NEW interesting processes
+                        if proc_info.get('cpu_percent', 0) > self.high_cpu_threshold:
+                            cpu_event = await self._create_high_cpu_event(proc_info)
+                            if cpu_event:
+                                events.append(cpu_event)
+                                self.stats['high_cpu_events'] += 1
+                        
+                        if proc_info.get('memory_rss', 0) > self.high_memory_threshold:
+                            memory_event = await self._create_high_memory_event(proc_info)
+                            if memory_event:
+                                events.append(memory_event)
+                                self.stats['high_memory_events'] += 1
+                    
+                    # FIXED: Also create events for EXISTING interesting processes (every 10 scans)
+                    elif pid in self.monitored_processes and self._is_interesting_process(process_name):
+                        self.existing_process_counter += 1
+                        
+                        # Log existing processes every 10 scans to show they're being monitored
+                        if self.existing_process_counter % 10 == 0:
+                            existing_event = await self._create_existing_process_activity_event(proc_info)
+                            if existing_event:
+                                events.append(existing_event)
+                        
+                        # Check high CPU/Memory for existing interesting processes
                         if proc_info.get('cpu_percent', 0) > self.high_cpu_threshold:
                             cpu_event = await self._create_high_cpu_event(proc_info)
                             if cpu_event:
@@ -176,11 +209,12 @@ class EnhancedProcessCollector(BaseCollector):
             self.last_scan_pids = current_pids
             self.stats['total_events_generated'] += len(events)
             
+            # FIXED: Log events when connected to server OR when we have events to show
             if events:
-                self.logger.info(f"📤 Generated {len(events)} OPTIMIZED PROCESS EVENTS")
+                self.logger.info(f"📤 Generated {len(events)} PROCESS EVENTS")
                 
                 # Log interesting events
-                for event in events[:2]:  # Log only first 2 events
+                for event in events[:3]:  # Log first 3 events
                     if hasattr(event, 'process_name'):
                         self.logger.info(f"   📱 {event.event_action}: {event.process_name}")
             
@@ -447,6 +481,39 @@ class EnhancedProcessCollector(BaseCollector):
             return "Unknown"
         except Exception:
             return "Unknown"
+    
+    async def _create_existing_process_activity_event(self, proc_info: Dict):
+        """EVENT TYPE 6: Existing Process Activity Event - to show monitoring is working"""
+        try:
+            process_name = proc_info.get('name', 'Unknown')
+            
+            return EventData(
+                event_type="Process",
+                event_action=EventAction.ACCESS,
+                event_timestamp=datetime.now(),
+                severity="Info",
+                
+                process_id=proc_info.get('pid'),
+                process_name=process_name,
+                process_path=proc_info.get('exe'),
+                command_line=' '.join(proc_info.get('cmdline', [])),
+                parent_pid=proc_info.get('ppid'),
+                process_user=proc_info.get('username'),
+                
+                description=f"📱 PROCESS MONITORING: {process_name} (PID: {proc_info.get('pid')}) - Active",
+                raw_event_data={
+                    'event_subtype': 'existing_process_activity',
+                    'process_category': self._get_process_category(process_name),
+                    'cpu_percent': proc_info.get('cpu_percent', 0),
+                    'memory_rss': proc_info.get('memory_rss', 0),
+                    'is_interesting': self._is_interesting_process(process_name),
+                    'monitoring_type': 'existing_process',
+                    'parent_process': self._get_parent_process_name(proc_info.get('ppid'))
+                }
+            )
+        except Exception as e:
+            self.logger.error(f"❌ Existing process activity event failed: {e}")
+            return None
     
     def get_stats(self) -> Dict:
         """Get detailed statistics for enhanced process monitoring"""

@@ -257,18 +257,50 @@ class BaseCollector(ABC):
                 await asyncio.sleep(1)
     
     async def _send_event_immediately(self, event_data: EventData):
-        """Send event immediately to event processor"""
+        """Send event immediately to event processor - ENHANCED to log events even when offline"""
         try:
-            if self.event_processor:
-                await self.event_processor.add_event(event_data)
-                self.events_sent += 1
-                self.events_collected += 1
-                
-                # Log significant events - REMOVED HIGH PRIORITY LOG
-                self.logger.debug(f"📤 Event sent: {event_data.event_type} - {event_data.event_action}")
-            else:
-                self.logger.warning("⚠️ Event processor not available")
+            # FIXED: Ensure agent_id is set on the event
+            if hasattr(self, 'agent_id') and self.agent_id and not event_data.agent_id:
+                event_data.agent_id = self.agent_id
+            
+            # ENHANCED: Always log the event for visibility
+            event_type = getattr(event_data, 'event_type', 'Unknown')
+            event_action = getattr(event_data, 'event_action', 'Unknown')
+            process_name = getattr(event_data, 'process_name', 'Unknown')
+            
+            # Log the event regardless of connectivity
+            self.logger.info(f"📱 {event_type} Event: {event_action} - {process_name}")
+            
+            # FIXED: Check if event processor and communication are available
+            if not self.event_processor:
+                self.logger.debug("⚠️ Event processor not available - event logged but not sent")
                 self.collection_errors += 1
+                return
+            
+            # FIXED: Check offline_mode first - LOG but don't send when offline
+            if (hasattr(self.event_processor, 'communication') and 
+                self.event_processor.communication and 
+                self.event_processor.communication.offline_mode):
+                # LOG: Event is logged but not sent when offline
+                self.logger.debug(f"📱 Event logged (offline): {event_type} - {event_action} - {process_name}")
+                self.collection_errors += 1
+                return
+            
+            # FIXED: Check if server is connected before sending
+            if hasattr(self.event_processor, 'communication') and self.event_processor.communication:
+                if not self.event_processor.communication.is_connected():
+                    # LOG: Event is logged but not sent when not connected
+                    self.logger.debug(f"📱 Event logged (not connected): {event_type} - {event_action} - {process_name}")
+                    self.collection_errors += 1
+                    return
+            
+            # Send event to processor
+            await self.event_processor.add_event(event_data)
+            self.events_sent += 1
+            self.events_collected += 1
+            
+            # Log successful event sending
+            self.logger.debug(f"📤 Event sent successfully: {event_type} - {event_action} - {process_name}")
                 
         except Exception as e:
             self.logger.error(f"❌ Event sending failed: {e}")
@@ -307,9 +339,14 @@ class BaseCollector(ABC):
             self.collection_errors += 1
     
     def set_event_processor(self, event_processor):
-        """Set the event processor reference"""
+        """Set the event processor for this collector"""
         self.event_processor = event_processor
-        self.logger.debug("🔗 Event processor linked for continuous sending")
+        self.logger.debug(f"Event processor set for {self.collector_name}")
+    
+    def set_agent_id(self, agent_id: str):
+        """Set the agent ID for this collector"""
+        self.agent_id = agent_id
+        self.logger.debug(f"Agent ID set for {self.collector_name}: {agent_id}")
     
     def get_stats(self) -> Dict[str, Any]:
         """Get collector statistics"""

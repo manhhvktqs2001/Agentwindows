@@ -63,84 +63,70 @@ class SystemCollector(BaseCollector):
         self.logger.info("Enhanced System Collector initialized - PERFORMANCE OPTIMIZED")
     
     async def _collect_data(self):
-        """Collect multiple types of system events - PERFORMANCE OPTIMIZED"""
+        """Collect system events - ENHANCED for better performance"""
         try:
-            collection_start = time.time()
+            start_time = time.time()
             events = []
             
-            # Collect current system metrics
-            current_metrics = await self._collect_current_system_metrics()
+            # FIXED: Check server connectivity before processing
+            is_connected = False
+            if hasattr(self, 'event_processor') and self.event_processor:
+                if hasattr(self.event_processor, 'communication') and self.event_processor.communication:
+                    is_connected = not self.event_processor.communication.offline_mode
             
-            # FIXED: Reduce event frequency - only send critical events
-            current_time = time.time()
-            if (current_time - self.last_metrics_send) >= self.metrics_send_interval:
-                metrics_event = await self._create_system_metrics_event(current_metrics)
-                if metrics_event:
-                    events.append(metrics_event)
-                    self.stats['system_performance_events'] += 1
-                    self.last_metrics_send = current_time
-            
-            # FIXED: Only check critical thresholds
-            cpu_events = await self._check_cpu_usage_events(current_metrics)
-            events.extend(cpu_events)
-            
-            memory_events = await self._check_memory_usage_events(current_metrics)
-            events.extend(memory_events)
-            
-            # FIXED: Reduce disk and process checks
-            if self.stats['total_system_events'] % 5 == 0:  # Every 5 scans
-                disk_events = await self._check_disk_usage_events(current_metrics)
-                events.extend(disk_events)
+            # ENHANCED: Get system information efficiently
+            try:
+                # CPU Usage Event
+                cpu_percent = psutil.cpu_percent(interval=0.1)
+                if cpu_percent > self.high_cpu_threshold:
+                    cpu_event = await self._create_high_cpu_event(cpu_percent)
+                    if cpu_event:
+                        events.append(cpu_event)
+                        self.stats['high_cpu_events'] += 1
                 
-                process_events = await self._check_process_count_events(current_metrics)
-                events.extend(process_events)
-            
-            # FIXED: Reduce health checks
-            if self.stats['total_system_events'] % 10 == 0:  # Every 10 scans
-                health_events = await self._check_system_health_events(current_metrics)
-                events.extend(health_events)
-            
-            # Boot event (once per boot)
-            if not self.boot_events_sent:
-                boot_event = await self._create_system_boot_event(current_metrics)
-                if boot_event:
-                    events.append(boot_event)
-                    self.stats['boot_events'] += 1
-                    self.boot_events_sent = True
-            
-            # FIXED: Reduce service and hardware checks
-            if self.stats['total_system_events'] % 50 == 0:  # Every 50 scans
-                service_events = await self._check_service_status_events()
-                events.extend(service_events)
+                # Memory Usage Event
+                memory = psutil.virtual_memory()
+                if memory.percent > self.high_memory_threshold:
+                    memory_event = await self._create_high_memory_event(memory)
+                    if memory_event:
+                        events.append(memory_event)
+                        self.stats['high_memory_events'] += 1
                 
-                temp_events = await self._check_temperature_events()
-                events.extend(temp_events)
+                # Disk Usage Event
+                disk = psutil.disk_usage('/')
+                if disk.percent > self.high_disk_threshold:
+                    disk_event = await self._create_high_disk_event(disk)
+                    if disk_event:
+                        events.append(disk_event)
+                        self.stats['high_disk_events'] += 1
+                
+                # System Summary Event (every 10 scans)
+                if self.stats['total_system_events'] % 10 == 0:
+                    summary_event = await self._create_system_summary_event(cpu_percent, memory, disk)
+                    if summary_event:
+                        events.append(summary_event)
+                        self.stats['system_summary_events'] += 1
+                
+            except Exception as e:
+                self.logger.debug(f"System information collection failed: {e}")
+                return []
             
-            # FIXED: Reduce load checks
-            if self.stats['total_system_events'] % 15 == 0:  # Every 15 scans
-                load_events = await self._check_system_load_events(current_metrics)
-                events.extend(load_events)
-            
-            # Update history
-            self._update_system_history(current_metrics)
-            
-            # Update statistics
+            # Update stats
             self.stats['total_system_events'] += len(events)
             
-            if events:
+            # FIXED: Only log events when connected to server
+            if events and is_connected:
                 self.logger.info(f"📤 Generated {len(events)} MULTIPLE SYSTEM EVENTS for continuous sending")
             
-            # FIXED: Log performance metrics with better thresholds
-            collection_time = (time.time() - collection_start) * 1000
-            if collection_time > 5000:  # Increase from 1000ms to 5000ms
-                self.logger.warning(f"⚠️ Slow collection: {collection_time:.1f}ms in SystemCollector")
-            elif collection_time > 2000:
-                self.logger.info(f"📊 Collection time: {collection_time:.1f}ms in SystemCollector")
+            # FIXED: Log performance metrics
+            collection_time = (time.time() - start_time) * 1000
+            if collection_time > 1000:
+                self.logger.warning(f"⚠️ Slow system collection: {collection_time:.1f}ms")
             
             return events
             
         except Exception as e:
-            self.logger.error(f"❌ Multiple system events collection failed: {e}")
+            self.logger.error(f"❌ System events collection failed: {e}")
             return []
     
     async def _collect_current_system_metrics(self):
