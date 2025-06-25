@@ -29,4 +29,17 @@ class LocalRules:
                 'description': 'PowerShell executed with encoded command',
             }
         )
-        return [rule1]
+        # --- Thêm rule phát hiện notepad.exe ---
+        def detect_notepad(event):
+            return event.event_type == 'Process' and event.process_name and event.process_name.lower() == 'notepad.exe'
+        rule2 = LocalRule(
+            name='Detect Notepad Execution',
+            condition=detect_notepad,
+            alert_info={
+                'title': 'Notepad Application Detected',
+                'severity': 'Medium',
+                'description': 'Notepad.exe process was executed - Test rule',
+            }
+        )
+        # ---
+        return [rule1, rule2]
