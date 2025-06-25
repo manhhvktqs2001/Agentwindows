@@ -169,8 +169,9 @@ class BaseCollector(ABC):
             try:
                 # Check if collector is paused
                 if self._paused:
-                    self.logger.info(f"⏸️  {self.collector_name} paused - exiting collection loop")
-                    return  # DỪNG NGAY LẬP TỨC khi pause
+                    await asyncio.sleep(0.1)
+                    continue
+                
                 if self._collecting:
                     await asyncio.sleep(0.001)
                     continue

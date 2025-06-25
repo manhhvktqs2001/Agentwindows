@@ -73,9 +73,6 @@ class EnhancedNetworkCollector(BaseCollector):
         self.logger.info("🌐 FIXED Network Collector initialized - COMPLETE DATA COLLECTION")
     
     async def _collect_data(self):
-        if self._paused:
-            self.logger.info("⏸️  NetworkCollector paused - exiting _collect_data")
-            return
         """Collect network events - ENHANCED for better performance"""
         try:
             start_time = time.time()

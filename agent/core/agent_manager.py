@@ -182,54 +182,22 @@ class AgentManager:
             raise
     
     async def monitor_server_connection(self):
-        """Background task: Pause/resume agent based on server connection status with retry counter"""
-        self.logger.info("🔄 Starting server connection monitor task with retry counter...")
-        retry_count = 0
-        max_retries = 3
-        retry_interval = 5  # 5 seconds between retries
-        
+        """Background task: Pause/resume agent based on server connection status"""
+        self.logger.info("🔄 Starting server connection monitor task...")
         while True:
             try:
                 is_connected = False
                 if self.communication and hasattr(self.communication, 'is_connected'):
                     is_connected = self.communication.is_connected()
-                
-                if is_connected:
-                    # Server is connected
-                    if self.is_paused:
-                        self.logger.info("🔗 Server reconnected. Resuming agent...")
-                        await self.resume()
-                        retry_count = 0  # Reset retry counter on successful connection
-                    elif retry_count > 0:
-                        self.logger.info("✅ Server connection restored - retry counter reset")
-                        retry_count = 0
-                else:
-                    # Server is not connected
-                    if not self.is_paused:
-                        retry_count += 1
-                        if retry_count <= max_retries:
-                            self.logger.warning(f"❌ Server disconnected. Retry {retry_count}/{max_retries}...")
-                            await asyncio.sleep(retry_interval)
-                        else:
-                            self.logger.warning(f"❌ Server disconnected after {max_retries} retries. Pausing agent...")
-                            await self.pause()
-                            retry_count = 0  # Reset for next reconnection attempt
-                    else:
-                        # Already paused, try to reconnect periodically
-                        retry_count += 1
-                        if retry_count <= max_retries:
-                            self.logger.info(f"🔄 Attempting to reconnect... Retry {retry_count}/{max_retries}")
-                            await asyncio.sleep(retry_interval)
-                        else:
-                            self.logger.info("⏸️ Waiting for server to come back online...")
-                            retry_count = 0  # Reset for next attempt
-                            await asyncio.sleep(30)  # Wait longer before next retry cycle
-                
-                await asyncio.sleep(5)  # Check every 5 seconds
-                
+                if is_connected and self.is_paused:
+                    self.logger.info("🔗 Server reconnected. Resuming agent...")
+                    await self.resume()
+                elif not is_connected and not self.is_paused:
+                    self.logger.warning("❌ Server disconnected. Pausing agent...")
+                    await self.pause()
             except Exception as e:
-                self.logger.error(f"❌ Server connection monitor error: {e}")
-                await asyncio.sleep(10)
+                self.logger.error(f"[Monitor] Error: {e}")
+            await asyncio.sleep(5)
 
     async def start(self):
         """Start the agent - Fixed version"""
@@ -336,6 +304,7 @@ class AgentManager:
             if self.is_paused:
                 self.is_paused = False
                 self.logger.info("▶️  Agent monitoring RESUMED")
+                
                 # Resume all collectors
                 for name, collector in self.collectors.items():
                     try:
@@ -344,19 +313,13 @@ class AgentManager:
                         self.logger.debug(f"▶️  Resumed {name} collector")
                     except Exception as e:
                         self.logger.error(f"❌ Failed to resume {name} collector: {e}")
+                
                 # Send active status to server
                 if self.is_registered:
                     try:
                         await self._send_heartbeat(status='Active')
                     except:
                         pass
-                # FLUSH QUEUE: Gửi lại logs bị giữ khi offline
-                if self.event_processor and hasattr(self.event_processor, 'simple_processor'):
-                    try:
-                        await self.event_processor.simple_processor._flush_failed_events()
-                        self.logger.info("✅ Flushed failed events after resume")
-                    except Exception as e:
-                        self.logger.error(f"❌ Failed to flush failed events: {e}")
         except Exception as e:
             self.logger.error(f"❌ Agent resume error: {e}")
     

@@ -63,9 +63,6 @@ class SystemCollector(BaseCollector):
         self.logger.info("Enhanced System Collector initialized - PERFORMANCE OPTIMIZED")
     
     async def _collect_data(self):
-        if self._paused:
-            self.logger.info("⏸️  SystemCollector paused - exiting _collect_data")
-            return
         """Collect system events - ENHANCED for better performance"""
         try:
             start_time = time.time()
