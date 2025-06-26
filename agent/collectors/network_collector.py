@@ -109,7 +109,7 @@ class EnhancedNetworkCollector(BaseCollector):
                     # FIXED: Only create events for NEW connections, not all connections
                     if conn_key not in self.monitored_connections:
                         # EVENT TYPE 1: New Connection Established Event with COMPLETE data
-                        if conn.raddr:
+                        if conn.raddr and self._is_external_ip(conn.raddr.ip):
                             event = await self._create_complete_connection_established_event(conn)
                             if event:
                                 events.append(event)
@@ -200,6 +200,10 @@ class EnhancedNetworkCollector(BaseCollector):
             destination_port = conn.raddr.port if conn.raddr else 0
             protocol = 'TCP' if conn.type == socket.SOCK_STREAM else 'UDP'
             direction = self._determine_connection_direction(conn)
+            
+            # Ensure direction is 'Outbound' for external IPs
+            if self._is_external_ip(destination_ip):
+                direction = 'Outbound'
             
             # FIXED: Create network event with ALL required fields populated
             return EventData(
