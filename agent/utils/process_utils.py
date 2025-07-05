@@ -6,6 +6,8 @@ import psutil
 import hashlib
 import os
 from typing import Dict, Optional
+import platform
+import subprocess
 
 class ProcessUtils:
     @staticmethod
@@ -63,3 +65,22 @@ def is_system_process(process_name: str) -> bool:
         'wininit.exe', 'services.exe', 'spoolsv.exe', 'explorer.exe'
     }
     return process_name.lower() in system_processes
+
+def kill_process(process_id, force_kill=True):
+    system = platform.system().lower()
+    try:
+        if system == 'windows':
+            cmd = ["taskkill", "/PID", str(process_id)]
+            if force_kill:
+                cmd.append("/F")
+            subprocess.run(cmd, check=True)
+        else:
+            # Linux, macOS
+            sig = '-9' if force_kill else '-15'
+            cmd = ["kill", sig, str(process_id)]
+            subprocess.run(cmd, check=True)
+        print(f"[AGENT] Killed process {process_id} (force={force_kill})")
+        return True
+    except Exception as e:
+        print(f"[AGENT] Failed to kill process {process_id}: {e}")
+        return False

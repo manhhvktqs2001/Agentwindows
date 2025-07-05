@@ -16,6 +16,7 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 import traceback
 import subprocess
+import platform
 
 # NOTIFICATION LIBRARIES
 PLYER_AVAILABLE = False
@@ -52,20 +53,16 @@ class SimpleRuleBasedAlertNotifier:
         self.alert_duration = 10  # Increase to 10 seconds
         
         # Initialize notification systems
-        self.plyer_available = PLYER_AVAILABLE
         self.toast_available = WIN10TOAST_AVAILABLE
         self.toast_notifier = None
-        
-        if self.plyer_available:
-            self.plyer_notification = notification
-            self.logger.info("✅ Plyer notification available")
         
         if self.toast_available:
             try:
                 self.toast_notifier = ToastNotifier()
-                self.logger.info("✅ Windows Toast notification available")
-            except:
+                self.logger.info("✅ Win10Toast notification available")
+            except Exception as e:
                 self.toast_available = False
+                self.logger.error(f"Win10Toast init error: {e}")
         
         # FIXED: Enhanced alert tracking
         self.total_alerts_received = 0
@@ -93,7 +90,7 @@ class SimpleRuleBasedAlertNotifier:
         self.logger.info(f"   Server Rules: {self.show_server_rules}")
         self.logger.info(f"   Local Rules: {self.show_local_rules}")
         self.logger.info(f"   Risk-Based: {self.show_risk_based_alerts}")
-        self.logger.info(f"   Plyer: {self.plyer_available}, Toast: {self.toast_available}")
+        self.logger.info(f"   Plyer: {PLYER_AVAILABLE}, Toast: {self.toast_available}")
     
     def set_communication(self, communication):
         """Set communication reference for acknowledgments"""
@@ -102,46 +99,45 @@ class SimpleRuleBasedAlertNotifier:
     
     async def process_server_alerts(self, server_response: Dict[str, Any], related_events: List = None):
         """
-        FIXED: XỬ LÝ VÀ HIỂN THỊ TẤT CẢ RULE-BASED ALERTS
+        FIXED: XỬ LÝ VÀ HIỂN THỊ CHỈ KHI CÓ RULE VIOLATIONS
         """
         try:
             alerts_to_display = []
             
+            # FIXED: Check if there are actual rule violations
+            threat_detected = server_response.get('threat_detected', False)
+            risk_score = server_response.get('risk_score', 0)
+            alerts_generated = server_response.get('alerts_generated', [])
+            rule_triggered = server_response.get('rule_triggered')
+            
+            # FIXED: Only process if there's actual threat detection
+            if not threat_detected and not alerts_generated and not rule_triggered and risk_score < 50:
+                self.logger.debug("ℹ️ No rule violations detected - silent processing")
+                return
+            
             # CASE 1: Server gửi alerts_generated array
-            if 'alerts_generated' in server_response and server_response['alerts_generated']:
-                alerts = server_response['alerts_generated']
-                self.logger.info(f"🔔 PROCESSING {len(alerts)} ALERTS from server response")
-                
-                for alert in alerts:
+            if alerts_generated:
+                self.logger.info(f"🔔 PROCESSING {len(alerts_generated)} RULE VIOLATIONS from server")
+                for alert in alerts_generated:
                     if self._should_display_alert(alert):
                         alerts_to_display.append(alert)
                         self._classify_alert_type(alert)
-            
             # CASE 2: Server gửi alerts array (alternative format)
             elif 'alerts' in server_response and server_response['alerts']:
                 alerts = server_response['alerts']
-                self.logger.info(f"🔔 PROCESSING {len(alerts)} ALERTS from alerts array")
-                
+                self.logger.info(f"🔔 PROCESSING {len(alerts)} RULE VIOLATIONS from alerts array")
                 for alert in alerts:
                     if self._should_display_alert(alert):
                         alerts_to_display.append(alert)
                         self._classify_alert_type(alert)
             
-            # CASE 3: Single rule triggered (convert to alert format)
-            elif server_response.get('rule_triggered') or server_response.get('threat_detected'):
-                single_alert = self._convert_response_to_alert(server_response)
-                if single_alert and self._should_display_alert(single_alert):
-                    alerts_to_display.append(single_alert)
-                    self._classify_alert_type(single_alert)
-                    self.logger.info(f"🔔 PROCESSING single rule trigger: {server_response.get('rule_triggered')}")
-            
-            # DISPLAY ALL VALID ALERTS
+            # FIXED: DISPLAY ONLY IF RULE VIOLATIONS DETECTED
             if alerts_to_display:
                 self.total_alerts_received += len(alerts_to_display)
                 self.last_alert_time = datetime.now()
                 
                 self.logger.critical("=" * 120)
-                self.logger.critical(f"🚨 DISPLAYING {len(alerts_to_display)} RULE-BASED ALERTS:")
+                self.logger.critical(f"🚨 DISPLAYING {len(alerts_to_display)} RULE VIOLATIONS:")
                 
                 # Display each alert
                 displayed_count = 0
@@ -155,13 +151,13 @@ class SimpleRuleBasedAlertNotifier:
                     except Exception as e:
                         self.logger.error(f"❌ Failed to display alert: {e}")
                 
-                self.logger.critical(f"✅ SUCCESSFULLY DISPLAYED {displayed_count}/{len(alerts_to_display)} ALERTS")
+                self.logger.critical(f"✅ SUCCESSFULLY DISPLAYED {displayed_count}/{len(alerts_to_display)} RULE VIOLATIONS")
                 self.logger.critical("=" * 120)
                 
                 # Log alert type summary
                 self._log_alert_summary()
             else:
-                self.logger.debug("ℹ️ No valid alerts to display from server response")
+                self.logger.debug("ℹ️ No rule violations to display")
                 
         except Exception as e:
             self.logger.error(f"❌ Error processing server alerts: {e}")
@@ -287,40 +283,27 @@ class SimpleRuleBasedAlertNotifier:
         FIXED: HIỂN THỊ ALERT VỚI ENHANCED NOTIFICATIONS
         """
         try:
-            # Prepare alert content
             title, message = self._prepare_enhanced_alert_content(alert)
-            
-            # Log alert details
-            self._log_alert_details(alert)
-            
-            # METHOD 1: Windows Toast notification
+            # METHOD 1: Win10Toast notification
             if self.toast_available and self.toast_notifier:
-                success = await self._show_enhanced_windows_toast(title, message, alert)
-                if success:
-                    self.logger.info("✅ Alert shown via Windows Toast")
+                try:
+                    self.toast_notifier.show_toast(title, message, duration=self.alert_duration, threaded=True)
+                    self.logger.info("✅ Alert shown via Win10Toast")
                     self._mark_alert_displayed(alert)
                     return True
-            
-            # METHOD 2: Plyer notification
-            if self.plyer_available:
-                success = await self._show_enhanced_plyer_notification(title, message, alert)
-                if success:
-                    self.logger.info("✅ Alert shown via Plyer")
-                    self._mark_alert_displayed(alert)
-                    return True
-            
-            # METHOD 3: PowerShell balloon tip
+                except Exception as e:
+                    self.logger.error(f"Win10Toast notification error: {e}")
+            # METHOD 2: PowerShell balloon tip
             success = await self._show_enhanced_powershell_balloon(title, message, alert)
             if success:
                 self.logger.info("✅ Alert shown via PowerShell balloon")
                 self._mark_alert_displayed(alert)
                 return True
-            
-            # METHOD 4: Enhanced console notification
+            # METHOD 3: Enhanced console notification
             self._show_enhanced_console_notification(title, message, alert)
             self.logger.info("✅ Alert shown in console")
             self._mark_alert_displayed(alert)
-            return True
+            return False
             
         except Exception as e:
             self.logger.error(f"❌ All notification methods failed: {e}")
@@ -459,36 +442,6 @@ class SimpleRuleBasedAlertNotifier:
             
         except Exception as e:
             self.logger.error(f"❌ Windows Toast notification failed: {e}")
-            return False
-    
-    async def _show_enhanced_plyer_notification(self, title: str, message: str, alert: Dict[str, Any]) -> bool:
-        """Show enhanced Plyer notification"""
-        try:
-            if not self.plyer_available:
-                return False
-            
-            def show_plyer():
-                try:
-                    self.plyer_notification.notify(
-                        title=title,
-                        message=message,
-                        timeout=self.alert_duration,
-                        app_name="EDR Security Agent"
-                    )
-                    return True
-                except Exception as e:
-                    self.logger.debug(f"Plyer notification error: {e}")
-                    return False
-            
-            result = await asyncio.to_thread(show_plyer)
-            
-            if result and self.play_sound:
-                await asyncio.to_thread(self._play_alert_sound, alert)
-            
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"❌ Plyer notification failed: {e}")
             return False
     
     async def _show_enhanced_powershell_balloon(self, title: str, message: str, alert: Dict[str, Any]) -> bool:
@@ -711,7 +664,6 @@ $balloon.Dispose()
                 'acknowledged_alerts': len(self.acknowledged_alerts),
                 'last_alert_time': self.last_alert_time.isoformat() if self.last_alert_time else None,
                 'alert_types_displayed': self.alert_types_displayed.copy(),
-                'plyer_available': self.plyer_available,
                 'toast_available': self.toast_available,
                 'recent_alerts': len(self.recent_alerts),
                 'display_success_rate': (self.total_alerts_displayed / max(self.total_alerts_received, 1)) * 100,

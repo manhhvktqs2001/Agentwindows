@@ -98,6 +98,11 @@ class SimpleEventProcessor:
         # FIXED: Enhanced Rule-Based Alert Notification System
         self.security_notifier = SimpleRuleBasedAlertNotifier(config_manager)
         self.security_notifier.set_communication(communication)
+        # CHỈ HIỂN THỊ CẢNH BÁO TỪ SERVER
+        self.security_notifier.enabled = True
+        self.security_notifier.show_server_rules = True
+        self.security_notifier.show_local_rules = False
+        self.security_notifier.show_risk_based_alerts = False
         
         # Event queue for failed sends
         self._failed_events_queue = deque(maxlen=1000)
@@ -177,20 +182,18 @@ class SimpleEventProcessor:
             # FIXED: Ensure agent_id is set on the event
             if self.agent_id and not event_data.agent_id:
                 event_data.agent_id = self.agent_id
-            
             # FIXED: Skip events without agent_id
             if not event_data.agent_id:
                 self.stats.events_failed += 1
                 return
-            
             # FIXED: Update stats immediately
             self.stats.events_collected += 1
-            
             # FIXED: Always try to send event and process rules
             if self.agent_id and self.communication:
                 # Gửi event lên server và nhận response (có thể chứa rule violations)
                 success, response, error = await self.communication.submit_event(event_data)
-                
+                # Thêm debug log chi tiết response server trả về
+                self._safe_log("warning", f"[DEBUG] Server response for event: {event_data.event_type} - {event_data.process_name} => {response}")
                 if success and response:
                     # FIXED: Process response for rule violations (server OR local)
                     await self._process_enhanced_server_response(response, event_data)
@@ -218,21 +221,36 @@ class SimpleEventProcessor:
     
     async def _process_enhanced_server_response(self, server_response: Dict[str, Any], original_event: EventData):
         """
-        FIXED: XỬ LÝ RESPONSE TỪ SERVER - HIỂN THỊ TẤT CẢ RULE VIOLATIONS
+        FIXED: XỬ LÝ RESPONSE TỪ SERVER - CHỈ HIỂN THỊ KHI CÓ RULE VIOLATIONS
         """
         try:
             if not server_response:
                 return
             
+            # FIXED: Only log when there's actual threat detection
+            threat_detected = server_response.get('threat_detected', False)
+            risk_score = server_response.get('risk_score', 0)
+            alerts_generated = server_response.get('alerts_generated', [])
+            
+            # FIXED: Only process if there's actual threat or alerts
+            if not threat_detected and not alerts_generated and risk_score < 50:
+                # FIXED: Silent processing for normal events
+                self._safe_log("debug", f"✅ Normal event processed: {original_event.event_type} - {original_event.process_name}")
+                return
+            
+            # FIXED: Log only when there's actual detection
+            self._safe_log("info", f"🔍 PROCESSING SERVER RESPONSE:")
+            self._safe_log("info", f"   📋 Response keys: {list(server_response.keys())}")
+            self._safe_log("info", f"   🚨 Threat detected: {threat_detected}")
+            self._safe_log("info", f"   📊 Risk score: {risk_score}")
+            self._safe_log("info", f"   📋 Alerts generated: {len(alerts_generated)}")
+            
             rule_violation_detected = False
             alerts_to_display = []
             
             # CASE 1: Server trả về alerts_generated
-            if 'alerts_generated' in server_response and server_response['alerts_generated']:
-                alerts = server_response['alerts_generated']
-                
-                # FIXED: Process ALL alerts, not just rule violations
-                for alert in alerts:
+            if alerts_generated:
+                for alert in alerts_generated:
                     if self._is_valid_alert(alert):
                         alerts_to_display.append(alert)
                         rule_violation_detected = True
@@ -249,8 +267,7 @@ class SimpleEventProcessor:
                         self._safe_log("warning", f"🚨 SERVER RULE TRIGGERED: {len(alerts_to_display)} alerts")
             
             # CASE 2: Server trả về single rule_triggered
-            elif (server_response.get('threat_detected', False) and 
-                  server_response.get('rule_triggered')):
+            elif (threat_detected and server_response.get('rule_triggered')):
                 
                 # Create alert from rule trigger
                 rule_alert = {
@@ -261,8 +278,8 @@ class SimpleEventProcessor:
                     'rule_description': server_response.get('rule_description', ''),
                     'title': f'Rule Triggered: {server_response.get("rule_triggered")}',
                     'description': server_response.get('threat_description', 'Rule violation detected'),
-                    'severity': self._map_risk_to_severity(server_response.get('risk_score', 50)),
-                    'risk_score': server_response.get('risk_score', 50),
+                    'severity': self._map_risk_to_severity(risk_score),
+                    'risk_score': risk_score,
                     'detection_method': server_response.get('detection_method', 'Rule Engine'),
                     'mitre_technique': server_response.get('mitre_technique'),
                     'mitre_tactic': server_response.get('mitre_tactic'),
@@ -289,31 +306,12 @@ class SimpleEventProcessor:
                     self._safe_log("warning", f"🚨 SERVER RULE: {server_response.get('rule_triggered')}")
             
             # CASE 3: High risk score without explicit rule
-            elif server_response.get('risk_score', 0) >= 70:
-                risk_alert = {
-                    'id': f'risk_alert_{int(time.time())}',
-                    'alert_id': f'risk_alert_{int(time.time())}',
-                    'rule_id': 'HIGH_RISK_SCORE',
-                    'rule_name': 'High Risk Score Detection',
-                    'title': f'High Risk Activity Detected',
-                    'description': f'High risk {original_event.event_type} activity detected (Score: {server_response.get("risk_score")})',
-                    'severity': 'HIGH',
-                    'risk_score': server_response.get('risk_score'),
-                    'detection_method': 'Risk Score Analysis',
-                    'timestamp': datetime.now().isoformat(),
-                    'server_generated': True,
-                    'rule_violation': True,
-                    'process_name': original_event.process_name,
-                    'process_path': original_event.process_path
-                }
-                
-                alerts_to_display.append(risk_alert)
-                rule_violation_detected = True
-                self.stats.rule_violations_received += 1
-                self.stats.server_rules_triggered += 1
-                self._safe_log("warning", f"🚨 HIGH RISK SCORE: {server_response.get('risk_score')}")
+            elif risk_score >= 50:
+                # Nếu không có alerts_generated, không log hoặc hiển thị cảnh báo HIGH RISK SCORE nữa
+                # ĐÃ XOÁ: self._safe_log("warning", f"🚨 HIGH RISK SCORE: {risk_score}")
+                pass
             
-            # DISPLAY ALERTS IF ANY FOUND
+            # FIXED: DISPLAY ALERTS ONLY IF RULE VIOLATION DETECTED
             if rule_violation_detected and alerts_to_display:
                 self.stats.last_rule_violation = datetime.now()
                 
@@ -340,7 +338,7 @@ class SimpleEventProcessor:
                 if total_server > 0:
                     self._safe_log("warning", f"   🚨 Server Rules: {total_server}")
             else:
-                # FIXED: No rule violations - normal processing
+                # FIXED: No rule violations - silent processing
                 self._safe_log("debug", f"✅ No rule violations for {original_event.event_type} - {original_event.process_name}")
             
         except Exception as e:

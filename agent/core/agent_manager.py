@@ -159,7 +159,7 @@ class AgentManager:
                     self.collectors['authentication'] = AuthenticationCollector(self.config_manager)
                     self.collectors['authentication'].set_event_processor(self.event_processor)
                     await self.collectors['authentication'].initialize()
-                    self.collectors['authentication'].polling_interval = 15  # Optimized
+                    self.collectors['authentication'].polling_interval = 60  # Increased to reduce excessive events
                     self.logger.info("✅ Authentication collector initialized")
                 except Exception as e:
                     self.logger.error(f"❌ Authentication collector initialization failed: {e}")
@@ -170,7 +170,7 @@ class AgentManager:
                 self.collectors['system'] = SystemCollector(self.config_manager)
                 self.collectors['system'].set_event_processor(self.event_processor)
                 await self.collectors['system'].initialize()
-                self.collectors['system'].polling_interval = 15  # Optimized
+                self.collectors['system'].polling_interval = 30  # Increased to reduce excessive events
                 self.logger.info("✅ System collector initialized")
             except Exception as e:
                 self.logger.error(f"❌ System collector initialization failed: {e}")
@@ -217,6 +217,11 @@ class AgentManager:
             if self.event_processor and self.agent_id:
                 self.event_processor.set_agent_id(self.agent_id)
                 self.logger.info(f"[EVENT_PROCESSOR] Set AgentID: {self.agent_id}")
+            
+            # Set agent_id for communication
+            if self.communication and self.agent_id:
+                self.communication.set_agent_id(self.agent_id)
+                self.logger.info(f"[COMMUNICATION] Set AgentID: {self.agent_id}")
             
             # Check alert endpoints
             await self._check_alert_endpoints_availability()

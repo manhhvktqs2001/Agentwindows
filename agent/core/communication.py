@@ -37,6 +37,9 @@ class ServerCommunication:
         self.base_url = None
         self.offline_mode = False
         
+        # Agent ID - will be set by agent manager
+        self.agent_id = None
+        
         # Authentication
         self.auth_token = self.server_config.get('auth_token', 'edr_agent_auth_2024')
         
@@ -72,6 +75,14 @@ class ServerCommunication:
         self.last_threat_detection = None
         
         self.logger.info("🔧 Communication initialized - Server response processing enabled")
+        
+        # Rate limiting for alerts
+        self._last_alert_time = {}
+    
+    def set_agent_id(self, agent_id: str):
+        """Set the agent ID for this communication instance"""
+        self.agent_id = agent_id
+        self.logger.info(f"🔧 Communication AgentID set: {agent_id}")
     
     async def initialize(self):
         """Initialize communication with server detection"""
@@ -349,69 +360,30 @@ class ServerCommunication:
             if 'risk_score' not in processed_response:
                 processed_response['risk_score'] = 0
             
-            # CASE 1: Server trả về threat_detected = True
-            if response.get('threat_detected', False):
-                self.threats_detected_by_server += 1
-                self.last_threat_detection = datetime.now()
-                
-                self.logger.warning(f"🚨 SERVER DETECTED THREAT: {original_event.event_type} - Risk: {response.get('risk_score', 0)}")
-                
-                # Đảm bảo có đủ thông tin cho alert
-                if 'rule_triggered' not in processed_response:
-                    processed_response['rule_triggered'] = 'Server Threat Detection'
-                if 'threat_description' not in processed_response:
-                    processed_response['threat_description'] = f'Suspicious {original_event.event_type} activity detected'
-                
-                return processed_response
-            
-            # CASE 2: Server trả về alerts_generated
+            # CASE 1: Server trả về alerts_generated
             if 'alerts_generated' in response and response['alerts_generated']:
                 alerts = response['alerts_generated']
                 self.alerts_received_from_server += len(alerts)
                 self.last_threat_detection = datetime.now()
-                
                 self.logger.warning(f"🚨 SERVER GENERATED {len(alerts)} ALERTS for {original_event.event_type}")
-                
-                # Set threat_detected = True if có alerts
+                self.logger.warning(f"   📋 Alert details: {alerts}")
                 processed_response['threat_detected'] = True
                 if not processed_response.get('risk_score'):
-                    # Tính risk score từ alerts
                     max_risk = max((alert.get('risk_score', 50) for alert in alerts), default=50)
                     processed_response['risk_score'] = max_risk
-                
                 return processed_response
-            
-            # CASE 3: Risk score cao (>= 70)
-            risk_score = response.get('risk_score', 0)
-            if risk_score >= 70:
-                self.threats_detected_by_server += 1
-                self.last_threat_detection = datetime.now()
-                
-                self.logger.warning(f"🚨 HIGH RISK SCORE: {risk_score} for {original_event.event_type}")
-                
-                processed_response['threat_detected'] = True
-                processed_response['rule_triggered'] = 'High Risk Score Detection'
-                processed_response['threat_description'] = f'High risk {original_event.event_type} activity (Score: {risk_score})'
-                
-                return processed_response
-            
-            # CASE 4: Server trả về alerts array
+            # CASE 2: Server trả về alerts array
             if 'alerts' in response and response['alerts']:
                 alerts = response['alerts']
                 self.alerts_received_from_server += len(alerts)
                 self.last_threat_detection = datetime.now()
-                
                 self.logger.warning(f"🚨 SERVER SENT {len(alerts)} ALERTS for {original_event.event_type}")
-                
                 processed_response['threat_detected'] = True
-                processed_response['alerts_generated'] = alerts  # Normalize to alerts_generated
-                
+                processed_response['alerts_generated'] = alerts
                 return processed_response
-            
-            # CASE 5: Không có threat - normal response
+            # CASE 3: Không có threat - normal response
             self.logger.debug(f"✅ Server processed {original_event.event_type} normally - no threats detected")
             processed_response['threat_detected'] = False
-            
             return processed_response
             
         except Exception as e:
@@ -810,7 +782,9 @@ class ServerCommunication:
                 self.offline_acknowledgments.append(ack_data)
                 return True
             
-            url = f"{self.base_url}/api/v1/alerts/acknowledge"
+            # Get alert_id from ack_data or generate one
+            alert_id = ack_data.get('alert_id', 'unknown')
+            url = f"{self.base_url}/api/v1/alerts/{alert_id}/acknowledge"
             
             # Prepare comprehensive acknowledgment payload for database
             payload = {
@@ -1099,4 +1073,30 @@ class ServerCommunication:
                 
         except Exception as e:
             self.logger.debug(f"Force reconnection error: {e}")
+            return False
+
+    def show_rate_limited_alert(self, alert: Dict[str, Any], rate_limit_seconds: int = 30):
+        """Show alert with rate limiting to prevent spam"""
+        try:
+            current_time = time.time()
+            alert_key = f"{alert.get('title', 'Alert')}_{alert.get('severity', 'Unknown')}"
+            
+            # Check if we should show this alert (rate limit)
+            if alert_key in self._last_alert_time:
+                time_since_last = current_time - self._last_alert_time[alert_key]
+                if time_since_last < rate_limit_seconds:
+                    self.logger.debug(f"Rate limiting alert: {alert_key} (last shown {time_since_last:.1f}s ago)")
+                    return False
+            
+            # Update last alert time
+            self._last_alert_time[alert_key] = current_time
+            
+            # Show the alert
+            self.logger.warning(f"[ALERT] {alert.get('title', 'Alert')}: {alert.get('description', '')} | Severity: {alert.get('severity', 'Unknown')}")
+            title = alert.get('title', 'EDR Alert')
+            message = f"{alert.get('description', '')} | Severity: {alert.get('severity', 'Unknown')}"
+            print(f"[ALERT] {title}: {message}")
+            return True
+        except Exception as e:
+            self.logger.error(f"[ALERT] Error displaying alert: {e}")
             return False

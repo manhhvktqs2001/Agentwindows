@@ -20,7 +20,7 @@ agent:
   zero_delay_mode: true
   
   # Heartbeat and Communication
-  heartbeat_interval: 30                
+  heartbeat_interval: 10                
   heartbeat_timeout: 60                 
   max_heartbeat_failures: 5             
   

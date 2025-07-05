@@ -29,6 +29,9 @@ win10toast>=0.9; sys_platform == 'win32'
 pywin32>=305; sys_platform == 'win32'
 wmi>=1.5.1; sys_platform == 'win32'
 
+# Redis for action queue
+redis>=5.0.1
+
 # Development dependencies (optional)
 pytest>=7.0.0
 pytest-asyncio>=0.20.0
