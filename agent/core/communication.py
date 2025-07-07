@@ -4,16 +4,22 @@ Server Communication - XỬ LÝ ĐÚNG RESPONSE TỪ SERVER
 Xử lý response từ server để phát hiện alert/threat detection
 """
 
-import aiohttp
 import asyncio
-import logging
+import aiohttp
 import json
+import logging
 import time
-import socket
-import requests
-from typing import Optional, Dict, List, Any
-from datetime import datetime
 import platform
+from datetime import datetime, timedelta
+from typing import Dict, Any, Optional, List, Tuple
+import socket
+import ssl
+from urllib.parse import urlparse
+
+# Sửa circular import
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .alert_polling_service import AlertPollingService
 
 from agent.core.config_manager import ConfigManager
 from agent.schemas.agent_data import AgentRegistrationData, AgentHeartbeatData
@@ -348,6 +354,55 @@ class ServerCommunication:
         Trả về response đã được xử lý với thông tin threat detection
         """
         try:
+            # IN CHI TIẾT JSON DATA NHẬN TỪ SERVER
+            self.logger.warning("🚨 ========== JSON DATA RECEIVED FROM SERVER ==========")
+            self.logger.warning(f"📦 Agent ID: {original_event.agent_id}")
+            self.logger.warning(f"📋 Event Type: {original_event.event_type}")
+            self.logger.warning(f"🔧 Event Action: {original_event.event_action}")
+            self.logger.warning(f"📝 Process Name: {original_event.process_name}")
+            
+            # In response keys
+            response_keys = list(response.keys())
+            self.logger.warning(f"📋 Response Keys: {response_keys}")
+            
+            # In threat detection info
+            threat_detected = response.get('threat_detected', False)
+            risk_score = response.get('risk_score', 0)
+            self.logger.warning(f"🚨 THREAT DETECTED: {threat_detected}")
+            self.logger.warning(f"📈 Risk Score: {risk_score}")
+            
+            # In alerts info
+            alerts_generated = response.get('alerts_generated', [])
+            if alerts_generated:
+                self.logger.warning(f"📊 Alerts generated: {alerts_generated}")
+            
+            # In action info
+            if ('type' in response and response['type'] == 'alert_and_action') or 'action' in response:
+                self.logger.warning("⚡ ALERT AND ACTION MODE DETECTED")
+                action_data = response.get('action')
+                if action_data:
+                    self.logger.warning("⚡ ACTION DATA RECEIVED:")
+                    self.logger.warning(f"   🔧 Action Type: {action_data.get('action_type')}")
+                    self.logger.warning(f"   📋 Event Type: {action_data.get('event_type')}")
+                    self.logger.warning(f"   ⚙️ Config: {action_data.get('config')}")
+                    # Tích hợp thực thi action
+                    try:
+                        from .alert_polling_service import AlertPollingService
+                        aps = AlertPollingService(self, None)
+                        asyncio.create_task(aps._execute_action(action_data))
+                    except Exception as e:
+                        self.logger.error(f"❌ Failed to execute action from server: {e}")
+                    if action_data.get('action_type') == 'kill_process':
+                        self.logger.warning(f"   🎯 Target PID: {action_data.get('process_id')}")
+                        self.logger.warning(f"   📝 Process Name: {action_data.get('process_name')}")
+                        self.logger.warning(f"   💻 Command Line: {action_data.get('command_line')}")
+            
+            # In raw JSON
+            json_str = json.dumps(response, indent=2, default=str)
+            self.logger.warning("📄 RAW JSON DATA RECEIVED:")
+            self.logger.warning(json_str)
+            self.logger.warning("🚨 ==============================================")
+            
             if not response:
                 return {'success': False, 'threat_detected': False, 'risk_score': 0}
             
@@ -401,7 +456,7 @@ class ServerCommunication:
             # FIXED: Validate agent_id is present
             if not event_data.agent_id:
                 self.logger.error(f"❌ CRITICAL: Event missing agent_id - Type: {event_data.event_type}, Action: {event_data.event_action}")
-                return None
+                return {}
             
             # Normalize severity to server format (Info, Low, Medium, High, Critical)
             severity_mapping = {
@@ -590,13 +645,52 @@ class ServerCommunication:
         """Handle HTTP response"""
         try:
             # ADDED: Debug log for response handling
-            self.logger.info(f"📥 HANDLING RESPONSE: Status={response.status}, Content-Type={response.headers.get('content-type', 'unknown')}")
+            self.logger.info(f"🌐 HANDLING RESPONSE: Status={response.status}, Content-Type={response.headers.get('content-type', 'unknown')}")
             
             if response.status == 200:
                 try:
                     data = await response.json()
                     # ADDED: Debug log for successful JSON response
                     self.logger.info(f"✅ JSON RESPONSE RECEIVED: {len(str(data))} chars")
+                    
+                    # IN CHI TIẾT JSON DATA NHẬN TỪ HTTP RESPONSE
+                    self.logger.warning("🚨 ========== HTTP RESPONSE JSON DATA ==========")
+                    self.logger.warning(f"📡 Status: {response.status}")
+                    self.logger.warning(f"📋 Content-Type: {response.headers.get('content-type', 'unknown')}")
+                    self.logger.warning(f"📊 Response Size: {len(str(data))} chars")
+                    
+                    # In response keys
+                    if isinstance(data, dict):
+                        response_keys = list(data.keys())
+                        self.logger.warning(f"📋 Response Keys: {response_keys}")
+                        
+                        # In threat detection info
+                        threat_detected = data.get('threat_detected', False)
+                        risk_score = data.get('risk_score', 0)
+                        self.logger.warning(f"🚨 THREAT DETECTED: {threat_detected}")
+                        self.logger.warning(f"📈 Risk Score: {risk_score}")
+                        
+                        # In action info
+                        if ('type' in data and data['type'] == 'alert_and_action') or 'action' in data:
+                            self.logger.warning("⚡ ALERT AND ACTION MODE DETECTED")
+                            action_data = data.get('action')
+                            if action_data:
+                                self.logger.warning("⚡ ACTION DATA RECEIVED:")
+                                self.logger.warning(f"   🔧 Action Type: {action_data.get('action_type')}")
+                                self.logger.warning(f"   📋 Event Type: {action_data.get('event_type')}")
+                                self.logger.warning(f"   ⚙️ Config: {action_data.get('config')}")
+                                
+                                if action_data.get('action_type') == 'kill_process':
+                                    self.logger.warning(f"   🎯 Target PID: {action_data.get('process_id')}")
+                                    self.logger.warning(f"   📝 Process Name: {action_data.get('process_name')}")
+                                    self.logger.warning(f"   💻 Command Line: {action_data.get('command_line')}")
+                        
+                        # In raw JSON
+                        json_str = json.dumps(data, indent=2, default=str)
+                        self.logger.warning("📄 RAW JSON DATA FROM HTTP:")
+                        self.logger.warning(json_str)
+                    
+                    self.logger.warning("🚨 ==============================================")
                     return data
                 except json.JSONDecodeError:
                     text = await response.text()

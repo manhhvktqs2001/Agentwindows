@@ -17,6 +17,7 @@ import os
 from agent.core.communication import ServerCommunication
 from agent.core.config_manager import ConfigManager
 from agent.core.event_processor import EventProcessor
+from agent.core.alert_polling_service import AlertPollingService
 from agent.collectors.process_collector import EnhancedProcessCollector
 from agent.collectors.file_collector import EnhancedFileCollector
 from agent.collectors.network_collector import EnhancedNetworkCollector
@@ -47,6 +48,9 @@ class AgentManager:
         # Communication and processing
         self.communication = None
         self.event_processor = None
+        
+        # Alert polling service (NEW)
+        self.alert_polling_service = None
         
         # Data collectors
         self.collectors = {}
@@ -81,6 +85,15 @@ class AgentManager:
             except Exception as e:
                 self.logger.error(f"❌ Event processor initialization failed: {e}")
                 raise Exception(f"Event processor failed: {e}")
+            
+            # Initialize alert polling service (NEW)
+            try:
+                self.logger.info("📡 Initializing alert polling service...")
+                self.alert_polling_service = AlertPollingService(self.communication, self.config_manager)
+                self.logger.info("✅ Alert polling service initialized")
+            except Exception as e:
+                self.logger.error(f"❌ Alert polling service initialization failed: {e}")
+                # Don't raise, continue without polling service
             
             # Initialize collectors
             try:
@@ -159,7 +172,7 @@ class AgentManager:
                     self.collectors['authentication'] = AuthenticationCollector(self.config_manager)
                     self.collectors['authentication'].set_event_processor(self.event_processor)
                     await self.collectors['authentication'].initialize()
-                    self.collectors['authentication'].polling_interval = 60  # Increased to reduce excessive events
+                    self.collectors['authentication'].polling_interval = 2  # 2 giây để phát hiện nhanh
                     self.logger.info("✅ Authentication collector initialized")
                 except Exception as e:
                     self.logger.error(f"❌ Authentication collector initialization failed: {e}")
@@ -170,7 +183,7 @@ class AgentManager:
                 self.collectors['system'] = SystemCollector(self.config_manager)
                 self.collectors['system'].set_event_processor(self.event_processor)
                 await self.collectors['system'].initialize()
-                self.collectors['system'].polling_interval = 30  # Increased to reduce excessive events
+                self.collectors['system'].polling_interval = 2  # 2 giây để phát hiện nhanh
                 self.logger.info("✅ System collector initialized")
             except Exception as e:
                 self.logger.error(f"❌ System collector initialization failed: {e}")
@@ -223,6 +236,11 @@ class AgentManager:
                 self.communication.set_agent_id(self.agent_id)
                 self.logger.info(f"[COMMUNICATION] Set AgentID: {self.agent_id}")
             
+            # Set agent_id for alert polling service (NEW)
+            if self.alert_polling_service and self.agent_id:
+                self.alert_polling_service.set_agent_id(self.agent_id)
+                self.logger.info(f"[ALERT_POLLING] Set AgentID: {self.agent_id}")
+            
             # Check alert endpoints
             await self._check_alert_endpoints_availability()
             
@@ -237,6 +255,14 @@ class AgentManager:
             
             # Start collectors
             await self._start_collectors()
+            
+            # Start alert polling service (NEW)
+            if self.alert_polling_service:
+                try:
+                    await self.alert_polling_service.start()
+                    self.logger.info("✅ Alert polling service started")
+                except Exception as e:
+                    self.logger.error(f"❌ Failed to start alert polling service: {e}")
             
             # Start monitoring
             self.is_monitoring = True
@@ -263,6 +289,14 @@ class AgentManager:
             
             # Stop collectors first
             await self._stop_collectors()
+            
+            # Stop alert polling service (NEW)
+            if self.alert_polling_service:
+                try:
+                    await self.alert_polling_service.stop()
+                    self.logger.info("✅ Alert polling service stopped")
+                except Exception as e:
+                    self.logger.error(f"❌ Failed to stop alert polling service: {e}")
             
             # Stop event processor
             if self.event_processor:
@@ -296,6 +330,14 @@ class AgentManager:
                     except Exception as e:
                         self.logger.error(f"❌ Failed to pause {name} collector: {e}")
                 
+                # Pause alert polling service (NEW)
+                if self.alert_polling_service:
+                    try:
+                        await self.alert_polling_service.pause()
+                        self.logger.debug("⏸️  Paused alert polling service")
+                    except Exception as e:
+                        self.logger.error(f"❌ Failed to pause alert polling service: {e}")
+                
                 # Send pause status to server
                 if self.is_registered:
                     try:
@@ -320,6 +362,14 @@ class AgentManager:
                         self.logger.debug(f"▶️  Resumed {name} collector")
                     except Exception as e:
                         self.logger.error(f"❌ Failed to resume {name} collector: {e}")
+                
+                # Resume alert polling service (NEW)
+                if self.alert_polling_service:
+                    try:
+                        await self.alert_polling_service.resume()
+                        self.logger.debug("▶️  Resumed alert polling service")
+                    except Exception as e:
+                        self.logger.error(f"❌ Failed to resume alert polling service: {e}")
                 
                 # Send active status to server
                 if self.is_registered:

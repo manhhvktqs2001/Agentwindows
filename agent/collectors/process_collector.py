@@ -22,6 +22,9 @@ class EnhancedProcessCollector(BaseCollector):
     """Enhanced Process Collector - Alert cho TẤT CẢ process activities"""
     
     def __init__(self, config_manager=None):
+        if config_manager is None:
+            from agent.core.config_manager import ConfigManager
+            config_manager = ConfigManager()
         super().__init__(config_manager, "ProcessCollector")
         
         # ENHANCED: Tracking tất cả processes
@@ -90,24 +93,13 @@ class EnhancedProcessCollector(BaseCollector):
         self.logger.info("Enhanced Process Collector initialized - PERFORMANCE OPTIMIZED")
     
     async def _collect_data(self):
-        """Collect process events - ENHANCED to include existing processes"""
+        """Collect process events - ENHANCED to include ALL running processes"""
         try:
             start_time = time.time()
             events = []
             current_pids = set()
             
-            # FIXED: Check server connectivity before processing
-            is_connected = False
-            if hasattr(self, 'event_processor') and self.event_processor:
-                if hasattr(self.event_processor, 'communication') and self.event_processor.communication:
-                    is_connected = not self.event_processor.communication.offline_mode
-            
-            # FIXED: Only scan interesting processes for better performance
-            interesting_process_names = set()
-            for category in self.interesting_processes.values():
-                interesting_process_names.update(category)
-            
-            # ENHANCED: Scan processes efficiently
+            # ENHANCED: Scan ALL processes (không lọc theo tên)
             for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'create_time', 'username', 'ppid']):
                 try:
                     proc_info = proc.info
@@ -118,11 +110,7 @@ class EnhancedProcessCollector(BaseCollector):
                     current_pids.add(pid)
                     process_name = proc_info['name'].lower()
                     
-                    # FIXED: Only process interesting processes for better performance
-                    if process_name not in interesting_process_names and process_name not in self.all_executables:
-                        continue
-                    
-                    # ENHANCED: Get CPU and memory info safely
+                    # Lấy CPU và memory info an toàn
                     try:
                         actual_proc = psutil.Process(pid)
                         cpu_percent = actual_proc.cpu_percent()
@@ -135,16 +123,15 @@ class EnhancedProcessCollector(BaseCollector):
                         proc_info['memory_rss'] = 0
                         proc_info['memory_vms'] = 0
                     
-                    # FIXED: Create events for NEW processes
-                    if pid not in self.monitored_processes and self._is_interesting_process(process_name):
-                        # Create event for NEW interesting process only
+                    # Tạo event cho mọi process mới
+                    if pid not in self.monitored_processes:
                         event = await self._create_enhanced_process_creation_event(proc_info)
                         if event:
                             events.append(event)
                             self.stats['total_process_create_events'] += 1
-                            
-                            # Count specific process types
-                            self._update_process_type_stats(proc_info['name'], 'create')
+                        
+                        # Count specific process types
+                        self._update_process_type_stats(proc_info['name'], 'create')
                         
                         # Check high CPU/Memory for NEW interesting processes
                         if proc_info.get('cpu_percent', 0) > self.high_cpu_threshold:
@@ -159,8 +146,7 @@ class EnhancedProcessCollector(BaseCollector):
                                 events.append(memory_event)
                                 self.stats['high_memory_events'] += 1
                     
-                    # FIXED: Also create events for EXISTING interesting processes (every 10 scans)
-                    elif pid in self.monitored_processes and self._is_interesting_process(process_name):
+                    elif pid in self.monitored_processes:
                         self.existing_process_counter += 1
                         
                         # Log existing processes every 10 scans to show they're being monitored
@@ -283,6 +269,10 @@ class EnhancedProcessCollector(BaseCollector):
             if proc_info.get('username'):
                 description += f" by {proc_info['username']}"
             
+            parent_pid = proc_info.get('ppid')
+            if parent_pid is None:
+                parent_pid = 0
+            
             return EventData(
                 event_type="Process",
                 event_action=EventAction.START,
@@ -293,7 +283,7 @@ class EnhancedProcessCollector(BaseCollector):
                 process_name=proc_info.get('name'),
                 process_path=proc_info.get('exe'),
                 command_line=' '.join(proc_info.get('cmdline', [])),
-                parent_pid=proc_info.get('ppid'),
+                parent_pid=int(parent_pid),
                 process_user=proc_info.get('username'),
                 
                 description=f"🆕 PROCESS STARTED: {proc_info.get('name')} (PID: {proc_info.get('pid')})",
@@ -304,7 +294,7 @@ class EnhancedProcessCollector(BaseCollector):
                     'memory_rss': proc_info.get('memory_rss', 0),
                     'create_time': proc_info.get('create_time'),
                     'is_interesting': self._is_interesting_process(proc_info.get('name', '')),
-                    'parent_process': self._get_parent_process_name(proc_info.get('ppid'))
+                    'parent_process': self._get_parent_process_name(int(parent_pid))
                 }
             )
         except Exception as e:
@@ -487,6 +477,10 @@ class EnhancedProcessCollector(BaseCollector):
         try:
             process_name = proc_info.get('name', 'Unknown')
             
+            parent_pid = proc_info.get('ppid')
+            if parent_pid is None:
+                parent_pid = 0
+            
             return EventData(
                 event_type="Process",
                 event_action=EventAction.ACCESS,
@@ -497,7 +491,7 @@ class EnhancedProcessCollector(BaseCollector):
                 process_name=process_name,
                 process_path=proc_info.get('exe'),
                 command_line=' '.join(proc_info.get('cmdline', [])),
-                parent_pid=proc_info.get('ppid'),
+                parent_pid=int(parent_pid),
                 process_user=proc_info.get('username'),
                 
                 description=f"📱 PROCESS MONITORING: {process_name} (PID: {proc_info.get('pid')}) - Active",
@@ -508,7 +502,7 @@ class EnhancedProcessCollector(BaseCollector):
                     'memory_rss': proc_info.get('memory_rss', 0),
                     'is_interesting': self._is_interesting_process(process_name),
                     'monitoring_type': 'existing_process',
-                    'parent_process': self._get_parent_process_name(proc_info.get('ppid'))
+                    'parent_process': self._get_parent_process_name(int(parent_pid))
                 }
             )
         except Exception as e:
@@ -538,3 +532,22 @@ class EnhancedProcessCollector(BaseCollector):
             'interesting_processes_count': len(self.all_executables)
         })
         return base_stats
+
+def collect_all_processes():
+    """Thu thập tất cả tiến trình đang chạy trên hệ thống (không lọc)"""
+    all_processes = []
+    for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'username', 'status']):
+        try:
+            proc_info = proc.info
+            if not proc_info['pid'] or not proc_info['name']:
+                continue
+            all_processes.append(proc_info)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return all_processes
+
+if __name__ == "__main__":
+    processes = collect_all_processes()
+    print(f"Total processes: {len(processes)}")
+    for p in processes:
+        print(p)

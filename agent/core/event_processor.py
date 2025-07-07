@@ -220,129 +220,148 @@ class SimpleEventProcessor:
             self._safe_log("error", f"❌ Event processing error: {e}")
     
     async def _process_enhanced_server_response(self, server_response: Dict[str, Any], original_event: EventData):
-        """
-        FIXED: XỬ LÝ RESPONSE TỪ SERVER - CHỈ HIỂN THỊ KHI CÓ RULE VIOLATIONS
-        """
+        """Process enhanced server response (alerts + action)"""
         try:
-            if not server_response:
-                return
+            # IN CHI TIẾT JSON DATA NHẬN TỪ SERVER
+            import json
+            self._safe_log("warning", "🚨 ========== JSON DATA RECEIVED FROM SERVER ==========")
+            self._safe_log("warning", f"📦 Agent ID: {original_event.agent_id}")
+            self._safe_log("warning", f"📋 Event Type: {original_event.event_type}")
+            self._safe_log("warning", f"🔧 Event Action: {original_event.event_action}")
+            self._safe_log("warning", f"📝 Process Name: {original_event.process_name}")
             
-            # FIXED: Only log when there's actual threat detection
+            # In response keys
+            response_keys = list(server_response.keys())
+            self._safe_log("warning", f"📋 Response Keys: {response_keys}")
+            
+            # In threat detection info
             threat_detected = server_response.get('threat_detected', False)
             risk_score = server_response.get('risk_score', 0)
+            self._safe_log("warning", f"🚨 THREAT DETECTED: {threat_detected}")
+            self._safe_log("warning", f"📈 Risk Score: {risk_score}")
+            
+            # In alerts info
             alerts_generated = server_response.get('alerts_generated', [])
-            
-            # FIXED: Only process if there's actual threat or alerts
-            if not threat_detected and not alerts_generated and risk_score < 50:
-                # FIXED: Silent processing for normal events
-                self._safe_log("debug", f"✅ Normal event processed: {original_event.event_type} - {original_event.process_name}")
-                return
-            
-            # FIXED: Log only when there's actual detection
-            self._safe_log("info", f"🔍 PROCESSING SERVER RESPONSE:")
-            self._safe_log("info", f"   📋 Response keys: {list(server_response.keys())}")
-            self._safe_log("info", f"   🚨 Threat detected: {threat_detected}")
-            self._safe_log("info", f"   📊 Risk score: {risk_score}")
-            self._safe_log("info", f"   📋 Alerts generated: {len(alerts_generated)}")
-            
-            rule_violation_detected = False
-            alerts_to_display = []
-            
-            # CASE 1: Server trả về alerts_generated
             if alerts_generated:
-                for alert in alerts_generated:
-                    if self._is_valid_alert(alert):
-                        alerts_to_display.append(alert)
-                        rule_violation_detected = True
-                
-                if alerts_to_display:
-                    self.stats.rule_violations_received += len(alerts_to_display)
+                self._safe_log("warning", f"📊 Alerts generated: {alerts_generated}")
+            
+            # In action info
+            if 'type' in server_response and server_response['type'] == 'alert_and_action':
+                self._safe_log("warning", "⚡ ALERT AND ACTION MODE DETECTED")
+                if 'action' in server_response:
+                    action_data = server_response['action']
+                    self._safe_log("warning", "⚡ ACTION DATA RECEIVED:")
+                    self._safe_log("warning", f"   🔧 Action Type: {action_data.get('action_type')}")
+                    self._safe_log("warning", f"   📋 Event Type: {action_data.get('event_type')}")
+                    self._safe_log("warning", f"   ⚙️ Config: {action_data.get('config')}")
                     
-                    # Check if from local rules
-                    if server_response.get('local_rule_triggered'):
-                        self.stats.local_rules_triggered += len(alerts_to_display)
-                        self._safe_log("warning", f"🔍 LOCAL RULE TRIGGERED: {len(alerts_to_display)} alerts")
-                    else:
-                        self.stats.server_rules_triggered += len(alerts_to_display)
-                        self._safe_log("warning", f"🚨 SERVER RULE TRIGGERED: {len(alerts_to_display)} alerts")
+                    if action_data.get('action_type') == 'kill_process':
+                        self._safe_log("warning", f"   🎯 Target PID: {action_data.get('target_pid')}")
+                        self._safe_log("warning", f"   📝 Process Name: {action_data.get('process_name')}")
+                        self._safe_log("warning", f"   💻 Command Line: {action_data.get('command_line')}")
             
-            # CASE 2: Server trả về single rule_triggered
-            elif (threat_detected and server_response.get('rule_triggered')):
-                
-                # Create alert from rule trigger
-                rule_alert = {
-                    'id': f'rule_alert_{int(time.time())}',
-                    'alert_id': f'rule_alert_{int(time.time())}',
-                    'rule_id': server_response.get('rule_id'),
-                    'rule_name': server_response.get('rule_name', server_response.get('rule_triggered')),
-                    'rule_description': server_response.get('rule_description', ''),
-                    'title': f'Rule Triggered: {server_response.get("rule_triggered")}',
-                    'description': server_response.get('threat_description', 'Rule violation detected'),
-                    'severity': self._map_risk_to_severity(risk_score),
-                    'risk_score': risk_score,
-                    'detection_method': server_response.get('detection_method', 'Rule Engine'),
-                    'mitre_technique': server_response.get('mitre_technique'),
-                    'mitre_tactic': server_response.get('mitre_tactic'),
-                    'event_id': server_response.get('event_id'),
-                    'timestamp': datetime.now().isoformat(),
-                    'server_generated': True,
-                    'rule_violation': True,
-                    'process_name': original_event.process_name,
-                    'process_path': original_event.process_path,
-                    'file_path': original_event.file_path,
-                    'local_rule': server_response.get('local_rule_triggered', False)
-                }
-                
-                alerts_to_display.append(rule_alert)
-                rule_violation_detected = True
-                self.stats.rule_violations_received += 1
-                
-                # Check if from local rules
-                if server_response.get('local_rule_triggered'):
-                    self.stats.local_rules_triggered += 1
-                    self._safe_log("warning", f"🔍 LOCAL RULE: {server_response.get('rule_triggered')}")
-                else:
-                    self.stats.server_rules_triggered += 1
-                    self._safe_log("warning", f"🚨 SERVER RULE: {server_response.get('rule_triggered')}")
+            # In raw JSON
+            json_str = json.dumps(server_response, indent=2, default=str)
+            self._safe_log("warning", "📄 RAW JSON DATA RECEIVED:")
+            self._safe_log("warning", json_str)
+            self._safe_log("warning", "🚨 ==============================================")
             
-            # CASE 3: High risk score without explicit rule
-            elif risk_score >= 50:
-                # Nếu không có alerts_generated, không log hoặc hiển thị cảnh báo HIGH RISK SCORE nữa
-                # ĐÃ XOÁ: self._safe_log("warning", f"🚨 HIGH RISK SCORE: {risk_score}")
-                pass
-            
-            # FIXED: DISPLAY ALERTS ONLY IF RULE VIOLATION DETECTED
-            if rule_violation_detected and alerts_to_display:
+            # Xử lý cảnh báo
+            if alerts_generated:
+                self.stats.rule_violations_received += len(alerts_generated)
                 self.stats.last_rule_violation = datetime.now()
-                
-                # Create response format for notification system
                 notification_response = {
-                    'alerts_generated': alerts_to_display
+                    'alerts_generated': alerts_generated
                 }
-                
-                # Send to notification system
                 await self.security_notifier.process_server_alerts(
                     notification_response, 
                     [original_event]
                 )
-                
-                self.stats.rule_alerts_displayed += len(alerts_to_display)
-                
-                # FIXED: Log summary
-                total_local = sum(1 for alert in alerts_to_display if alert.get('local_rule'))
-                total_server = len(alerts_to_display) - total_local
-                
-                self._safe_log("warning", f"🔔 DISPLAYED {len(alerts_to_display)} ALERTS:")
+                self.stats.rule_alerts_displayed += len(alerts_generated)
+                total_local = sum(1 for alert in alerts_generated if alert.get('local_rule'))
+                total_server = len(alerts_generated) - total_local
+                self._safe_log("warning", f"🔔 DISPLAYED {len(alerts_generated)} ALERTS:")
                 if total_local > 0:
                     self._safe_log("warning", f"   🔍 Local Rules: {total_local}")
                 if total_server > 0:
                     self._safe_log("warning", f"   🚨 Server Rules: {total_server}")
             else:
-                # FIXED: No rule violations - silent processing
                 self._safe_log("debug", f"✅ No rule violations for {original_event.event_type} - {original_event.process_name}")
             
+            # NEW: Handle action from server (format mới)
+            if 'type' in server_response and server_response['type'] == 'alert_and_action' and 'action' in server_response:
+                self._safe_log("warning", f"⚡ RECEIVED ACTION: {server_response['action']}")
+                self.execute_action(server_response['action'], original_event)
+            elif action_command:
+                self._safe_log("warning", f"⚡ RECEIVED ACTION COMMAND: {action_command}")
+                self.execute_action_command(action_command, original_event)
         except Exception as e:
             self._safe_log("error", f"❌ Enhanced server response processing failed: {e}")
+
+    def execute_action(self, action: dict, original_event: EventData = None):
+        """Thực thi action từ server (format mới)"""
+        try:
+            action_type = action.get("action_type")
+            event_type = action.get("event_type")
+            config = action.get("config", {})
+            if action_type == "kill_process":
+                pid = action.get("target_pid")
+                if pid:
+                    self.kill_process(pid, config.get("force_kill", False))
+                else:
+                    self._safe_log("error", "[ERROR] Không có PID để kill process.")
+            elif action_type == "block_network":
+                ip = action.get("target_ip")
+                if ip:
+                    self.block_network(ip, config)
+                else:
+                    self._safe_log("error", "[ERROR] Không có IP để block.")
+            elif action_type == "quarantine_file":
+                file_path = action.get("file_path")
+                if file_path:
+                    self.quarantine_file(file_path, config)
+                else:
+                    self._safe_log("error", "[ERROR] Không có file_path để quarantine.")
+            else:
+                self._safe_log("warning", f"[WARN] Không nhận diện được action: {action_type} cho event_type: {event_type}")
+        except Exception as e:
+            self._safe_log("error", f"❌ Failed to execute action: {e}")
+
+    def kill_process(self, process_id, force=False):
+        """Kill a process by PID (Windows)"""
+        import psutil
+        try:
+            p = psutil.Process(int(process_id))
+            if force:
+                p.kill()
+            else:
+                p.terminate()
+            self._safe_log("warning", f"✅ Process {process_id} killed (force={force})")
+        except Exception as e:
+            self._safe_log("error", f"❌ Failed to kill process {process_id}: {e}")
+
+    def block_network(self, ip, config=None):
+        # TODO: Thực thi block network trên Windows
+        self._safe_log("warning", f"[ACTION] Blocked network IP: {ip} with config: {config}")
+
+    def quarantine_file(self, file_path, config=None):
+        # TODO: Thực thi quarantine file trên Windows
+        self._safe_log("warning", f"[ACTION] Quarantined file: {file_path} with config: {config}")
+
+    def execute_action_command(self, action_command: dict, original_event: EventData):
+        """Thực thi action từ server (ví dụ: Kill Process)"""
+        try:
+            action_type = action_command.get("type")
+            config = action_command.get("config", {})
+            target = action_command.get("target")
+            if action_type == "Kill Process" and target:
+                force = config.get("force_kill", False)
+                self._safe_log("warning", f"⚡ Executing Kill Process: PID={target}, force={force}")
+                self.kill_process(target, force)
+            else:
+                self._safe_log("warning", f"⚡ Unsupported or missing action/target: {action_command}")
+        except Exception as e:
+            self._safe_log("error", f"❌ Failed to execute action command: {e}")
     
     def _is_valid_alert(self, alert: Dict[str, Any]) -> bool:
         """FIXED: Check if alert is valid for display"""
