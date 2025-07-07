@@ -55,13 +55,14 @@ class SimpleRuleBasedAlertNotifier:
         # Initialize notification systems
         self.toast_available = WIN10TOAST_AVAILABLE
         self.toast_notifier = None
-        
+        self.toast_init_failed = False
         if self.toast_available:
             try:
                 self.toast_notifier = ToastNotifier()
                 self.logger.info("✅ Win10Toast notification available")
             except Exception as e:
                 self.toast_available = False
+                self.toast_init_failed = True
                 self.logger.error(f"Win10Toast init error: {e}")
         
         # FIXED: Enhanced alert tracking
@@ -97,12 +98,14 @@ class SimpleRuleBasedAlertNotifier:
         self.communication = communication
         self.logger.info("Communication linked for alert acknowledgments")
     
-    async def process_server_alerts(self, server_response: Dict[str, Any], related_events: List = None):
+    async def process_server_alerts(self, server_response: Dict[str, Any], related_events: Optional[List[Any]] = None):
         """
         FIXED: XỬ LÝ VÀ HIỂN THỊ CHỈ KHI CÓ RULE VIOLATIONS
         """
         try:
             alerts_to_display = []
+            if related_events is None:
+                related_events = []
             
             # FIXED: Check if there are actual rule violations
             threat_detected = server_response.get('threat_detected', False)
@@ -285,14 +288,24 @@ class SimpleRuleBasedAlertNotifier:
         try:
             title, message = self._prepare_enhanced_alert_content(alert)
             # METHOD 1: Win10Toast notification
-            if self.toast_available and self.toast_notifier:
+            if self.toast_available and self.toast_notifier is not None and not self.toast_init_failed:
                 try:
-                    self.toast_notifier.show_toast(title, message, duration=self.alert_duration, threaded=True)
+                    if self.toast_notifier is None:
+                        return False
+                    self.toast_notifier.show_toast(
+                        title=title,
+                        msg=message,
+                        duration=self.alert_duration,
+                        threaded=True,
+                        icon_path=None
+                    )
                     self.logger.info("✅ Alert shown via Win10Toast")
                     self._mark_alert_displayed(alert)
                     return True
                 except Exception as e:
                     self.logger.error(f"Win10Toast notification error: {e}")
+                    self.toast_available = False  # Disable further attempts
+                    self.toast_init_failed = True
             # METHOD 2: PowerShell balloon tip
             success = await self._show_enhanced_powershell_balloon(title, message, alert)
             if success:
@@ -304,7 +317,6 @@ class SimpleRuleBasedAlertNotifier:
             self.logger.info("✅ Alert shown in console")
             self._mark_alert_displayed(alert)
             return False
-            
         except Exception as e:
             self.logger.error(f"❌ All notification methods failed: {e}")
             return False
@@ -416,10 +428,11 @@ class SimpleRuleBasedAlertNotifier:
     async def _show_enhanced_windows_toast(self, title: str, message: str, alert: Dict[str, Any]) -> bool:
         """Show enhanced Windows Toast notification"""
         try:
-            if not self.toast_available or not self.toast_notifier:
+            if not self.toast_available or self.toast_notifier is None or self.toast_init_failed:
                 return False
-            
             def show_toast():
+                if self.toast_notifier is None:
+                    return False
                 try:
                     self.toast_notifier.show_toast(
                         title=title,
@@ -431,17 +444,17 @@ class SimpleRuleBasedAlertNotifier:
                     return True
                 except Exception as e:
                     self.logger.debug(f"Windows Toast error: {e}")
+                    self.toast_available = False
+                    self.toast_init_failed = True
                     return False
-            
             result = await asyncio.to_thread(show_toast)
-            
             if result and self.play_sound:
                 await asyncio.to_thread(self._play_alert_sound, alert)
-            
             return result
-            
         except Exception as e:
             self.logger.error(f"❌ Windows Toast notification failed: {e}")
+            self.toast_available = False
+            self.toast_init_failed = True
             return False
     
     async def _show_enhanced_powershell_balloon(self, title: str, message: str, alert: Dict[str, Any]) -> bool:

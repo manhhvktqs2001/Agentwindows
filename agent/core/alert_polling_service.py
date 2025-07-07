@@ -322,16 +322,30 @@ class AlertPollingService:
             return False
     
     async def _execute_block_network(self, action: Dict[str, Any]) -> bool:
-        """Thực thi block network bằng Windows Firewall (netsh)"""
+        """Thực thi block network bằng Windows Firewall (netsh), kiểm tra trùng rule trước khi tạo"""
         try:
-            # Hỗ trợ cả target_ip/target_port và ip/port
             target_ip = action.get('target_ip') or action.get('ip')
             target_port = action.get('target_port') or action.get('port')
             if not target_ip:
                 logger.error("❌ No IP provided for block_network")
-                ctypes.windll.user32.MessageBoxW(0, "No IP provided for block_network", "Agent thông báo", 1)
+                try:
+                    ctypes.windll.user32.MessageBoxW(0, "No IP provided for block_network", "Agent thông báo", 1)
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to show popup: {e}")
                 return False
             rule_name = f"Block_{target_ip}_{target_port or 'all'}"
+            # Kiểm tra rule đã tồn tại chưa
+            check_cmd = [
+                "netsh", "advfirewall", "firewall", "show", "rule", f"name={rule_name}"
+            ]
+            check_result = subprocess.run(check_cmd, capture_output=True, text=True)
+            if "No rules match the specified criteria" not in check_result.stdout:
+                logger.info(f"⚠️ Rule {rule_name} đã tồn tại, không tạo lại.")
+                try:
+                    ctypes.windll.user32.MessageBoxW(0, f"Rule {rule_name} đã tồn tại, không tạo lại.", "Agent thông báo", 1)
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to show popup: {e}")
+                return True  # Đã tồn tại, coi như thành công
             if target_port:
                 cmd = [
                     "netsh", "advfirewall", "firewall", "add", "rule",
@@ -355,17 +369,26 @@ class AlertPollingService:
             if result.returncode == 0:
                 message = f"Đã chặn kết nối mạng đến IP: {target_ip} port: {target_port or 'all'}"
                 logger.info(f"✅ {message}")
-                ctypes.windll.user32.MessageBoxW(0, message, "Agent thông báo", 1)
+                try:
+                    ctypes.windll.user32.MessageBoxW(0, message, "Agent thông báo", 1)
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to show popup: {e}")
                 return True
             else:
                 error_message = f"Không thể chặn kết nối mạng đến IP {target_ip} port {target_port or 'all'}: {result.stderr}"
                 logger.error(f"❌ {error_message}")
-                ctypes.windll.user32.MessageBoxW(0, error_message, "Agent thông báo", 1)
+                try:
+                    ctypes.windll.user32.MessageBoxW(0, error_message, "Agent thông báo", 1)
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to show error popup: {e}")
                 return False
         except Exception as e:
             error_message = f"Không thể chặn kết nối mạng đến IP {target_ip}: {e}"
             logger.error(f"❌ {error_message}")
-            ctypes.windll.user32.MessageBoxW(0, error_message, "Agent thông báo", 1)
+            try:
+                ctypes.windll.user32.MessageBoxW(0, error_message, "Agent thông báo", 1)
+            except Exception as popup_error:
+                logger.warning(f"⚠️ Failed to show error popup: {popup_error}")
             return False
     
     async def _execute_quarantine_file(self, action: Dict[str, Any]) -> bool:
