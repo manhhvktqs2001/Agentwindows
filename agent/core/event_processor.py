@@ -14,6 +14,7 @@ from collections import deque
 from dataclasses import dataclass
 import uuid
 from pathlib import Path
+import shutil
 
 from agent.core.config_manager import ConfigManager
 from agent.core.communication import ServerCommunication
@@ -292,18 +293,18 @@ class SimpleEventProcessor:
             if 'type' in server_response and server_response['type'] == 'alert_and_action' and 'action' in server_response:
                 self._safe_log("warning", f"⚡ RECEIVED ACTION: {server_response['action']}")
                 self.execute_action(server_response['action'], original_event)
-            elif action_command:
-                self._safe_log("warning", f"⚡ RECEIVED ACTION COMMAND: {action_command}")
-                self.execute_action_command(action_command, original_event)
         except Exception as e:
             self._safe_log("error", f"❌ Enhanced server response processing failed: {e}")
 
-    def execute_action(self, action: dict, original_event: EventData = None):
+    def execute_action(self, action: dict, original_event: Optional[EventData] = None):
         """Thực thi action từ server (format mới)"""
         try:
             action_type = action.get("action_type")
             event_type = action.get("event_type")
             config = action.get("config", {})
+            block_duration = action.get("block_duration")
+            port = action.get("target_port") or action.get("destination_port") or action.get("port")
+            protocol = action.get("protocol")
             if action_type == "kill_process":
                 pid = action.get("target_pid")
                 if pid:
@@ -311,9 +312,9 @@ class SimpleEventProcessor:
                 else:
                     self._safe_log("error", "[ERROR] Không có PID để kill process.")
             elif action_type == "block_network":
-                ip = action.get("target_ip")
+                ip = action.get("target_ip") or action.get("destination_ip")
                 if ip:
-                    self.block_network(ip, config)
+                    self.block_network(ip, config, block_duration, port, protocol, action)
                 else:
                     self._safe_log("error", "[ERROR] Không có IP để block.")
             elif action_type == "quarantine_file":
@@ -327,8 +328,66 @@ class SimpleEventProcessor:
         except Exception as e:
             self._safe_log("error", f"❌ Failed to execute action: {e}")
 
+    def block_network(self, ip=None, config=None, block_duration=None, port=None, protocol=None, action=None):
+        """Block IP (và port, protocol nếu có) trong khoảng thời gian chỉ định (giờ) nếu có, mặc định vĩnh viễn nếu không có block_duration"""
+        try:
+            # Ưu tiên lấy từ action nếu có
+            if action:
+                ip = action.get('target_ip') or action.get('destination_ip') or ip
+                port = action.get('destination_port') or action.get('target_port') or action.get('port') or port
+                protocol = action.get('protocol') or protocol
+                if block_duration is None:
+                    block_duration = action.get('block_duration')
+            # Ưu tiên lấy block_duration, port, protocol từ config nếu chưa có
+            if config and isinstance(config, dict):
+                if not block_duration:
+                    block_duration = config.get('block_duration')
+                if not port:
+                    port = config.get('destination_port') or config.get('target_port') or config.get('port')
+                if not protocol:
+                    protocol = config.get('protocol')
+            if not ip:
+                self._safe_log("error", "[ERROR] Không có IP để block.")
+                return
+            # Nếu duration là số, chuyển sang giây
+            duration_seconds = int(block_duration) * 3600 if block_duration else None
+            import subprocess, asyncio, time
+            timestamp = int(time.time())
+            proto_str = f"_{protocol}" if protocol else ""
+            port_str = f"_{port}" if port else ""
+            rule_name = f"Block_{ip}{port_str}{proto_str}_{timestamp}_temp" if duration_seconds else f"Block_{ip}{port_str}{proto_str}_{timestamp}_permanent"
+            # Xây dựng lệnh netsh phù hợp
+            if port and protocol:
+                cmd = f'netsh advfirewall firewall add rule name="{rule_name}" dir=out action=block remoteip={ip} protocol={protocol.upper()} remoteport={port}'
+            elif port:
+                cmd = f'netsh advfirewall firewall add rule name="{rule_name}" dir=out action=block remoteip={ip} remoteport={port}'
+            elif protocol:
+                cmd = f'netsh advfirewall firewall add rule name="{rule_name}" dir=out action=block remoteip={ip} protocol={protocol.upper()}'
+            else:
+                cmd = f'netsh advfirewall firewall add rule name="{rule_name}" dir=out action=block remoteip={ip}'
+            subprocess.run(cmd, shell=True, check=True)
+            if duration_seconds:
+                self._safe_log("warning", f"✅ Blocked IP: {ip} port: {port or 'all'} protocol: {protocol or 'all'} for {block_duration} hours ({duration_seconds} seconds)")
+                asyncio.create_task(self._unblock_ip_after_duration(ip, rule_name, duration_seconds))
+            else:
+                self._safe_log("warning", f"✅ Blocked IP: {ip} port: {port or 'all'} protocol: {protocol or 'all'} permanently")
+        except Exception as e:
+            self._safe_log("error", f"❌ Block IP {ip} failed: {e}")
+
+    async def _unblock_ip_after_duration(self, ip, rule_name, duration_seconds):
+        """Unblock IP sau thời gian block"""
+        try:
+            self._safe_log("info", f"⏰ Scheduling unblock for IP {ip} after {duration_seconds} seconds")
+            import asyncio, subprocess
+            await asyncio.sleep(duration_seconds)
+            cmd = f'netsh advfirewall firewall delete rule name="{rule_name}"'
+            subprocess.run(cmd, shell=True, check=True)
+            self._safe_log("warning", f"✅ Unblocked IP: {ip} after {duration_seconds} seconds")
+        except Exception as e:
+            self._safe_log("error", f"❌ Failed to unblock IP {ip}: {e}")
+
     def kill_process(self, process_id, force=False):
-        """Kill a process by PID (Windows)"""
+        """Chỉ kill process khi nhận action từ server"""
         import psutil
         try:
             p = psutil.Process(int(process_id))
@@ -336,17 +395,58 @@ class SimpleEventProcessor:
                 p.kill()
             else:
                 p.terminate()
-            self._safe_log("warning", f"✅ Process {process_id} killed (force={force})")
+            self._safe_log("warning", f"✅ Process {process_id} killed (force={force}) theo lệnh từ server")
         except Exception as e:
             self._safe_log("error", f"❌ Failed to kill process {process_id}: {e}")
 
-    def block_network(self, ip, config=None):
-        # TODO: Thực thi block network trên Windows
-        self._safe_log("warning", f"[ACTION] Blocked network IP: {ip} with config: {config}")
-
     def quarantine_file(self, file_path, config=None):
-        # TODO: Thực thi quarantine file trên Windows
-        self._safe_log("warning", f"[ACTION] Quarantined file: {file_path} with config: {config}")
+        """Chỉ quarantine file khi nhận action từ server - Move to Windows Recycle Bin nếu backup_file, xóa luôn nếu không"""
+        try:
+            import os
+            from datetime import datetime
+            try:
+                from send2trash import send2trash
+                SEND2TRASH_AVAILABLE = True
+            except ImportError:
+                SEND2TRASH_AVAILABLE = False
+
+            if not file_path:
+                self._safe_log("error", "❌ No file path provided for quarantine action")
+                return
+
+            backup = False
+            if config and isinstance(config, dict):
+                backup = config.get('backup_file', False)
+
+            self._safe_log("warning", f"🎯 QUARANTINING FILE ON WINDOWS:")
+            self._safe_log("warning", f"   📁 File Path: {file_path}")
+            self._safe_log("warning", f"   💾 Backup File: {backup}")
+
+            if not os.path.exists(file_path):
+                self._safe_log("error", f"❌ File does not exist: {file_path}")
+                return
+
+            if backup:
+                if SEND2TRASH_AVAILABLE:
+                try:
+                        send2trash(file_path)
+                        self._safe_log("info", f"✅ File sent to Windows Recycle Bin: {file_path}")
+                except Exception as e:
+                        self._safe_log("error", f"❌ Failed to send file to Recycle Bin: {e}")
+                        return
+                else:
+                    self._safe_log("error", "❌ send2trash library not available. Cannot move file to Recycle Bin.")
+                    return
+            else:
+                try:
+                    os.remove(file_path)
+                    self._safe_log("info", f"🗑️ File deleted permanently: {file_path}")
+                except Exception as e:
+                    self._safe_log("error", f"❌ Failed to delete file: {e}")
+                    return
+
+        except Exception as e:
+            self._safe_log("error", f"❌ Error executing quarantine file action: {e}")
 
     def execute_action_command(self, action_command: dict, original_event: EventData):
         """Thực thi action từ server (ví dụ: Kill Process)"""

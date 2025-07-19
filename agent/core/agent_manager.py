@@ -20,7 +20,7 @@ from agent.core.event_processor import EventProcessor
 from agent.core.alert_polling_service import AlertPollingService
 from agent.collectors.process_collector import EnhancedProcessCollector
 from agent.collectors.file_collector import EnhancedFileCollector
-from agent.collectors.network_collector import EnhancedNetworkCollector
+from agent.agenwindowns.agent.collectors.network_collector import EnhancedNetworkCollector
 from agent.collectors.registry_collector import EnhancedRegistryCollector
 from agent.collectors.authentication_collector import AuthenticationCollector
 from agent.collectors.system_collector import SystemCollector

@@ -91,7 +91,7 @@ class ConfigManager:
             'server': {
                 'host': '192.168.20.85',
                 'port': 5000,
-                'auth_token': 'edr_agent_auth_2024',
+                'auth_token': 'edr_agent_auth_2025',
                 'timeout': 30,
                 'max_retries': 3,
                 'retry_delay': 5,

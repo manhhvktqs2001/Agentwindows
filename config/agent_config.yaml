@@ -59,7 +59,7 @@ server:
       name: "Remote Server"
   
   # Authentication
-  auth_token: "edr_agent_auth_2024"
+  auth_token: "edr_agent_auth_2025"
   
   # Connection Settings
   timeout: 5                            

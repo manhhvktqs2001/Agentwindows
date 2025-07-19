@@ -165,7 +165,10 @@ class AlertPollingService:
             self.stats.total_polling_time += time.time() - start_time
     
     async def _process_alert(self, alert_data: Dict[str, Any]):
-        """Xử lý một alert từ server"""
+        """
+        Nhận alert từ server: hiển thị từng cảnh báo trong alerts_generated (popup góc phải màn hình)
+        và thực hiện action nếu có.
+        """
         try:
             # Lọc chỉ hiển thị alert mới sau khi agent khởi động
             alert_time_str = alert_data.get('first_detected') or alert_data.get('timestamp')
@@ -178,82 +181,74 @@ class AlertPollingService:
             if alert_time and alert_time < self.agent_start_time:
                 logger.debug(f"⏩ Alert {alert_data.get('alert_id')} is old (before agent start), skipping")
                 return
-            
             # Kiểm tra deduplication
             alert_id = alert_data.get('alert_id')
             if alert_id and self._is_alert_in_cooldown(alert_id):
                 logger.debug(f"⏰ Alert {alert_id} in cooldown, skipping")
                 return
-            
-            # Xử lý alert trực tiếp từ alert_data
-            await self._handle_alert_notification(alert_data)
-            
+            # 1. Hiển thị từng cảnh báo trong alerts_generated
+            alerts = alert_data.get('alerts_generated') or []
+            if alerts:
+                for alert in alerts:
+                    await self.security_notifier.process_server_alerts({'alerts': [alert]})
+                    self.stats.alerts_displayed += 1
+            else:
+                # Nếu không có alerts_generated, fallback về alert tổng thể
+                alert = self._convert_notification_to_alert(alert_data)
+                if alert:
+                    await self.security_notifier.process_server_alerts({'alerts': [alert]})
+                    self.stats.alerts_displayed += 1
+            # 2. Thực hiện action nếu có
+            await self._handle_alert_action(alert_data)
             # Mark alert as processed
             if alert_id:
                 self.recent_alerts[alert_id] = time.time()
-            
         except Exception as e:
             logger.error(f"❌ Failed to process alert: {e}")
     
     async def _handle_alert_notification(self, alert_data: Dict[str, Any]):
         """Xử lý thông báo alert"""
         try:
-            # Chuyển đổi alert data thành format alert
+            # Convert alert data to notification format
             alert = self._convert_notification_to_alert(alert_data)
-            
             if alert:
-                # Hiển thị alert
-                success = await self.security_notifier.process_server_alerts(
-                    {'alerts_generated': [alert]}, 
-                    []
-                )
-                
-                if success:
-                    self.stats.alerts_displayed += 1
-                    logger.info(f"✅ Alert displayed: {alert.get('title', 'Unknown')}")
-                else:
-                    logger.warning(f"⚠️ Failed to display alert: {alert.get('title', 'Unknown')}")
-            
+                await self.security_notifier.process_server_alerts({'alerts': [alert]})
+                self.stats.alerts_displayed += 1
         except Exception as e:
             logger.error(f"❌ Failed to handle alert notification: {e}")
     
     async def _handle_alert_action(self, alert_data: Dict[str, Any]):
-        """Xử lý action từ alert (nếu có)"""
+        """Xử lý action từ alert"""
         try:
-            # Hiện tại backend không gửi actions qua polling
-            # Actions được gửi qua endpoint riêng
-            pass
-            
+            action = alert_data.get('action')
+            if action:
+                success = await self._execute_action(action)
+                if success:
+                    self.stats.actions_executed += 1
         except Exception as e:
             logger.error(f"❌ Failed to handle alert action: {e}")
     
     def _convert_notification_to_alert(self, alert_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Chuyển đổi alert data thành format alert"""
+        """Convert alert data to notification format"""
         try:
             alert = {
-                'id': alert_data.get('alert_id', f'polled_alert_{int(time.time())}'),
-                'alert_id': alert_data.get('alert_id'),
-                'rule_id': alert_data.get('rule_id'),
-                'rule_name': alert_data.get('title', 'Security Alert'),
-                'title': alert_data.get('title', 'Security Alert'),
-                'description': alert_data.get('description', 'Rule violation detected'),
+                'id': alert_data.get('alert_id'),
+                'title': alert_data.get('title', 'Unknown Alert'),
+                'description': alert_data.get('description'),
                 'severity': alert_data.get('severity', 'Medium'),
                 'risk_score': alert_data.get('risk_score', 50),
-                'detection_method': alert_data.get('detection_method', 'Rule Engine'),
-                'timestamp': alert_data.get('first_detected', datetime.now().isoformat()),
-                'server_generated': True,
-                'rule_violation': True,
-                'local_rule': False,
-                
-                # MITRE data
-                'mitre_technique': alert_data.get('mitre_technique'),
+                'detection_method': alert_data.get('detection_method', 'Unknown'),
+                'first_detected': alert_data.get('first_detected'),
                 'mitre_tactic': alert_data.get('mitre_tactic'),
-                
-                # Event context
+                'mitre_technique': alert_data.get('mitre_technique'),
+                'event_count': alert_data.get('event_count', 1),
+                'age_minutes': alert_data.get('age_minutes', 0),
+                'status': alert_data.get('status', 'Open'),
                 'event_id': alert_data.get('event_id'),
-                'process_name': alert_data.get('process_name'),
-                'file_path': alert_data.get('file_path'),
-                
+                'rule_id': alert_data.get('rule_id'),
+                'threat_id': alert_data.get('threat_id'),
+                'server_generated': alert_data.get('server_generated', True),
+                'rule_violation': alert_data.get('rule_violation', True),
                 # Additional metadata
                 'polling_source': True,
                 'status': alert_data.get('status', 'Open')
@@ -285,40 +280,29 @@ class AlertPollingService:
             return False
     
     async def _execute_kill_process(self, action: Dict[str, Any]) -> bool:
-        """Thực thi kill process bằng taskkill"""
+        """Thực thi kill process bằng taskkill với bảo vệ process quan trọng (KHÔNG hiện popup khi kill)"""
         try:
             pid = action.get('process_id') or action.get('target_pid')
             process_name = action.get('process_name', 'Unknown')
             if not pid:
                 logger.error("❌ No PID provided for kill_process")
-                ctypes.windll.user32.MessageBoxW(0, "No PID provided for kill_process", "Agent thông báo", 1)
                 return False
+            
+            # Thực thi kill process
             cmd = ["taskkill", "/PID", str(pid), "/F"]
             logger.info(f"[AGENT] Executing: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode == 0:
-                message = f"Đã kill process {process_name} (PID: {pid}) bằng taskkill"
+                message = f"✅ Đã kill process {process_name} (PID: {pid}) thành công"
                 logger.info(f"✅ {message}")
-                try:
-                    ctypes.windll.user32.MessageBoxW(0, message, "Agent thông báo", 0x40)  # MB_OK | MB_ICONINFORMATION
-                except Exception as e:
-                    logger.warning(f"⚠️ Failed to show popup: {e}")
                 return True
             else:
-                error_message = f"Không thể kill process {process_name} (PID: {pid}): {result.stderr}"
+                error_message = f"❌ Không thể kill process {process_name} (PID: {pid}): {result.stderr}"
                 logger.error(f"❌ {error_message}")
-                try:
-                    ctypes.windll.user32.MessageBoxW(0, error_message, "Agent thông báo", 0x10)  # MB_OK | MB_ICONERROR
-                except Exception as e:
-                    logger.warning(f"⚠️ Failed to show error popup: {e}")
                 return False
         except Exception as e:
-            error_message = f"Không thể kill process {process_name} (PID: {pid}): {e}"
+            error_message = f"❌ Lỗi khi kill process {process_name} (PID: {pid}): {e}"
             logger.error(f"❌ {error_message}")
-            try:
-                ctypes.windll.user32.MessageBoxW(0, error_message, "Agent thông báo", 0x10)  # MB_OK | MB_ICONERROR
-            except Exception as popup_error:
-                logger.warning(f"⚠️ Failed to show error popup: {popup_error}")
             return False
     
     async def _execute_block_network(self, action: Dict[str, Any]) -> bool:
@@ -392,26 +376,47 @@ class AlertPollingService:
             return False
     
     async def _execute_quarantine_file(self, action: Dict[str, Any]) -> bool:
-        """Thực thi quarantine file (demo)"""
+        """Thực thi quarantine file: backup_file true thì vào thùng rác, false thì xóa luôn"""
         try:
+            import os
+            try:
+                from send2trash import send2trash
+                SEND2TRASH_AVAILABLE = True
+            except ImportError:
+                SEND2TRASH_AVAILABLE = False
+
             file_path = action.get('file_path')
+            backup = action.get('backup_file', False)
             if not file_path:
                 logger.error("❌ No file path provided for quarantine_file")
-                ctypes.windll.user32.MessageBoxW(0, "No file path provided for quarantine_file", "Agent thông báo", 1)
                 return False
-            
-            # TODO: Implement actual file quarantine
-            message = f"(Demo) Đã cách ly file: {file_path}"
-            logger.info(f"📁 {message}")
-            print(f"[AGENT] {message}")
-            ctypes.windll.user32.MessageBoxW(0, message, "Agent thông báo", 1)
-            
+
+            if not os.path.exists(file_path):
+                logger.error(f"❌ File does not exist: {file_path}")
+                return False
+
+            if backup:
+                if SEND2TRASH_AVAILABLE:
+                    try:
+                        send2trash(file_path)
+                        logger.info(f"✅ File sent to Windows Recycle Bin: {file_path}")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to send file to Recycle Bin: {e}")
+                        return False
+                else:
+                    logger.error("❌ send2trash library not available. Cannot move file to Recycle Bin.")
+                    return False
+            else:
+                try:
+                    os.remove(file_path)
+                    logger.info(f"🗑️ File deleted permanently: {file_path}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to delete file: {e}")
+                    return False
+
             return True
-            
         except Exception as e:
-            error_message = f"Không thể cách ly file {file_path}: {e}"
-            logger.error(f"❌ {error_message}")
-            ctypes.windll.user32.MessageBoxW(0, error_message, "Agent thông báo", 1)
+            logger.error(f"❌ Error executing quarantine file action: {e}")
             return False
     
     def _is_alert_in_cooldown(self, alert_id: str) -> bool:

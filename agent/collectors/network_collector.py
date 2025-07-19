@@ -16,6 +16,7 @@ from collections import defaultdict, deque
 from agent.collectors.base_collector import BaseCollector
 from agent.schemas.events import EventData, EventAction
 from agent.utils.network_utils import NetworkUtils, get_connection_info, is_suspicious_connection
+from agent.core.config_manager import ConfigManager
 
 logger = logging.getLogger('NetworkCollector')
 
@@ -23,6 +24,8 @@ class EnhancedNetworkCollector(BaseCollector):
     """Fixed Network Collector - Ensures complete data collection with ALL required fields"""
     
     def __init__(self, config_manager=None):
+        if config_manager is None:
+            config_manager = ConfigManager()
         super().__init__(config_manager, "NetworkCollector")
         
         # Network tracking
@@ -73,7 +76,7 @@ class EnhancedNetworkCollector(BaseCollector):
         self.logger.info("🌐 FIXED Network Collector initialized - COMPLETE DATA COLLECTION")
     
     async def _collect_data(self):
-        """Collect network events - ENHANCED for better performance"""
+        """Collect network events, including detection of remote control connections"""
         try:
             start_time = time.time()
             events = []
@@ -92,49 +95,112 @@ class EnhancedNetworkCollector(BaseCollector):
                 self.logger.debug(f"Network connections scan failed: {e}")
                 return []
             
+            remote_control_ports = {3389, 5900, 5938, 5939, 17600, 5931, 5932, 5933, 5934, 5935, 5936, 5937, 5939, 194, 443, 80, 5938, 21112, 21113, 21114, 21115, 21116, 21117, 21118, 21119, 21120}  # RDP, VNC, TeamViewer, AnyDesk, UltraVNC, ...
+            remote_control_keywords = ['rdp', 'teamviewer', 'vnc', 'anydesk', 'remote', 'ultravnc', 'ammyy', 'remotedesktop', 'mstsc', 'radmin', 'logmein', 'pcanywhere']
+            
             # FIXED: Process connections efficiently
             for conn in connections:
                 try:
                     if not conn.laddr:
                         continue
                     
-                    # Create connection key
-                    if conn.raddr:
-                        conn_key = f"{conn.laddr.ip}:{conn.laddr.port}-{conn.raddr.ip}:{conn.raddr.port}-{conn.status}"
-                    else:
-                        conn_key = f"{conn.laddr.ip}:{conn.laddr.port}-LISTENING-{conn.status}"
+                    # Helper lấy ip, port an toàn
+                    def get_ip_port(addr):
+                        if hasattr(addr, 'ip') and hasattr(addr, 'port'):
+                            return addr.ip, addr.port
+                        elif isinstance(addr, tuple) and len(addr) >= 2:
+                            return addr[0], addr[1]
+                        return '0.0.0.0', 0
+                    l_ip, l_port = get_ip_port(conn.laddr)
+                    r_ip, r_port = get_ip_port(conn.raddr) if conn.raddr else ('0.0.0.0', 0)
                     
-                    current_connections[conn_key] = conn
+                    current_connections[f"{l_ip}:{l_port}-{r_ip}:{r_port}-{conn.status}"] = conn
                     
                     # FIXED: Only create events for NEW connections, not all connections
-                    if conn_key not in self.monitored_connections:
+                    if f"{l_ip}:{l_port}-{r_ip}:{r_port}-{conn.status}" not in self.monitored_connections:
                         # EVENT TYPE 1: New Connection Established Event with COMPLETE data
-                        if conn.raddr and self._is_external_ip(conn.raddr.ip):
+                        if r_ip and self._is_external_ip(r_ip):
                             event = await self._create_complete_connection_established_event(conn)
                             if event:
                                 events.append(event)
                                 self.stats['connection_established_events'] += 1
                         
                         # EVENT TYPE 2: Suspicious Connection Event with COMPLETE data
-                        if conn.raddr and is_suspicious_connection(conn):
+                        if r_ip and is_suspicious_connection(conn):
                             event = await self._create_complete_suspicious_connection_event(conn)
                             if event:
                                 events.append(event)
                                 self.stats['suspicious_connection_events'] += 1
                         
                         # EVENT TYPE 3: External Connection Event with COMPLETE data
-                        if conn.raddr and self._is_external_connection(conn):
+                        if r_ip and self._is_external_connection(conn):
                             event = await self._create_complete_external_connection_event(conn)
                             if event:
                                 events.append(event)
                                 self.stats['external_connection_events'] += 1
                         
                         # EVENT TYPE 4: Listening Port Event with COMPLETE data
-                        if not conn.raddr and conn.status == 'LISTEN':
+                        if not r_ip and conn.status == 'LISTEN':
                             event = await self._create_complete_listening_port_event(conn)
                             if event:
                                 events.append(event)
                     
+                    # Xác định kết nối inbound (máy khác kết nối vào máy mình)
+                    is_inbound = conn.status == 'ESTABLISHED' and conn.raddr and l_port in remote_control_ports
+                    # Hoặc port phổ biến remote control
+                    if is_inbound:
+                        # Lấy thông tin process nếu có
+                        process_info = None
+                        if conn.pid:
+                            try:
+                                proc = psutil.Process(conn.pid)
+                                pname = proc.name().lower()
+                                process_info = {
+                                    'pid': conn.pid,
+                                    'name': pname,
+                                    'exe': proc.exe()
+                                }
+                            except:
+                                pname = ''
+                        else:
+                            pname = ''
+                        # Kiểm tra tên process có liên quan remote control không
+                        is_remote_tool = any(k in pname for k in remote_control_keywords)
+                        # Tạo event nếu là remote control
+                        if is_remote_tool or l_port in remote_control_ports:
+                            event = EventData(
+                                event_type="Network",
+                                event_action=EventAction.SUSPICIOUS_ACTIVITY,
+                                event_timestamp=datetime.now(),
+                                severity="High",
+                                source_ip=r_ip,
+                                source_port=r_port,
+                                destination_ip=l_ip,
+                                destination_port=l_port,
+                                protocol='TCP' if conn.type == socket.SOCK_STREAM else 'UDP',
+                                direction="Inbound",
+                                process_id=conn.pid,
+                                process_name=process_info['name'] if process_info else None,
+                                description=f"🚨 REMOTE CONTROL CONNECTION DETECTED: {r_ip}:{r_port} -> {l_ip}:{l_port} ({process_info['name'] if process_info else ''})",
+                                raw_event_data={
+                                    'event_subtype': 'remote_control_inbound',
+                                    'connection_status': conn.status,
+                                    'process_info': process_info,
+                                    'is_remote_tool': is_remote_tool,
+                                    'remote_tool_name': pname if is_remote_tool else '',
+                                    'service_name': self.common_services.get(l_port, 'Unknown'),
+                                    'data_complete': True,
+                                    'local_address': f"{l_ip}:{l_port}",
+                                    'remote_address': f"{r_ip}:{r_port}",
+                                    'connection_family': conn.family.name if hasattr(conn.family, 'name') else str(conn.family),
+                                    'connection_type': conn.type.name if hasattr(conn.type, 'name') else str(conn.type),
+                                    'is_listening': conn.status == 'LISTEN',
+                                    'is_established': conn.status == 'ESTABLISHED',
+                                    'timestamp': time.time()
+                                }
+                            )
+                            events.append(event)
+                            self.logger.warning(f"🚨 REMOTE CONTROL CONNECTION: {r_ip}:{r_port} -> {l_ip}:{l_port} ({pname})")
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
             
@@ -180,6 +246,25 @@ class EnhancedNetworkCollector(BaseCollector):
     async def _create_complete_connection_established_event(self, conn):
         """EVENT TYPE 1: Connection Established Event with ALL required fields"""
         try:
+            # Helper lấy ip, port an toàn
+            def get_ip_port(addr):
+                if hasattr(addr, 'ip') and hasattr(addr, 'port'):
+                    return addr.ip, addr.port
+                elif isinstance(addr, tuple) and len(addr) >= 2:
+                    return addr[0], addr[1]
+                return '0.0.0.0', 0
+            l_ip, l_port = get_ip_port(conn.laddr)
+            r_ip, r_port = get_ip_port(conn.raddr) if conn.raddr else ('0.0.0.0', 0)
+            
+            # ✅ ENHANCED: Create network_connections array format
+            network_connections = [
+                {
+                    "laddr": {"ip": l_ip, "port": l_port},
+                    "raddr": {"ip": r_ip, "port": r_port},
+                    "status": conn.status
+                }
+            ]
+            
             # Get process info if available
             process_info = None
             if conn.pid:
@@ -190,64 +275,51 @@ class EnhancedNetworkCollector(BaseCollector):
                         'name': proc.name(),
                         'exe': proc.exe()
                     }
-                except:
-                    pass
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    process_info = None
             
-            # FIXED: Extract ALL required network fields
-            source_ip = conn.laddr.ip if conn.laddr else "0.0.0.0"
-            source_port = conn.laddr.port if conn.laddr else 0
-            destination_ip = conn.raddr.ip if conn.raddr else "0.0.0.0"
-            destination_port = conn.raddr.port if conn.raddr else 0
-            protocol = 'TCP' if conn.type == socket.SOCK_STREAM else 'UDP'
-            direction = self._determine_connection_direction(conn)
-            
-            # Ensure direction is 'Outbound' for external IPs
-            if self._is_external_ip(destination_ip):
-                direction = 'Outbound'
-            
-            # FIXED: Create network event with ALL required fields populated
             return EventData(
                 event_type="Network",
                 event_action=EventAction.CONNECT,
                 event_timestamp=datetime.now(),
-                severity="Medium" if destination_port in self.suspicious_ports else "Info",
+                severity="Medium" if self._is_external_ip(r_ip) else "Info",
                 
-                # FIXED: ALWAYS populate ALL network-specific fields
-                source_ip=source_ip,                    # REQUIRED FIELD
-                source_port=source_port,                # REQUIRED FIELD
-                destination_ip=destination_ip,          # REQUIRED FIELD
-                destination_port=destination_port,      # REQUIRED FIELD
-                protocol=protocol,                      # REQUIRED FIELD
-                direction=direction,                    # REQUIRED FIELD
+                # Network fields
+                source_ip=l_ip,
+                destination_ip=r_ip,
+                source_port=l_port,
+                destination_port=r_port,
+                protocol='TCP' if conn.type == socket.SOCK_STREAM else 'UDP',
+                direction="Outbound" if r_ip != '0.0.0.0' else "Inbound",
                 
-                # Process information
+                # ✅ ENHANCED: Network connections array
+                network_connections=network_connections,
+                
+                # Process info
                 process_id=conn.pid,
                 process_name=process_info['name'] if process_info else None,
+                process_path=process_info['exe'] if process_info else None,
                 
-                description=f"🔗 CONNECTION ESTABLISHED: {source_ip}:{source_port} -> {destination_ip}:{destination_port} ({protocol})",
+                description=f"🌐 NETWORK CONNECTION: {l_ip}:{l_port} -> {r_ip}:{r_port} ({process_info['name'] if process_info else 'Unknown Process'})",
                 
                 raw_event_data={
                     'event_subtype': 'connection_established',
                     'connection_status': conn.status,
                     'process_info': process_info,
-                    'is_suspicious_port': destination_port in self.suspicious_ports,
-                    'service_name': self.common_services.get(destination_port, 'Unknown'),
+                    'is_external': self._is_external_ip(r_ip),
+                    'service_name': self.common_services.get(r_port, 'Unknown'),
                     'data_complete': True,
-                    
-                    # Complete network details
-                    'local_address': f"{source_ip}:{source_port}",
-                    'remote_address': f"{destination_ip}:{destination_port}",
+                    'local_address': f"{l_ip}:{l_port}",
+                    'remote_address': f"{r_ip}:{r_port}",
                     'connection_family': conn.family.name if hasattr(conn.family, 'name') else str(conn.family),
                     'connection_type': conn.type.name if hasattr(conn.type, 'name') else str(conn.type),
                     'is_listening': conn.status == 'LISTEN',
                     'is_established': conn.status == 'ESTABLISHED',
-                    'is_external': self._is_external_ip(destination_ip),
-                    'is_localhost': destination_ip in ['127.0.0.1', '::1'],
                     'timestamp': time.time()
                 }
             )
         except Exception as e:
-            self.logger.error(f"❌ Complete connection established event failed: {e}")
+            self.logger.error(f"❌ Connection established event creation failed: {e}")
             return None
     
     async def _create_complete_connection_closed_event(self, conn_key: str, conn):

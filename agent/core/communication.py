@@ -47,7 +47,7 @@ class ServerCommunication:
         self.agent_id = None
         
         # Authentication
-        self.auth_token = self.server_config.get('auth_token', 'edr_agent_auth_2024')
+        self.auth_token = self.server_config.get('auth_token', 'edr_agent_auth_2025')
         
         # HTTP session
         self.session: Optional[aiohttp.ClientSession] = None
@@ -328,6 +328,10 @@ class ServerCommunication:
             # FIXED: Handle case where payload conversion failed
             if payload is None:
                 return False, None, "Event payload conversion failed - missing agent_id"
+            
+            # Thêm log rõ ràng khi gửi event lên server
+            self.logger.info(f"📤 [SEND] Event to server: type={event_data.event_type}, action={event_data.event_action}, agent_id={event_data.agent_id}")
+            self.logger.info(f"📦 [PAYLOAD]: {payload}")
             
             # Send to server
             url = f"{self.base_url}/api/v1/events/submit"

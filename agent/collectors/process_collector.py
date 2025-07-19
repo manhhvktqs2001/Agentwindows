@@ -8,7 +8,7 @@ import psutil
 import time
 import asyncio
 import logging
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Any
 from datetime import datetime
 from pathlib import Path
 
@@ -261,32 +261,40 @@ class EnhancedProcessCollector(BaseCollector):
         try:
             process_name = proc_info.get('name', 'Unknown')
             severity = self._determine_enhanced_severity(process_name, proc_info)
-            
+            # Lấy process_hash (MD5) cho file thực thi
+            process_path = proc_info.get('exe')
+            process_hash = None
+            if process_path:
+                process_hash = get_process_hash(process_path)
+            # ✅ ENHANCED: Get network connections for this process
+            pid = proc_info.get('pid')
+            network_connections = await self._get_process_network_connections(pid) if pid else None
             # Create enhanced description
             description = f"🆕 PROCESS STARTED: {process_name}"
-            if proc_info.get('exe'):
-                description += f" from {proc_info['exe']}"
+            if process_path:
+                description += f" from {process_path}"
             if proc_info.get('username'):
                 description += f" by {proc_info['username']}"
-            
+            if network_connections:
+                description += f" with {len(network_connections)} network connection(s)"
             parent_pid = proc_info.get('ppid')
             if parent_pid is None:
                 parent_pid = 0
-            
             return EventData(
                 event_type="Process",
                 event_action=EventAction.START,
                 event_timestamp=datetime.now(),
                 severity=severity,
-                
                 process_id=proc_info.get('pid'),
                 process_name=proc_info.get('name'),
-                process_path=proc_info.get('exe'),
-                command_line=' '.join(proc_info.get('cmdline', [])),
+                process_path=process_path,
+                command_line=' '.join(proc_info.get('cmdline') or []),
                 parent_pid=int(parent_pid),
                 process_user=proc_info.get('username'),
-                
-                description=f"🆕 PROCESS STARTED: {proc_info.get('name')} (PID: {proc_info.get('pid')})",
+                process_hash=process_hash,
+                # ✅ ENHANCED: Include network connections if available
+                network_connections=network_connections,
+                description=description,
                 raw_event_data={
                     'event_subtype': 'process_creation',
                     'process_category': self._get_process_category(proc_info.get('name', '')),
@@ -294,7 +302,10 @@ class EnhancedProcessCollector(BaseCollector):
                     'memory_rss': proc_info.get('memory_rss', 0),
                     'create_time': proc_info.get('create_time'),
                     'is_interesting': self._is_interesting_process(proc_info.get('name', '')),
-                    'parent_process': self._get_parent_process_name(int(parent_pid))
+                    'parent_process': self._get_parent_process_name(int(parent_pid)),
+                    'process_hash': process_hash,
+                    'has_network_connections': bool(network_connections),
+                    'network_connection_count': len(network_connections) if network_connections else 0
                 }
             )
         except Exception as e:
@@ -352,7 +363,7 @@ class EnhancedProcessCollector(BaseCollector):
                 process_id=proc_info.get('pid'),
                 process_name=process_name,
                 process_path=proc_info.get('exe'),
-                command_line=' '.join(proc_info['cmdline']) if proc_info.get('cmdline') else None,
+                command_line=' '.join(proc_info['cmdline']) if proc_info.get('cmdline') else '',
                 
                 description=f"⭐ INTERESTING PROCESS ACTIVITY: {process_name} ({category})",
                 raw_event_data={
@@ -490,7 +501,7 @@ class EnhancedProcessCollector(BaseCollector):
                 process_id=proc_info.get('pid'),
                 process_name=process_name,
                 process_path=proc_info.get('exe'),
-                command_line=' '.join(proc_info.get('cmdline', [])),
+                command_line=' '.join(proc_info.get('cmdline') or []),
                 parent_pid=int(parent_pid),
                 process_user=proc_info.get('username'),
                 
@@ -507,6 +518,51 @@ class EnhancedProcessCollector(BaseCollector):
             )
         except Exception as e:
             self.logger.error(f"❌ Existing process activity event failed: {e}")
+            return None
+    
+    async def _get_process_network_connections(self, pid: int) -> Optional[List[Dict[str, Any]]]:
+        """ENHANCED: Get network connections for a specific process"""
+        try:
+            if not pid:
+                return None
+            
+            import psutil
+            import socket
+            
+            connections = []
+            
+            # Get all network connections
+            try:
+                all_connections = psutil.net_connections(kind='inet')
+            except Exception:
+                return None
+            
+            # Filter connections for this process
+            for conn in all_connections:
+                if conn.pid == pid and conn.raddr:  # Only established connections with remote address
+                    # Helper lấy ip, port an toàn
+                    def get_ip_port(addr):
+                        if hasattr(addr, 'ip') and hasattr(addr, 'port'):
+                            return addr.ip, addr.port
+                        elif isinstance(addr, tuple) and len(addr) >= 2:
+                            return addr[0], addr[1]
+                        return '0.0.0.0', 0
+                    
+                    l_ip, l_port = get_ip_port(conn.laddr)
+                    r_ip, r_port = get_ip_port(conn.raddr)
+                    
+                    # Only include external connections
+                    if r_ip and r_ip not in ['127.0.0.1,::1', '0.0.0.0']:
+                        connections.append({
+                            'raddr': {"ip": r_ip, "port": r_port},
+                            'laddr': {"ip": l_ip, "port": l_port},
+                            'status': conn.status
+                        })
+            
+            return connections if connections else None
+            
+        except Exception as e:
+            self.logger.debug(f"❌ Failed to get network connections for PID {pid}: {e}")
             return None
     
     def get_stats(self) -> Dict:

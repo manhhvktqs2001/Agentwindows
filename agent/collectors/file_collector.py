@@ -1,6 +1,6 @@
-# agent/collectors/file_collector.py - MULTIPLE FILE EVENT TYPES
+# agent/collectors/file_collector.py - MULTIPLE FILE EVENT TYPES WITH DESKTOP
 """
-Enhanced File Collector - Gửi nhiều loại file events liên tục
+Enhanced File Collector - Gửi nhiều loại file events liên tục (bao gồm Desktop)
 Thu thập nhiều loại thông tin file và gửi events khác nhau cho server
 """
 
@@ -35,17 +35,27 @@ class EnhancedFileCollector(BaseCollector):
         self.large_file_threshold = 100 * 1024 * 1024  # 100MB
         self.frequent_access_threshold = 10
         
-        # FIXED: Reduce scanning directories for better performance
+        # UPDATED: Thêm Desktop vào danh sách thu thập
         self.scan_directories = {
             'system': ['C:\\Windows\\System32'],
             'temp': ['C:\\Temp', 'C:\\Windows\\Temp'],
-            'user': ['C:\\Users\\Public\\Desktop']
+            'user': ['C:\\Users\\Public\\Desktop'],
+            'desktop': [
+                os.path.join(os.path.expanduser('~'), 'Desktop'),  # Desktop của user hiện tại
+                'C:\\Users\\Public\\Desktop',  # Desktop công khai
+                os.path.join(os.environ.get('USERPROFILE', ''), 'Desktop')  # Backup path
+            ],
+            'documents': [
+                os.path.join(os.path.expanduser('~'), 'Documents'),  # Thư mục Documents
+                os.path.join(os.path.expanduser('~'), 'Downloads')   # Thư mục Downloads
+            ]
         }
         
         # FIXED: Reduce file extensions to monitor
-        self.document_extensions = {'.doc', '.docx', '.pdf', '.txt'}
-        self.suspicious_extensions = {'.exe', '.bat', '.cmd', '.ps1', '.vbs'}
-        self.archive_extensions = {'.zip', '.rar', '.7z'}
+        self.document_extensions = {'.doc', '.docx', '.pdf', '.txt', '.xlsx', '.pptx'}
+        self.suspicious_extensions = {'.exe', '.bat', '.cmd', '.ps1', '.vbs', '.scr'}
+        self.archive_extensions = {'.zip', '.rar', '.7z', '.tar', '.gz'}
+        self.media_extensions = {'.mp4', '.avi', '.mkv', '.mp3', '.jpg', '.png', '.gif'}
         
         # Tracking
         self.monitored_files = {}
@@ -55,30 +65,34 @@ class EnhancedFileCollector(BaseCollector):
         self.stats = {
             'file_creation_events': 0,
             'file_modification_events': 0,
+            'file_deletion_events': 0,
             'large_file_events': 0,
             'suspicious_file_events': 0,
             'document_events': 0,
             'executable_events': 0,
             'archive_events': 0,
+            'desktop_events': 0,  # NEW: Desktop events counter
             'file_access_events': 0,
             'total_file_events': 0
         }
         
-        self.logger.info("Enhanced File Collector initialized - PERFORMANCE OPTIMIZED")
+        self.logger.info("Enhanced File Collector initialized - WITH DESKTOP MONITORING")
     
     async def _collect_data(self):
-        """Collect multiple types of file events - OPTIMIZED VERSION"""
+        """Collect multiple types of file events - OPTIMIZED VERSION WITH DESKTOP"""
         start_time = time.time()
         try:
             events = []
             
-            # FIXED: Only scan critical directories for better performance
+            # UPDATED: Scan all directories including Desktop
             for category, directories in self.scan_directories.items():
                 for directory in directories:
-                    if os.path.exists(directory):
+                    # Kiểm tra thư mục tồn tại và có quyền truy cập
+                    if self._is_directory_accessible(directory):
                         try:
                             # FIXED: Limit directory depth for better performance
-                            dir_events = await self._scan_directory_for_multiple_events(directory, category, max_depth=2)
+                            max_depth = 3 if category == 'desktop' else 2  # Desktop có thể scan sâu hơn
+                            dir_events = await self._scan_directory_for_multiple_events(directory, category, max_depth)
                             events.extend(dir_events)
                         except Exception as e:
                             self.logger.debug(f"Error scanning directory {directory}: {e}")
@@ -96,10 +110,16 @@ class EnhancedFileCollector(BaseCollector):
                 if disk_event:
                     events.append(disk_event)
             
+            # NEW: Desktop-specific summary
+            if self.stats['desktop_events'] > 0 and self.stats['desktop_events'] % 25 == 0:
+                desktop_summary = await self._create_desktop_summary_event()
+                if desktop_summary:
+                    events.append(desktop_summary)
+            
             self.stats['total_file_events'] += len(events)
             
             if events:
-                self.logger.info(f"📤 Generated {len(events)} OPTIMIZED FILE EVENTS")
+                self.logger.info(f"📤 Generated {len(events)} OPTIMIZED FILE EVENTS (Desktop included)")
             
             # FIXED: Log performance metrics with better thresholds
             collection_time = (time.time() - start_time) * 1000
@@ -114,14 +134,21 @@ class EnhancedFileCollector(BaseCollector):
             self.logger.error(f"❌ Multiple file events collection failed: {e}")
             return []
     
+    def _is_directory_accessible(self, directory: str) -> bool:
+        """Kiểm tra thư mục có tồn tại và có quyền truy cập"""
+        try:
+            return os.path.exists(directory) and os.access(directory, os.R_OK)
+        except Exception:
+            return False
+    
     async def _scan_directory_for_multiple_events(self, directory: str, category: str, max_depth: int = 2) -> List[EventData]:
-        """Scan directory and generate events for NEW/MODIFIED files only - OPTIMIZED"""
+        """Scan directory and generate events for NEW/MODIFIED files only - OPTIMIZED WITH DESKTOP"""
         events = []
         
         try:
             # FIXED: Limit scan depth and file count for better performance
             file_count = 0
-            max_files_per_directory = 100  # Limit files per directory
+            max_files_per_directory = 150 if category == 'desktop' else 100  # Desktop có thể scan nhiều file hơn
             
             for root, dirs, filenames in os.walk(directory):
                 # FIXED: Limit directory depth
@@ -151,12 +178,14 @@ class EnhancedFileCollector(BaseCollector):
                         file_key = file_path
                         current_time = time.time()
                         
-                        # FIXED: Only create events for interesting files
+                        # UPDATED: More interesting files for desktop
                         ext = file_info.get('extension', '').lower()
                         is_interesting = (ext in self.suspicious_extensions or 
                                         ext in self.document_extensions or 
                                         ext in self.archive_extensions or
-                                        file_info.get('size', 0) > self.large_file_threshold)
+                                        ext in self.media_extensions or  # NEW: Media files
+                                        file_info.get('size', 0) > self.large_file_threshold or
+                                        category == 'desktop')  # Desktop files luôn interesting
                         
                         if not is_interesting:
                             continue
@@ -174,6 +203,8 @@ class EnhancedFileCollector(BaseCollector):
                             if event:
                                 events.append(event)
                                 self.stats['file_creation_events'] += 1
+                                if category == 'desktop':
+                                    self.stats['desktop_events'] += 1
                         
                         # EVENT TYPE 2: File Modification Event (only if actually modified)
                         elif file_modified:
@@ -181,6 +212,8 @@ class EnhancedFileCollector(BaseCollector):
                             if event:
                                 events.append(event)
                                 self.stats['file_modification_events'] += 1
+                                if category == 'desktop':
+                                    self.stats['desktop_events'] += 1
                         
                         # EVENT TYPE 3: Large File Event (only for new or modified files)
                         if (file_key not in self.monitored_files or file_modified) and file_info.get('size', 0) > self.large_file_threshold:
@@ -195,6 +228,12 @@ class EnhancedFileCollector(BaseCollector):
                             if event:
                                 events.append(event)
                                 self.stats['suspicious_file_events'] += 1
+                        
+                        # NEW: Desktop-specific events
+                        if category == 'desktop' and (file_key not in self.monitored_files or file_modified):
+                            desktop_event = await self._create_desktop_file_event(file_path, file_info)
+                            if desktop_event:
+                                events.append(desktop_event)
                         
                         # Update tracked file info
                         self.monitored_files[file_key] = {
@@ -227,7 +266,10 @@ class EnhancedFileCollector(BaseCollector):
     async def _create_file_creation_event(self, file_path: str, file_info: Dict, category: str):
         """EVENT TYPE 1: File Creation Event"""
         try:
-            severity = "High" if is_suspicious_file(file_path) else "Info"
+            severity = "High" if is_suspicious_file(file_path) else "Medium" if category == 'desktop' else "Info"
+            
+            # Desktop files get special emoji
+            icon = "🖥️" if category == 'desktop' else "📄"
             
             return EventData(
                 event_type="File",
@@ -240,12 +282,13 @@ class EnhancedFileCollector(BaseCollector):
                 file_size=file_info.get('size', 0),
                 file_extension=file_info.get('extension', ''),
                 
-                description=f"📄 FILE CREATED: {os.path.basename(file_path)} in {category} directory",
+                description=f"{icon} FILE CREATED: {os.path.basename(file_path)} in {category} directory",
                 raw_event_data={
                     'event_subtype': 'file_creation',
                     'directory_category': category,
                     'file_info': file_info,
                     'is_suspicious': is_suspicious_file(file_path),
+                    'is_desktop_file': category == 'desktop',
                     'creation_time': time.time()
                 }
             )
@@ -256,28 +299,114 @@ class EnhancedFileCollector(BaseCollector):
     async def _create_file_modification_event(self, file_path: str, file_info: Dict, category: str):
         """EVENT TYPE 2: File Modification Event"""
         try:
+            icon = "🖥️✏️" if category == 'desktop' else "✏️"
+            
             return EventData(
                 event_type="File",
                 event_action=EventAction.MODIFY,
                 event_timestamp=datetime.now(),
-                severity="Medium" if is_suspicious_file(file_path) else "Info",
+                severity="Medium" if (is_suspicious_file(file_path) or category == 'desktop') else "Info",
                 
                 file_path=file_path,
                 file_name=os.path.basename(file_path),
                 file_size=file_info.get('size', 0),
                 file_extension=file_info.get('extension', ''),
                 
-                description=f"✏️ FILE MODIFIED: {os.path.basename(file_path)}",
+                description=f"{icon} FILE MODIFIED: {os.path.basename(file_path)}",
                 raw_event_data={
                     'event_subtype': 'file_modification',
                     'directory_category': category,
                     'modify_time': file_info.get('modify_time'),
                     'previous_info': self.monitored_files.get(file_path, {}),
-                    'size_change': file_info.get('size', 0) - self.monitored_files.get(file_path, {}).get('size', 0)
+                    'size_change': file_info.get('size', 0) - self.monitored_files.get(file_path, {}).get('size', 0),
+                    'is_desktop_file': category == 'desktop'
                 }
             )
         except Exception as e:
             self.logger.error(f"❌ File modification event failed: {e}")
+            return None
+    
+    async def _create_desktop_file_event(self, file_path: str, file_info: Dict):
+        """NEW: Desktop-specific file event"""
+        try:
+            ext = file_info.get('extension', '').lower()
+            
+            # Determine file type
+            if ext in self.document_extensions:
+                file_type = "Document"
+                icon = "📄"
+            elif ext in self.media_extensions:
+                file_type = "Media"
+                icon = "🎬"
+            elif ext in self.archive_extensions:
+                file_type = "Archive"
+                icon = "🗜️"
+            elif ext in self.suspicious_extensions:
+                file_type = "Executable"
+                icon = "⚡"
+            else:
+                file_type = "Unknown"
+                icon = "📁"
+            
+            return EventData(
+                event_type="File",
+                event_action=EventAction.ACCESS,
+                event_timestamp=datetime.now(),
+                severity="Medium" if ext in self.suspicious_extensions else "Info",
+                
+                file_path=file_path,
+                file_name=os.path.basename(file_path),
+                file_size=file_info.get('size', 0),
+                file_extension=ext,
+                
+                description=f"🖥️ DESKTOP {file_type.upper()}: {icon} {os.path.basename(file_path)}",
+                raw_event_data={
+                    'event_subtype': 'desktop_file_activity',
+                    'file_category': 'desktop',
+                    'file_type': file_type.lower(),
+                    'is_desktop_file': True,
+                    'desktop_location': os.path.dirname(file_path)
+                }
+            )
+        except Exception as e:
+            self.logger.error(f"❌ Desktop file event failed: {e}")
+            return None
+    
+    async def _create_desktop_summary_event(self):
+        """NEW: Desktop summary event"""
+        try:
+            desktop_files = [f for f in self.monitored_files.values() if f.get('category') == 'desktop']
+            
+            file_types = defaultdict(int)
+            for file_info in desktop_files:
+                ext = file_info.get('extension', '').lower()
+                if ext in self.document_extensions:
+                    file_types['documents'] += 1
+                elif ext in self.media_extensions:
+                    file_types['media'] += 1
+                elif ext in self.archive_extensions:
+                    file_types['archives'] += 1
+                elif ext in self.suspicious_extensions:
+                    file_types['executables'] += 1
+                else:
+                    file_types['others'] += 1
+            
+            return EventData(
+                event_type="File",
+                event_action=EventAction.RESOURCE_USAGE,
+                event_timestamp=datetime.now(),
+                severity="Info",
+                
+                description=f"🖥️ DESKTOP SUMMARY: {len(desktop_files)} files monitored",
+                raw_event_data={
+                    'event_subtype': 'desktop_summary',
+                    'desktop_file_count': len(desktop_files),
+                    'file_type_breakdown': dict(file_types),
+                    'desktop_events_count': self.stats['desktop_events']
+                }
+            )
+        except Exception as e:
+            self.logger.error(f"❌ Desktop summary event failed: {e}")
             return None
     
     async def _create_large_file_event(self, file_path: str, file_info: Dict):
@@ -334,108 +463,6 @@ class EnhancedFileCollector(BaseCollector):
             self.logger.error(f"❌ Suspicious file event failed: {e}")
             return None
     
-    async def _create_document_file_event(self, file_path: str, file_info: Dict):
-        """EVENT TYPE 5: Document File Event"""
-        try:
-            return EventData(
-                event_type="File",
-                event_action=EventAction.ACCESS,
-                event_timestamp=datetime.now(),
-                severity="Info",
-                
-                file_path=file_path,
-                file_name=os.path.basename(file_path),
-                file_size=file_info.get('size', 0),
-                file_extension=file_info.get('extension', ''),
-                
-                description=f"📄 DOCUMENT FILE: {os.path.basename(file_path)} accessed",
-                raw_event_data={
-                    'event_subtype': 'document_file_activity',
-                    'file_category': 'document',
-                    'document_type': file_info.get('extension', '').replace('.', '')
-                }
-            )
-        except Exception as e:
-            self.logger.error(f"❌ Document file event failed: {e}")
-            return None
-    
-    async def _create_executable_file_event(self, file_path: str, file_info: Dict):
-        """EVENT TYPE 6: Executable File Event"""
-        try:
-            return EventData(
-                event_type="File",
-                event_action=EventAction.CREATE,
-                event_timestamp=datetime.now(),
-                severity="High",
-                
-                file_path=file_path,
-                file_name=os.path.basename(file_path),
-                file_size=file_info.get('size', 0),
-                file_extension=file_info.get('extension', ''),
-                
-                description=f"⚡ EXECUTABLE FILE: {os.path.basename(file_path)} detected",
-                raw_event_data={
-                    'event_subtype': 'executable_file_detected',
-                    'file_category': 'executable',
-                    'executable_type': file_info.get('extension', '').replace('.', ''),
-                    'requires_analysis': True
-                }
-            )
-        except Exception as e:
-            self.logger.error(f"❌ Executable file event failed: {e}")
-            return None
-    
-    async def _create_archive_file_event(self, file_path: str, file_info: Dict):
-        """EVENT TYPE 7: Archive File Event"""
-        try:
-            return EventData(
-                event_type="File",
-                event_action=EventAction.CREATE,
-                event_timestamp=datetime.now(),
-                severity="Medium",
-                
-                file_path=file_path,
-                file_name=os.path.basename(file_path),
-                file_size=file_info.get('size', 0),
-                file_extension=file_info.get('extension', ''),
-                
-                description=f"🗜️ ARCHIVE FILE: {os.path.basename(file_path)} detected",
-                raw_event_data={
-                    'event_subtype': 'archive_file_detected',
-                    'file_category': 'archive',
-                    'archive_type': file_info.get('extension', '').replace('.', ''),
-                    'needs_scanning': True
-                }
-            )
-        except Exception as e:
-            self.logger.error(f"❌ Archive file event failed: {e}")
-            return None
-    
-    async def _create_frequent_access_event(self, file_path: str, file_info: Dict):
-        """EVENT TYPE 8: Frequent File Access Event"""
-        try:
-            return EventData(
-                event_type="File",
-                event_action=EventAction.ACCESS,
-                event_timestamp=datetime.now(),
-                severity="Medium",
-                
-                file_path=file_path,
-                file_name=os.path.basename(file_path),
-                file_size=file_info.get('size', 0),
-                
-                description=f"🔄 FREQUENT ACCESS: {os.path.basename(file_path)} accessed multiple times",
-                raw_event_data={
-                    'event_subtype': 'frequent_file_access',
-                    'access_count': self.file_access_count[file_path],
-                    'access_threshold': self.frequent_access_threshold,
-                    'file_category': 'frequently_accessed'
-                }
-            )
-        except Exception as e:
-            self.logger.error(f"❌ Frequent access event failed: {e}")
-            return None
-    
     async def _create_file_system_summary_event(self):
         """EVENT TYPE 9: File System Summary Event"""
         try:
@@ -447,7 +474,7 @@ class EnhancedFileCollector(BaseCollector):
                 event_timestamp=datetime.now(),
                 severity="Info",
                 
-                description=f"📊 FILE SYSTEM SUMMARY: {total_files} files monitored",
+                description=f"📊 FILE SYSTEM SUMMARY: {total_files} files monitored (Desktop included)",
                 raw_event_data={
                     'event_subtype': 'file_system_summary',
                     'total_monitored_files': total_files,
@@ -455,7 +482,9 @@ class EnhancedFileCollector(BaseCollector):
                     'directory_counts': {
                         'system': len([f for f in self.monitored_files.values() if f.get('category') == 'system']),
                         'temp': len([f for f in self.monitored_files.values() if f.get('category') == 'temp']),
-                        'user': len([f for f in self.monitored_files.values() if f.get('category') == 'user'])
+                        'user': len([f for f in self.monitored_files.values() if f.get('category') == 'user']),
+                        'desktop': len([f for f in self.monitored_files.values() if f.get('category') == 'desktop']),
+                        'documents': len([f for f in self.monitored_files.values() if f.get('category') == 'documents'])
                     }
                 }
             )
@@ -521,7 +550,7 @@ class EnhancedFileCollector(BaseCollector):
         """Get detailed statistics for multiple file event types"""
         base_stats = super().get_stats()
         base_stats.update({
-            'collector_type': 'File_MultipleEvents',
+            'collector_type': 'File_MultipleEvents_WithDesktop',
             'file_creation_events': self.stats['file_creation_events'],
             'file_modification_events': self.stats['file_modification_events'],
             'file_deletion_events': self.stats['file_deletion_events'],
@@ -531,14 +560,15 @@ class EnhancedFileCollector(BaseCollector):
             'document_events': self.stats['document_events'],
             'executable_events': self.stats['executable_events'],
             'archive_events': self.stats['archive_events'],
+            'desktop_events': self.stats['desktop_events'],  # NEW
             'total_file_events': self.stats['total_file_events'],
             'monitored_files_count': len(self.monitored_files),
             'multiple_event_types': True,
+            'desktop_monitoring': True,  # NEW
             'file_event_types_generated': [
                 'file_creation', 'file_modification', 'large_file_detected',
-                'suspicious_file_detected', 'document_file_activity', 
-                'executable_file_detected', 'archive_file_detected',
-                'frequent_file_access', 'file_system_summary', 'high_disk_usage'
+                'suspicious_file_detected', 'desktop_file_activity',  # NEW
+                'file_system_summary', 'desktop_summary', 'high_disk_usage'  # UPDATED
             ]
         })
         return base_stats

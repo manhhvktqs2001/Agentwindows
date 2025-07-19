@@ -5,7 +5,7 @@ Ensures schema compatibility between agent and server
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
 
@@ -144,6 +144,9 @@ class EventData:
     protocol: Optional[str] = None
     direction: Optional[str] = None
     
+    # ✅ ENHANCED: Network connections array for comprehensive network data
+    network_connections: Optional[List[Dict[str, Any]]] = None
+    
     # Registry events - FIXED: Use correct field names matching server
     registry_key: Optional[str] = None
     registry_value_name: Optional[str] = None  # Server expects this field
@@ -237,7 +240,7 @@ class EventData:
         elif self.event_type == 'Network':
             return f"Network {self.event_action}: {self.destination_ip}:{self.destination_port}"
         elif self.event_type == 'Registry':
-            return f"Registry {self.event_action}: {self.registry_name}"
+            return f"Registry {self.event_action}: {self.registry_key}"
         elif self.event_type == 'Authentication':
             return f"Auth {self.event_action}: {self.login_user}"
         elif self.event_type == 'System':
