@@ -1,43 +1,35 @@
-# config/agent_config.yaml - SIMPLE RULE-BASED CONFIGURATION
-# EDR Agent Configuration - CHỈ HIỂN THỊ CẢNH BÁO KHI SERVER PHÁT HIỆN VI PHẠM RULE
+# config/agent_config.yaml - ENHANCED MALWARE DETECTION CONFIGURATION
+# EDR Agent Configuration - Phát hiện mã độc và reverse shell nâng cao
 
 # ============================================================================
-# AGENT CORE CONFIGURATION - SIMPLE MODE
+# AGENT CORE CONFIGURATION - MALWARE DETECTION MODE
 # ============================================================================
 agent:
-  name: "EDR Agent"
+  name: "EDR Agent - Malware Detection"
   version: "2.1.0"
-  description: "Enhanced EDR Agent with Rule-Based Alerts"
+  description: "Enhanced EDR Agent with Advanced Malware & Reverse Shell Detection"
   environment: "production"
   
-  # Rule-based alert processing only
-  rule_based_alerts_only: true
-  display_only_server_rule_violations: true
-  auto_acknowledge_rule_alerts: true
+  # Enhanced malware detection
+  malware_detection_enabled: true
+  reverse_shell_detection: true
+  c2_communication_detection: true
+  real_time_threat_analysis: true
   
-  # Immediate transmission settings
+  # Immediate transmission for critical threats
   immediate_transmission: true
   zero_delay_mode: true
+  critical_threat_priority: true
   
-  # Heartbeat and Communication
-  heartbeat_interval: 10                
-  heartbeat_timeout: 60                 
-  max_heartbeat_failures: 5             
+  # Performance Settings - Optimized for malware detection
+  heartbeat_interval: 5                 # Faster heartbeat for malware scenarios
+  max_cpu_usage: 25                     # Allow higher CPU for malware detection
+  max_memory_usage: 512                 # Increased memory for analysis
   
-  # Event Processing - SIMPLE MODE
-  event_batch_size: 1                   
-  event_queue_size: 500                 
-  max_memory_usage: 256                 
-  
-  # Performance Settings
-  max_cpu_usage: 15
-  auto_throttle: true                   
-  adaptive_polling: true                
-  
-  # Processing configuration
-  immediate_processing: true
-  immediate_send_threshold_ms: 100      
-  minimal_polling_interval_ms: 1000    # 1 second polling
+  # Enhanced monitoring intervals
+  malware_scan_interval: 1              # Scan every 1 second
+  network_analysis_interval: 0.5        # Network analysis every 500ms
+  process_monitoring_interval: 2        # Process monitoring every 2 seconds
 
 # ============================================================================
 # SERVER CONNECTION CONFIGURATION
@@ -83,490 +75,605 @@ server:
   ssl_verify: false
 
 # ============================================================================
-# DATA COLLECTION CONFIGURATION - SIMPLE MODE
+# MALWARE DETECTION CONFIGURATION - MAIN FEATURE
+# ============================================================================
+malware_detection:
+  enabled: true
+  mode: "comprehensive"
+  
+  # Detection Engines
+  reverse_shell_detection:
+    enabled: true
+    sensitivity: "high"
+    monitor_ports: [4444, 4445, 5555, 6666, 7777, 8888, 9999, 1234, 12345, 31337, 54321]
+    command_patterns:
+      - "nc -e"
+      - "nc.exe -e"
+      - "netcat -e"
+      - "powershell -e"
+      - "cmd.exe /c powershell"
+      - "/bin/sh"
+      - "/bin/bash"
+      - "reverse"
+      - "shell"
+    
+  c2_communication_detection:
+    enabled: true
+    sensitivity: "medium"
+    beacon_detection: true
+    dns_tunneling_detection: true
+    web_shell_detection: true
+    
+  process_analysis:
+    enabled: true
+    monitor_all_processes: true
+    suspicious_processes:
+      - "nc.exe"
+      - "netcat.exe"
+      - "ncat.exe"
+      - "socat.exe"
+      - "plink.exe"
+      - "putty.exe"
+    
+    suspicious_paths:
+      - "temp"
+      - "tmp"
+      - "appdata\\roaming"
+      - "appdata\\local\\temp"
+      - "programdata"
+      - "users\\public"
+      - "windows\\temp"
+      - "downloads"
+      - "desktop"
+    
+  network_analysis:
+    enabled: true
+    monitor_external_connections: true
+    geographic_analysis: true
+    malicious_ip_detection: true
+    port_analysis: true
+    
+    # Suspicious ports for malware
+    suspicious_ports:
+      backdoor_ports: [4444, 4445, 5555, 6666, 7777, 8888, 9999]
+      rat_ports: [1234, 12345, 31337, 54321, 1337, 9876, 6969]
+      web_shells: [80, 443, 8080, 8443, 9090, 3000, 8000]
+      tunneling_ports: [22, 53, 2222]
+    
+    # High-risk countries (examples)
+    high_risk_countries: ["CN", "RU", "KP", "IR"]
+    
+    # Known malicious IP ranges (examples - in production use threat intelligence)
+    malicious_ip_ranges:
+      - "1.2.3.0/24"
+      - "10.0.0.0/8"
+  
+  # Risk scoring
+  risk_scoring:
+    enabled: true
+    thresholds:
+      low_risk: 20
+      medium_risk: 50
+      high_risk: 80
+      critical_risk: 95
+    
+    weight_factors:
+      suspicious_port: 30
+      external_connection: 10
+      malicious_ip: 50
+      suspicious_process: 25
+      command_line_pattern: 40
+      file_location: 20
+      parent_process: 15
+      cpu_usage: 15
+      memory_usage: 10
+
+# ============================================================================
+# DATA COLLECTION CONFIGURATION - ENHANCED FOR MALWARE
 # ============================================================================
 collection:
   enabled: true
   
-  # Global Collection Settings
+  # Enhanced collection settings
   real_time_monitoring: true
   immediate_processing: true
-  polling_interval: 2.0                 # 2 seconds polling
-  max_events_per_interval: 10           
-  event_deduplication: false            
+  malware_focused_collection: true
   
-  # Event Types - BASIC MONITORING
-  collect_processes: true               
-  collect_files: true
-  collect_network: true
-  collect_registry: true
-  collect_authentication: true
-  collect_system_events: true
-  
-  # Process Monitoring - BASIC MODE
+  # Process Monitoring - ENHANCED
   process_monitoring:
+    enabled: true
     immediate_detection: true
-    polling_interval_ms: 2000           # 2 second polling
-    monitor_creation: true              
-    monitor_termination: true           
-    monitor_modification: false         # Disabled for simplicity
+    polling_interval_ms: 1000           # 1 second for malware detection
+    monitor_creation: true
+    monitor_termination: true
+    monitor_modification: true
     collect_command_lines: true
-    collect_hashes: false               
-    monitor_child_processes: false     # Disabled for simplicity
-  
-  # File Monitoring - BASIC MODE
+    collect_hashes: true
+    monitor_child_processes: true
+    
+    # Enhanced process analysis
+    analyze_network_connections: true
+    track_process_relationships: true
+    monitor_process_injection: true
+    detect_hollowing: true
+    
+    # Specific malware indicators
+    monitor_suspicious_names: true
+    monitor_suspicious_paths: true
+    monitor_encoded_commands: true
+    
+  # Network Monitoring - ENHANCED
+  network_monitoring:
+    enabled: true
+    immediate_detection: true
+    polling_interval_ms: 500            # 500ms for real-time network analysis
+    
+    # Enhanced network analysis
+    monitor_tcp: true
+    monitor_udp: true
+    monitor_icmp: true
+    monitor_listening_ports: true
+    monitor_established_connections: true
+    monitor_outbound_connections: true
+    
+    # Malware-specific monitoring
+    detect_reverse_shells: true
+    detect_c2_communication: true
+    detect_dns_tunneling: true
+    detect_data_exfiltration: true
+    analyze_connection_patterns: true
+    monitor_beacon_behavior: true
+    
+    # Geographic and IP analysis
+    perform_geographic_analysis: true
+    check_malicious_ips: true
+    analyze_connection_timing: true
+    
+  # File Monitoring - ENHANCED
   file_monitoring:
     enabled: true
     immediate_detection: true
-    polling_interval_ms: 3000           # 3 second polling
-    paths_to_monitor:
-      - "C:\\Users\\manhh\\Desktop"
-      - "C:\\Users\\manhh\\Documents"
-      - "C:\\Users\\manhh\\Downloads"
-    file_extensions:
-      - ".exe"
-      - ".dll"
-      - ".bat"
-      - ".cmd"
-      - ".ps1"
-    max_file_size: 50MB                 
-    collect_hashes: false               
-    monitor_creation: true
-    monitor_modification: true
-    monitor_deletion: true
-    monitor_access: false               
-  
-  # Network Monitoring - BASIC MODE
-  network_monitoring:
-    immediate_detection: true
-    polling_interval_ms: 3000           
-    monitor_tcp: true
-    monitor_udp: false                  
-    monitor_listening_ports: true
-    monitor_established_connections: true
-    monitor_outbound_only: false        
-    analyze_patterns: false             
-    max_connections_tracked: 20         
-  
-  # Registry Monitoring - BASIC MODE
+    polling_interval_ms: 2000
+    
+    # Enhanced file analysis
+    monitor_executable_creation: true
+    monitor_script_creation: true
+    analyze_file_signatures: true
+    detect_packed_executables: true
+    
+    # Malware-specific paths
+    monitor_temp_directories: true
+    monitor_startup_locations: true
+    monitor_system_directories: true
+    
+  # Registry Monitoring - ENHANCED
   registry_monitoring:
-    immediate_detection: true
-    polling_interval_ms: 5000           # 5 second polling
-    monitor_startup_keys: true
-    real_time_monitoring: true
-    critical_paths:
-      - "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
-      - "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
-  
-  # Authentication Monitoring - BASIC MODE
-  authentication_monitoring:
-    immediate_detection: true
-    polling_interval_ms: 4000           
-    monitor_logons: true
-    monitor_failed_attempts: true
-    failed_attempt_threshold: 5         
-  
-  # System Monitoring - BASIC MODE
-  system_monitoring:
-    immediate_detection: true
-    polling_interval_ms: 10000          # 10 second polling
-    monitor_cpu_usage: true
-    monitor_memory_usage: true
-    monitor_disk_usage: true
-    monitor_performance: true
-    cpu_threshold: 85                   
-    memory_threshold: 85                
-    disk_threshold: 90                  
-
-# ============================================================================
-# RULE-BASED ALERT CONFIGURATION - MAIN FEATURE
-# ============================================================================
-rule_based_alerts:
-  enabled: true
-  mode: "server_rules_only"
-  
-  # Alert Display Settings
-  display_settings:
-    show_only_server_rule_violations: true
-    auto_acknowledge_alerts: true
-    alert_display_duration: 8           # 8 seconds
-    play_alert_sound: true
-    show_desktop_notifications: true
-    
-    # Notification positioning
-    notification_position: "top-right"
-    notification_priority: "high"
-  
-  # Rule Processing
-  rule_processing:
-    process_server_rules_immediately: true
-    validate_rule_violations: true
-    require_rule_id_or_name: true
-    
-    # Rule violation indicators
-    rule_violation_keywords:
-      - "rule"
-      - "violation"
-      - "triggered"
-      - "rule_id"
-      - "rule_name"
-  
-  # Acknowledgment Settings
-  acknowledgment:
     enabled: true
-    auto_acknowledge: true
-    send_to_database: true
-    acknowledgment_endpoint: "/api/v1/alerts/acknowledge"
-    include_metadata: true
-    retry_failed_acknowledgments: true
-    max_retries: 3
+    immediate_detection: true
+    polling_interval_ms: 3000
     
-    # Acknowledgment data to include
-    include_in_acknowledgment:
-      - "alert_id"
-      - "rule_id"
-      - "rule_name"
-      - "agent_id"
-      - "severity"
-      - "risk_score"
-      - "detection_method"
-      - "mitre_technique"
-      - "mitre_tactic"
-      - "process_name"
-      - "file_path"
-      - "display_status"
-      - "notification_method"
+    # Malware-specific registry monitoring
+    monitor_startup_keys: true
+    monitor_service_keys: true
+    monitor_security_keys: true
+    detect_persistence_mechanisms: true
+    
+  # Authentication Monitoring
+  authentication_monitoring:
+    enabled: true
+    immediate_detection: true
+    polling_interval_ms: 2000
+    
+    # Enhanced authentication analysis
+    detect_privilege_escalation: true
+    monitor_suspicious_logons: true
+    track_user_behavior: true
 
 # ============================================================================
-# THREAT DETECTION CONFIGURATION - DISABLED
+# THREAT INTELLIGENCE INTEGRATION
 # ============================================================================
-detection:
-  enabled: false                       # DISABLED - Only use server rules
-  immediate_detection: false           # DISABLED
+threat_intelligence:
+  enabled: true
   
-  # Detection Engines - ALL DISABLED
-  local_rules_enabled: false           # DISABLED - Only server rules
-  behavioral_analysis: false           # DISABLED
-  threat_intelligence: false          # DISABLED
-  
-  # Detection Thresholds - NOT USED
-  suspicious_threshold: 100            # Set high to disable
-  malicious_threshold: 100             # Set high to disable
-  alert_threshold: 100                 # Set high to disable
-  
-  # Response Actions - DISABLED
-  send_alerts_immediately: false       # DISABLED - Only server rules
-  immediate_response: false            # DISABLED
+  # IP reputation checking
+  ip_reputation:
+    enabled: true
+    check_external_ips: true
+    malicious_ip_sources:
+      - "local_blacklist"
+      - "threat_feed"
+    
+  # Domain reputation
+  domain_reputation:
+    enabled: true
+    suspicious_domains:
+      - "pastebin.com"
+      - "github.com"
+      - "dropbox.com"
+      - "telegram.org"
+      - "discord.com"
+      - "bit.ly"
+      - "tinyurl.com"
+      - "duckdns.org"
+    
+  # File hash checking
+  file_hash_checking:
+    enabled: true
+    known_malware_hashes: []
+    
+  # Behavioral indicators
+  behavioral_indicators:
+    enabled: true
+    beacon_detection: true
+    data_staging_detection: true
+    lateral_movement_detection: true
 
 # ============================================================================
-# LOGGING CONFIGURATION
+# RESPONSE ACTIONS - MALWARE MITIGATION
+# ============================================================================
+response_actions:
+  enabled: true
+  automatic_response: false            # Manual approval required
+  
+  # Available actions
+  available_actions:
+    - "alert_only"
+    - "log_detailed"
+    - "isolate_process"
+    - "block_network"
+    - "quarantine_file"
+    - "kill_process"
+    
+  # Response triggers
+  response_triggers:
+    critical_malware: "alert_only"
+    reverse_shell: "alert_only"
+    c2_communication: "alert_only"
+    malicious_ip: "alert_only"
+    
+  # Response settings
+  response_settings:
+    require_confirmation: true
+    log_all_actions: true
+    notify_administrator: true
+
+# ============================================================================
+# ENHANCED LOGGING FOR MALWARE ANALYSIS
 # ============================================================================
 logging:
   level: "INFO"
   
-  # Output Destinations
-  console_enabled: true
+  # Enhanced logging for malware detection
+  malware_logging:
+    enabled: true
+    log_level: "DEBUG"
+    detailed_analysis_logging: true
+    log_network_connections: true
+    log_process_relationships: true
+    log_risk_calculations: true
+    
+  # Component-specific logging
+  process_analysis_log_level: "DEBUG"
+  network_analysis_log_level: "DEBUG"
+  malware_detection_log_level: "INFO"
+  threat_intelligence_log_level: "INFO"
+  
+  # File logging
   file_enabled: true
-  
-  # File Logging
   log_directory: "logs"
-  log_file_name: "edr_agent_rule_based.log"
-  max_file_size: "10MB"
-  backup_count: 3
-  
-  # Log Settings
-  log_format: "detailed"               
-  include_timestamps: true
-  include_thread_info: false
-  
-  # Component-specific Logging
-  collectors_log_level: "INFO"
-  communication_log_level: "INFO"
-  detection_log_level: "WARNING"       # Higher level since detection disabled
-  rule_alerts_log_level: "INFO"        # Rule alerts logging
-  acknowledgment_log_level: "INFO"     # Acknowledgment logging
+  malware_log_file: "malware_detection.log"
+  network_analysis_log_file: "network_analysis.log"
+  process_analysis_log_file: "process_analysis.log"
 
 # ============================================================================
-# PERFORMANCE OPTIMIZATION - SIMPLE MODE
+# PERFORMANCE OPTIMIZATION FOR MALWARE DETECTION
 # ============================================================================
 performance:
-  # CPU Management
-  max_cpu_usage: 15                    # Lower CPU usage
-  cpu_throttling: true                 
-  priority_class: "normal"             
+  # CPU Management - Allow higher usage for malware detection
+  max_cpu_usage: 25
+  cpu_throttling: false                # Disable throttling for malware detection
+  priority_class: "high"               # Higher priority for malware detection
   
   # Memory Management
-  max_memory_usage: 256                # Lower memory usage
+  max_memory_usage: 512                # Increased memory for analysis
   memory_optimization: true
-  garbage_collection: true             
+  cache_analysis_results: true
   
   # I/O Optimization
   async_processing: true
-  batch_processing: false              
-  compression_enabled: false          
-  buffer_size: 1024                    # Smaller buffer
+  parallel_analysis: true
+  batch_processing: false              # Real-time processing for malware
   
-  # Threading
-  max_worker_threads: 2                # Fewer threads
-  thread_pool_size: 2
-  async_event_processing: true
+  # Threading - More threads for malware analysis
+  max_worker_threads: 4
+  thread_pool_size: 4
+  dedicated_malware_threads: 2
   
-  # Caching
-  enable_caching: false                
-  immediate_mode_optimizations: true
+  # Analysis optimization
+  risk_calculation_caching: true
+  connection_pattern_caching: true
+  process_relationship_caching: true
 
 # ============================================================================
-# FILTERING CONFIGURATION - MINIMAL FILTERING
-# ============================================================================
-filters:
-  # Minimal Filtering for basic monitoring
-  exclude_system_processes: true       # Exclude system processes
-  exclude_agent_activity: true        
-  
-  # Process Filtering
-  exclude_process_names:
-    - "System"
-    - "Registry"
-    - "MemCompression"
-    - "Idle"
-  exclude_process_paths:
-    - "C:\\Windows\\System32\\svchost.exe"
-  
-  # File Filtering
-  exclude_file_extensions:
-    - ".tmp"
-    - ".log"
-    - ".cache"
-    - ".bak"
-  exclude_file_paths:
-    - "C:\\Windows\\Temp"
-    - "C:\\Windows\\Logs"
-  
-  # Network Filtering
-  exclude_loopback: true               # Exclude loopback for simplicity
-  exclude_ports:
-    - 135    # RPC
-    - 445    # SMB
-    - 139    # NetBIOS
-  
-  # Size Limits
-  max_file_size_mb: 50                 
-  max_command_line_length: 1024        
-  max_registry_value_size: 512         
-
-# ============================================================================
-# SECURITY NOTIFICATION CONFIGURATION - RULE-BASED ONLY
+# ALERTING AND NOTIFICATIONS - MALWARE FOCUSED
 # ============================================================================
 security_notifications:
   enabled: true
-  mode: "rule_based_only"
+  mode: "enhanced_malware_detection"
   
-  # Display Settings
-  show_on_screen: true
-  position: "top-right"
-  
-  # Alert Filtering - RULE-BASED ONLY
-  show_only_rule_violations: true      # KEY SETTING
-  show_server_generated_alerts_only: true
-  show_low_alerts: true               
-  show_medium_alerts: true
-  show_high_alerts: true
-  show_critical_alerts: true
-  
-  # Notification Behavior
-  auto_dismiss_timeout: 8              # 8 second timeout
-  play_sound: true
-  persistent_critical: true
-  
-  # Rate Limiting - GENEROUS FOR RULE ALERTS
-  max_security_alerts_per_minute: 10   
-  duplicate_suppression_window: 30     # 30 second window
-  
-  # Priority-based Timeouts
-  critical_alert_timeout: 15
-  high_alert_timeout: 12
-  medium_alert_timeout: 10
-  low_alert_timeout: 8
-  
-  # Content Settings
-  include_rule_name: true              # KEY SETTING
-  include_rule_id: true                # KEY SETTING
-  include_risk_score: true
-  include_event_details: true
-  max_description_length: 400          # Longer for rule descriptions
-  
-  # Advanced Features - SIMPLE MODE
-  group_similar_alerts: false          
-  escalation_enabled: false            # Disabled for simplicity
-  integration_mode: "immediate"
+  # Malware-specific alerts
+  malware_alerts:
+    enabled: true
+    show_reverse_shell_alerts: true
+    show_c2_alerts: true
+    show_malicious_ip_alerts: true
+    show_suspicious_process_alerts: true
+    show_data_exfiltration_alerts: true
+    
+  # Alert severity mapping
+  alert_severity_mapping:
+    reverse_shell_detected: "critical"
+    c2_communication_detected: "high"
+    malicious_ip_connection: "high"
+    suspicious_process_detected: "medium"
+    suspicious_network_pattern: "medium"
+    
+  # Alert display settings
+  display_settings:
+    show_risk_scores: true
+    show_analysis_details: true
+    show_mitigation_suggestions: true
+    include_technical_details: true
+    
+  # Alert frequency control
+  rate_limiting:
+    max_alerts_per_minute: 20
+    duplicate_suppression_window: 60
+    escalation_thresholds:
+      medium_to_high: 3
+      high_to_critical: 2
 
 # ============================================================================
-# MAINTENANCE AND UPDATES
+# REPORTING AND FORENSICS
 # ============================================================================
-maintenance:
-  # Automatic Updates
-  auto_update_enabled: false           
-  
-  # Cleanup Tasks
-  cleanup_enabled: true                
-  cleanup_interval: 3600               # Every hour
-  
-  # Data Retention
-  event_retention_days: 3              # Shorter retention
-  log_retention_days: 7                
-  offline_event_retention_days: 1      
-  acknowledgment_retention_days: 30    # Keep acknowledgments longer
-  
-  # Health Monitoring
-  health_check_interval: 60            
-  send_health_reports: true
-  health_report_interval: 300          
-
-# ============================================================================
-# OFFLINE MODE CONFIGURATION
-# ============================================================================
-offline_mode:
-  # Core Settings
-  enabled: true                        
-  auto_enable: true                    
-  
-  # Storage Settings
-  max_events_stored: 300               
-  max_acknowledgments_stored: 100     # Store acknowledgments offline
-  storage_path: "offline_data"         
-  compression_enabled: false          
-  
-  # Reconnection Settings
-  auto_reconnect: true                 
-  reconnect_interval: 30               
-  max_reconnect_attempts: 0            
-  
-  # Event Management
-  event_priority_order:                
-    - "Critical"
-    - "High"
-    - "Medium"
-    - "Low"
-    - "Info"
-  
-  # Cleanup Settings
-  auto_cleanup: true                   
-  cleanup_interval: 1800               
-  max_storage_size_mb: 25              
-
-# ============================================================================
-# ERROR HANDLING CONFIGURATION
-# ============================================================================
-error_handling:
-  # Connection Errors
-  max_connection_retries: 2            
-  connection_retry_delay: 1            
-  connection_timeout: 5                
-  
-  # Processing Errors
-  max_processing_errors: 10            
-  error_backoff_multiplier: 2          
-  max_error_backoff: 30                
-  
-  # Recovery Settings
-  auto_recovery: true                  
-  recovery_check_interval: 60          
-  restart_on_critical_error: false    
-  
-  # Logging
-  log_all_errors: true                 
-  error_notification_enabled: false   # Disabled for simplicity
-
-# ============================================================================
-# ALERT ACKNOWLEDGMENT CONFIGURATION - KEY FEATURE
-# ============================================================================
-alert_acknowledgment:
+reporting:
   enabled: true
   
-  # Core Settings
-  auto_acknowledge_rule_violations: true
-  acknowledgment_timeout: 30           
-  include_comprehensive_metadata: true
-  
-  # Server Communication
-  send_acknowledgments_to_server: true
-  acknowledgment_endpoint: "/api/v1/alerts/acknowledge"
-  retry_failed_acknowledgments: true
-  max_acknowledgment_retries: 3
-  acknowledgment_retry_delay: 5
-  
-  # Database Insert Information
-  database_insert_fields:
-    - "alert_id"
-    - "rule_id" 
-    - "rule_name"
-    - "agent_id"
-    - "status"
-    - "acknowledged_at"
-    - "display_status"
-    - "notification_method"
-    - "severity"
-    - "risk_score"
-    - "detection_method"
-    - "mitre_technique"
-    - "mitre_tactic"
-    - "event_id"
-    - "process_name"
-    - "file_path"
-    - "agent_hostname"
-    - "agent_version"
-    - "acknowledgment_timestamp"
-    - "notification_success"
-    - "alert_category"
-  
-  # Tracking
-  track_acknowledgment_status: true
-  log_acknowledgments: true
-  store_acknowledgment_history: true
+  # Malware incident reporting
+  malware_incident_reports:
+    enabled: true
+    auto_generate: true
+    include_network_analysis: true
+    include_process_tree: true
+    include_timeline: true
+    include_iocs: true
+    
+  # Forensic data collection
+  forensic_collection:
+    enabled: true
+    collect_memory_dumps: false         # Disabled by default due to size
+    collect_network_pcaps: false        # Disabled by default due to size
+    collect_process_images: true
+    collect_registry_snapshots: true
+    
+  # Export formats
+  export_formats:
+    - "json"
+    - "csv"
+    - "xml"
+    
+  # Report scheduling
+  scheduled_reports:
+    daily_summary: true
+    weekly_analysis: true
+    monthly_trends: true
 
 # ============================================================================
-# DEBUGGING AND DIAGNOSTICS
+# INTEGRATION SETTINGS
+# ============================================================================
+integration:
+  # SIEM integration
+  siem_integration:
+    enabled: false
+    siem_type: "generic"
+    
+  # Threat intelligence feeds
+  threat_feeds:
+    enabled: false
+    feed_sources: []
+    
+  # Sandbox integration
+  sandbox_integration:
+    enabled: false
+    sandbox_type: "none"
+
+# ============================================================================
+# DEBUGGING AND DIAGNOSTICS FOR MALWARE DETECTION
 # ============================================================================
 debugging:
   enabled: true
   
-  # Debug Modes
-  verbose_rule_alert_logging: true     # KEY SETTING
-  trace_server_responses: true         
-  log_acknowledgment_attempts: true    
-  
-  # Performance Monitoring
-  track_processing_times: true
-  monitor_memory_usage: true
-  log_performance_metrics: true
-  
-  # Rule Alert Debugging
-  debug_rule_violation_detection: true 
-  log_notification_attempts: true
-  track_alert_display_success: true
-  log_server_rule_responses: true      # KEY SETTING
-  
-  # Diagnostic Information
-  include_system_info_in_logs: true
-  log_collector_statistics: true
-  periodic_status_reports: true
-  status_report_interval: 300          
+  # Malware detection debugging
+  malware_debugging:
+    enabled: true
+    debug_risk_scoring: true
+    debug_network_analysis: true
+    debug_process_analysis: true
+    debug_connection_patterns: true
+    trace_malware_indicators: true
+    
+  # Performance debugging
+  performance_debugging:
+    track_analysis_times: true
+    monitor_memory_usage: true
+    log_processing_delays: true
+    
+  # Network debugging
+  network_debugging:
+    log_all_connections: true
+    trace_suspicious_connections: true
+    debug_geographic_analysis: true
+    debug_ip_reputation: true
+    
+  # Process debugging
+  process_debugging:
+    log_process_creation: true
+    trace_parent_child_relationships: true
+    debug_command_line_analysis: true
+    log_process_network_activity: true
 
 # ============================================================================
-# SPECIAL FEATURES - RULE-BASED MODE
+# ADVANCED MALWARE DETECTION FEATURES
 # ============================================================================
-special_features:
-  # Rule-Based Processing
-  server_rule_violations_only: true    # KEY SETTING
-  enhanced_rule_violation_display: true
-  comprehensive_acknowledgment_data: true
-  
-  # User Experience
-  clear_rule_violation_notifications: true
-  detailed_rule_descriptions: true
-  actionable_rule_information: true
-  
-  # Integration Features
-  bidirectional_rule_communication: true
-  real_time_rule_status_updates: true
-  comprehensive_database_integration: true
+advanced_features:
+  # Behavioral analysis
+  behavioral_analysis:
+    enabled: true
+    learn_normal_behavior: true
+    detect_anomalies: true
+    baseline_establishment_period: 24   # Hours
+    
+  # Machine learning (simplified)
+  machine_learning:
+    enabled: false                      # Disabled for now
+    model_type: "anomaly_detection"
+    training_data_collection: false
+    
+  # Threat hunting
+  threat_hunting:
+    enabled: true
+    proactive_scanning: true
+    ioc_scanning: true
+    behavioral_hunting: true
+    
+  # Incident response automation
+  incident_response:
+    enabled: true
+    auto_create_incidents: true
+    incident_severity_mapping: true
+    escalation_rules: true
+    
+  # Forensic capabilities
+  forensics:
+    enabled: true
+    evidence_collection: true
+    chain_of_custody: true
+    timeline_construction: true
+    
+# ============================================================================
+# COMMUNICATION PROTOCOLS FOR MALWARE DETECTION
+# ============================================================================
+communication_protocols:
+  # Enhanced server communication
+  enhanced_communication:
+    malware_priority_channel: true
+    compressed_transmission: true
+    encrypted_malware_data: true
+    
+  # Real-time alerting
+  real_time_alerts:
+    enabled: true
+    immediate_transmission: true
+    priority_queueing: true
+    
+  # Bulk data transmission
+  bulk_transmission:
+    enabled: true
+    batch_non_critical_data: true
+    compress_large_payloads: true
+
+# ============================================================================
+# COMPLIANCE AND PRIVACY
+# ============================================================================
+compliance:
+  # Data privacy
+  data_privacy:
+    anonymize_user_data: false
+    encrypt_sensitive_data: true
+    data_retention_limits: true
+    
+  # Regulatory compliance
+  regulatory:
+    gdpr_compliance: false
+    hipaa_compliance: false
+    sox_compliance: false
+    
+  # Audit trail
+  audit_trail:
+    enabled: true
+    log_all_actions: true
+    tamper_protection: true
+    
+# ============================================================================
+# MAINTENANCE AND UPDATES FOR MALWARE DETECTION
+# ============================================================================
+maintenance:
+  # Signature updates
+  signature_updates:
+    enabled: true
+    auto_update: false
+    update_frequency: "daily"
+    
+  # Threat intelligence updates
+  threat_intel_updates:
+    enabled: true
+    auto_update: false
+    update_frequency: "hourly"
+    
+  # Performance optimization
+  performance_optimization:
+    auto_optimize: true
+    cache_cleanup: true
+    memory_optimization: true
+    
+  # Health monitoring
+  health_monitoring:
+    enabled: true
+    monitor_detection_accuracy: true
+    monitor_false_positive_rate: true
+    monitor_performance_impact: true
+
+# ============================================================================
+# ERROR HANDLING FOR MALWARE DETECTION
+# ============================================================================
+error_handling:
+  # Detection errors
+  detection_errors:
+    continue_on_error: true
+    log_all_errors: true
+    fallback_to_basic_detection: true
+    
+  # Analysis errors
+  analysis_errors:
+    retry_failed_analysis: true
+    max_retry_attempts: 3
+    fallback_analysis_mode: true
+    
+  # Communication errors
+  communication_errors:
+    queue_malware_alerts: true
+    priority_alert_retry: true
+    offline_malware_detection: true
+
+# ============================================================================
+# TESTING AND VALIDATION
+# ============================================================================
+testing:
+  # Detection testing
+  detection_testing:
+    enabled: false                      # Only enable for testing
+    test_reverse_shell_detection: false
+    test_c2_detection: false
+    test_malicious_ip_detection: false
+    
+  # Performance testing
+  performance_testing:
+    enabled: false
+    load_testing: false
+    stress_testing: false
+    
+  # Validation
+  validation:
+    validate_configurations: true
+    validate_detection_rules: true
+    validate_response_actions: true
