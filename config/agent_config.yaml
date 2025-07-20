@@ -22,14 +22,20 @@ agent:
   critical_threat_priority: true
   
   # Performance Settings - Optimized for malware detection
-  heartbeat_interval: 5                 # Faster heartbeat for malware scenarios
-  max_cpu_usage: 25                     # Allow higher CPU for malware detection
-  max_memory_usage: 512                 # Increased memory for analysis
+  heartbeat_interval: 2                 # Very fast heartbeat for realtime
+  max_cpu_usage: 30                     # Allow higher CPU for realtime detection
+  max_memory_usage: 1024                # Increased memory for realtime analysis
   
-  # Enhanced monitoring intervals
-  malware_scan_interval: 1              # Scan every 1 second
-  network_analysis_interval: 0.5        # Network analysis every 500ms
-  process_monitoring_interval: 2        # Process monitoring every 2 seconds
+  # REALTIME monitoring intervals - NO DELAYS
+  malware_scan_interval: 0.1            # Scan every 100ms for realtime
+  network_analysis_interval: 0.05       # Network analysis every 50ms
+  process_monitoring_interval: 0.2      # Process monitoring every 200ms
+  
+  # REALTIME transmission settings
+  event_transmission_delay: 0           # No delay in transmission
+  batch_processing: false               # Disable batching for realtime
+  immediate_send: true                  # Send immediately
+  realtime_mode: true                   # Enable realtime mode
 
 # ============================================================================
 # SERVER CONNECTION CONFIGURATION
@@ -53,12 +59,12 @@ server:
   # Authentication
   auth_token: "edr_agent_auth_2025"
   
-  # Connection Settings
-  timeout: 5                            
-  connect_timeout: 2                    
-  read_timeout: 3                       
-  max_retries: 1                        
-  retry_delay: 0.5                      
+  # Connection Settings - REALTIME OPTIMIZED
+  timeout: 1                             # Very fast timeout for realtime
+  connect_timeout: 0.5                   # Fast connection for realtime
+  read_timeout: 0.5                      # Fast read for realtime
+  max_retries: 0                         # No retries for realtime (send and forget)
+  retry_delay: 0                         # No delay for realtime
   
   # Connection optimization
   keep_alive: true
@@ -179,11 +185,11 @@ collection:
   immediate_processing: true
   malware_focused_collection: true
   
-  # Process Monitoring - ENHANCED
+  # Process Monitoring - REALTIME ENHANCED
   process_monitoring:
     enabled: true
     immediate_detection: true
-    polling_interval_ms: 1000           # 1 second for malware detection
+    polling_interval_ms: 100            # 100ms for realtime malware detection
     monitor_creation: true
     monitor_termination: true
     monitor_modification: true
@@ -202,11 +208,11 @@ collection:
     monitor_suspicious_paths: true
     monitor_encoded_commands: true
     
-  # Network Monitoring - ENHANCED
+  # Network Monitoring - REALTIME ENHANCED
   network_monitoring:
     enabled: true
     immediate_detection: true
-    polling_interval_ms: 500            # 500ms for real-time network analysis
+    polling_interval_ms: 50             # 50ms for realtime network analysis
     
     # Enhanced network analysis
     monitor_tcp: true
@@ -229,11 +235,11 @@ collection:
     check_malicious_ips: true
     analyze_connection_timing: true
     
-  # File Monitoring - ENHANCED
+  # File Monitoring - REALTIME ENHANCED
   file_monitoring:
     enabled: true
     immediate_detection: true
-    polling_interval_ms: 2000
+    polling_interval_ms: 200            # 200ms for realtime file monitoring
     
     # Enhanced file analysis
     monitor_executable_creation: true
@@ -246,11 +252,11 @@ collection:
     monitor_startup_locations: true
     monitor_system_directories: true
     
-  # Registry Monitoring - ENHANCED
+  # Registry Monitoring - REALTIME ENHANCED
   registry_monitoring:
     enabled: true
     immediate_detection: true
-    polling_interval_ms: 3000
+    polling_interval_ms: 300            # 300ms for realtime registry monitoring
     
     # Malware-specific registry monitoring
     monitor_startup_keys: true
@@ -258,11 +264,11 @@ collection:
     monitor_security_keys: true
     detect_persistence_mechanisms: true
     
-  # Authentication Monitoring
+  # Authentication Monitoring - REALTIME
   authentication_monitoring:
     enabled: true
     immediate_detection: true
-    polling_interval_ms: 2000
+    polling_interval_ms: 200            # 200ms for realtime authentication monitoring
     
     # Enhanced authentication analysis
     detect_privilege_escalation: true
@@ -379,10 +385,12 @@ performance:
   memory_optimization: true
   cache_analysis_results: true
   
-  # I/O Optimization
+  # I/O Optimization - REALTIME
   async_processing: true
   parallel_analysis: true
-  batch_processing: false              # Real-time processing for malware
+  batch_processing: false              # Disable batching for realtime
+  realtime_processing: true            # Enable realtime processing
+  zero_latency_mode: true              # Zero latency transmission
   
   # Threading - More threads for malware analysis
   max_worker_threads: 4

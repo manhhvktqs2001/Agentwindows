@@ -428,10 +428,10 @@ class SimpleEventProcessor:
 
             if backup:
                 if SEND2TRASH_AVAILABLE:
-                try:
+                    try:
                         send2trash(file_path)
                         self._safe_log("info", f"✅ File sent to Windows Recycle Bin: {file_path}")
-                except Exception as e:
+                    except Exception as e:
                         self._safe_log("error", f"❌ Failed to send file to Recycle Bin: {e}")
                         return
                 else:
