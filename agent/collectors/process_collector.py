@@ -1,13 +1,18 @@
-# agent/collectors/process_collector.py - ENHANCED VERSION FOR ALL PROCESSES
+# agent/collectors/process_collector.py - THỰC TẾ DATA COLLECTION
 """
-Enhanced Process Collector - Tạo alert cho TẤT CẢ processes
-Thu thập và báo cáo mọi process activity, không chỉ suspicious processes
+Enhanced Process Collector - Thu thập THÔNG TIN THỰC TẾ của processes
+KHÔNG đoán hay đưa ra khả năng - CHỈ LẤY DỮ LIỆU THỰC từ hệ thống
 """
 
 import psutil
 import time
 import asyncio
 import logging
+import hashlib
+import os
+import socket
+import subprocess
+import re
 from typing import Dict, List, Optional, Set, Any
 from datetime import datetime
 from pathlib import Path
@@ -18,8 +23,8 @@ from agent.utils.process_utils import get_process_info, get_process_hash, is_sys
 
 logger = logging.getLogger('ProcessCollector')
 
-class EnhancedProcessCollector(BaseCollector):
-    """Enhanced Process Collector - Alert cho TẤT CẢ process activities"""
+class RealProcessDataCollector(BaseCollector):
+    """Thu thập THÔNG TIN THỰC TẾ của processes - không đoán hay phân tích"""
     
     def __init__(self, config_manager=None):
         if config_manager is None:
@@ -27,79 +32,76 @@ class EnhancedProcessCollector(BaseCollector):
             config_manager = ConfigManager()
         super().__init__(config_manager, "ProcessCollector")
         
-        # ENHANCED: Tracking tất cả processes
+        # Process tracking
         self.monitored_processes = {}
-        self.baseline_processes = set()
         self.last_scan_pids = set()
-        self.process_cpu_history = {}
-        self.process_memory_history = {}
         
-        # ENHANCED: Categories for ALL processes (không chỉ suspicious)
-        self.all_executables = {
-            'powershell.exe', 'cmd.exe', 'notepad.exe', 'calc.exe', 'explorer.exe',
-            'chrome.exe', 'firefox.exe', 'msedge.exe', 'code.exe', 'winword.exe',
-            'excel.exe', 'outlook.exe', 'teams.exe', 'skype.exe', 'zoom.exe',
-            'discord.exe', 'steam.exe', 'vlc.exe', 'winrar.exe', '7z.exe',
-            'python.exe', 'java.exe', 'node.exe', 'git.exe', 'putty.exe',
-            'wscript.exe', 'cscript.exe', 'rundll32.exe', 'regsvr32.exe',
-            'mshta.exe', 'certutil.exe', 'bitsadmin.exe', 'svchost.exe',
-            'lsass.exe', 'winlogon.exe', 'csrss.exe', 'dwm.exe', 'taskhost.exe'
-        }
+        # Performance settings - REALTIME CONTINUOUS
+        self.polling_interval = 0.1  # 100ms scan - realtime
+        self.max_events_per_scan = 200  # Tăng để không miss events
+        self.continuous_mode = True
+        self.batch_size = 50  # Gửi theo batch để tối ưu network
         
-        # ENHANCED: Alert for ALL process types
-        self.interesting_processes = {
-            'editors': ['notepad.exe', 'notepad++.exe', 'code.exe', 'sublime_text.exe'],
-            'calculators': ['calc.exe', 'calculator.exe'],
-            'browsers': ['chrome.exe', 'firefox.exe', 'msedge.exe', 'iexplore.exe'],
-            'system_tools': ['cmd.exe', 'powershell.exe', 'powershell_ise.exe'],
-            'office': ['winword.exe', 'excel.exe', 'powerpoint.exe', 'outlook.exe'],
-            'media': ['vlc.exe', 'wmplayer.exe', 'spotify.exe'],
-            'development': ['python.exe', 'java.exe', 'node.exe', 'dotnet.exe'],
-            'communication': ['teams.exe', 'skype.exe', 'discord.exe', 'zoom.exe'],
-            'security': ['defender.exe', 'ccleaner.exe', 'malwarebytes.exe'],
-            'utilities': ['winrar.exe', '7z.exe', 'putty.exe', 'filezilla.exe']
-        }
-        
-        # FIXED: Optimize thresholds for better performance
-        self.high_cpu_threshold = 80  # Increase from 70% to 80%
-        self.high_memory_threshold = 500 * 1024 * 1024  # Increase from 300MB to 500MB
-        self.polling_interval = 0.5  # Decrease from 2.0s to 0.5s for more frequent scanning
-        
-        # FIXED: Reduce event generation for better performance
-        self.generate_alerts_for_all_processes = False  # Only alert on interesting processes
-        self.alert_on_process_creation = True
-        self.alert_on_process_termination = False  # Disable termination alerts
-        self.alert_on_interesting_processes = True
-        
-        # ENHANCED: Statistics for ALL processes
+        # Statistics
         self.stats = {
-            'total_process_create_events': 0,
-            'total_process_terminate_events': 0,
-            'notepad_events': 0,
-            'calc_events': 0,
-            'browser_events': 0,
-            'office_events': 0,
-            'system_tool_events': 0,
-            'suspicious_events': 0,
-            'high_cpu_events': 0,
-            'high_memory_events': 0,
-            'total_events_generated': 0
+            'total_processes_scanned': 0,
+            'processes_with_network': 0,
+            'processes_with_files': 0,
+            'processes_analyzed': 0,
+            'events_generated': 0
         }
         
-        # FIXED: Add counter for existing process events
-        self.existing_process_counter = 0
-        self.last_existing_process_log = 0
+        self.logger.info("Real Process Data Collector initialized - REALTIME CONTINUOUS MODE")
+    
+    async def start_continuous_collection(self):
+        """Bắt đầu thu thập liên tục realtime"""
+        self.logger.info("🚀 Starting REALTIME CONTINUOUS process collection...")
         
-        self.logger.info("Enhanced Process Collector initialized - PERFORMANCE OPTIMIZED")
+        while self.continuous_mode:
+            try:
+                events = await self._collect_data()
+                
+                # Gửi ngay lập tức về server nếu có events
+                if events:
+                    await self._send_events_to_server(events)
+                
+                # Sleep ngắn để realtime
+                await asyncio.sleep(self.polling_interval)
+                
+            except Exception as e:
+                self.logger.error(f"❌ Continuous collection error: {e}")
+                await asyncio.sleep(1)  # Chờ 1s rồi tiếp tục
+    
+    async def _send_events_to_server(self, events: List):
+        """Gửi events về server ngay lập tức"""
+        try:
+            # Gửi theo batch để tối ưu
+            for i in range(0, len(events), self.batch_size):
+                batch = events[i:i + self.batch_size]
+                
+                # Gửi batch về server (sử dụng base collector method)
+                await self._send_to_server(batch)
+                
+                self.logger.debug(f"📤 Sent {len(batch)} events to server (batch {i//self.batch_size + 1})")
+            
+            self.logger.info(f"✅ Sent {len(events)} total events to server")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Failed to send events to server: {e}")
+    
+    def stop_continuous_collection(self):
+        """Dừng thu thập liên tục"""
+        self.continuous_mode = False
+        self.logger.info("🛑 Stopped continuous collection")
     
     async def _collect_data(self):
-        """Collect process events - ENHANCED to include ALL running processes"""
+        """Thu thập THÔNG TIN THỰC TẾ từ processes - REALTIME MODE"""
         try:
             start_time = time.time()
             events = []
             current_pids = set()
             
-            # ENHANCED: Scan ALL processes (không lọc theo tên)
+            # Scan tất cả processes để lấy thông tin thực - NHANH
             for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'create_time', 'username', 'ppid']):
                 try:
                     proc_info = proc.info
@@ -108,502 +110,831 @@ class EnhancedProcessCollector(BaseCollector):
                     
                     pid = proc_info['pid']
                     current_pids.add(pid)
-                    process_name = proc_info['name'].lower()
                     
-                    # Lấy CPU và memory info an toàn
-                    try:
-                        actual_proc = psutil.Process(pid)
-                        cpu_percent = actual_proc.cpu_percent()
-                        memory_info = actual_proc.memory_info()
-                        proc_info['cpu_percent'] = cpu_percent
-                        proc_info['memory_rss'] = memory_info.rss if memory_info else 0
-                        proc_info['memory_vms'] = memory_info.vms if memory_info else 0
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        proc_info['cpu_percent'] = 0
-                        proc_info['memory_rss'] = 0
-                        proc_info['memory_vms'] = 0
+                    # Thu thập THÔNG TIN THỰC TẾ của process - OPTIMIZED
+                    real_data = await self._collect_real_process_data_optimized(proc_info, pid)
                     
-                    # Tạo event cho mọi process mới
-                    if pid not in self.monitored_processes:
-                        event = await self._create_enhanced_process_creation_event(proc_info)
+                    # Realtime: Tạo event cho mọi thay đổi quan trọng
+                    should_create_event = (
+                        pid not in self.monitored_processes or  # Process mới
+                        real_data.get('actual_network_connections') or  # Có network activity
+                        real_data.get('actual_file_operations') or  # Có file activity
+                        real_data.get('unusual_behavior_detected') or  # Behavior thay đổi
+                        self._has_significant_change(pid, real_data)  # Resource/status thay đổi đáng kể
+                    )
+                    
+                    if should_create_event:
+                        event = await self._create_real_data_event(real_data)
                         if event:
                             events.append(event)
-                            self.stats['total_process_create_events'] += 1
-                        
-                        # Count specific process types
-                        self._update_process_type_stats(proc_info['name'], 'create')
-                        
-                        # Check high CPU/Memory for NEW interesting processes
-                        if proc_info.get('cpu_percent', 0) > self.high_cpu_threshold:
-                            cpu_event = await self._create_high_cpu_event(proc_info)
-                            if cpu_event:
-                                events.append(cpu_event)
-                                self.stats['high_cpu_events'] += 1
-                        
-                        if proc_info.get('memory_rss', 0) > self.high_memory_threshold:
-                            memory_event = await self._create_high_memory_event(proc_info)
-                            if memory_event:
-                                events.append(memory_event)
-                                self.stats['high_memory_events'] += 1
+                            self.stats['events_generated'] += 1
                     
-                    elif pid in self.monitored_processes:
-                        self.existing_process_counter += 1
-                        
-                        # Log existing processes every 10 scans to show they're being monitored
-                        if self.existing_process_counter % 10 == 0:
-                            existing_event = await self._create_existing_process_activity_event(proc_info)
-                            if existing_event:
-                                events.append(existing_event)
-                        
-                        # Check high CPU/Memory for existing interesting processes
-                        if proc_info.get('cpu_percent', 0) > self.high_cpu_threshold:
-                            cpu_event = await self._create_high_cpu_event(proc_info)
-                            if cpu_event:
-                                events.append(cpu_event)
-                                self.stats['high_cpu_events'] += 1
-                        
-                        if proc_info.get('memory_rss', 0) > self.high_memory_threshold:
-                            memory_event = await self._create_high_memory_event(proc_info)
-                            if memory_event:
-                                events.append(memory_event)
-                                self.stats['high_memory_events'] += 1
-                    
-                    # Update tracking
+                    # Update tracking với data thực - REALTIME
                     self.monitored_processes[pid] = {
                         'name': proc_info['name'],
-                        'exe': proc_info['exe'],
+                        'exe': real_data.get('executable_path'),
                         'last_seen': time.time(),
-                        'cpu_percent': proc_info.get('cpu_percent', 0),
-                        'memory_rss': proc_info.get('memory_rss', 0),
+                        'network_count': len(real_data.get('actual_network_connections', [])),
+                        'file_count': len(real_data.get('actual_file_operations', [])),
+                        'cpu_percent': real_data.get('actual_cpu_percent', 0),
+                        'memory_rss': real_data.get('actual_memory_rss', 0),
                         'create_time': proc_info.get('create_time', 0)
                     }
                     
+                    self.stats['processes_analyzed'] += 1
+                    
+                    # Realtime: Không chờ - process ngay
+                    if len(events) >= self.max_events_per_scan:
+                        break
+                    
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     continue
-            
-            # FIXED: Disable termination events for better performance
-            # terminated_pids = self.last_scan_pids - current_pids
-            # for pid in terminated_pids:
-            #     if pid in self.monitored_processes:
-            #         event = await self._create_enhanced_process_termination_event(pid, self.monitored_processes[pid])
-            #         if event:
-            #             events.append(event)
-            #             self.stats['total_process_terminate_events'] += 1
-            #         del self.monitored_processes[pid]
+                except Exception as e:
+                    self.logger.debug(f"Error collecting data for PID {proc_info.get('pid', 'unknown')}: {e}")
+                    continue
             
             # Update tracking
             self.last_scan_pids = current_pids
-            self.stats['total_events_generated'] += len(events)
+            self.stats['total_processes_scanned'] = len(current_pids)
             
-            # FIXED: Log events when connected to server OR when we have events to show
+            # Realtime logging - minimal
             if events:
-                self.logger.info(f"📤 Generated {len(events)} PROCESS EVENTS")
-                
-                # Log interesting events
-                for event in events[:3]:  # Log first 3 events
-                    if hasattr(event, 'process_name'):
-                        self.logger.info(f"   📱 {event.event_action}: {event.process_name}")
+                self.logger.info(f"📊 Collected {len(events)} events (realtime)")
             
-            # FIXED: Log performance metrics with better thresholds
+            # Performance - tối ưu cho realtime
             collection_time = (time.time() - start_time) * 1000
-            if collection_time > 1000:  # Reduce threshold from 6000ms to 1000ms
-                self.logger.warning(f"⚠️ Slow collection: {collection_time:.1f}ms in ProcessCollector")
-            elif collection_time > 500:
-                self.logger.info(f"📊 Process scan time: {collection_time:.1f}ms")
+            if collection_time > 200:  # Warn nếu > 200ms
+                self.logger.warning(f"⚠️ Slow realtime collection: {collection_time:.1f}ms")
             
             return events
             
         except Exception as e:
-            self.logger.error(f"❌ Enhanced process events collection failed: {e}")
+            self.logger.error(f"❌ Realtime process data collection failed: {e}")
             return []
     
-    def _is_interesting_process(self, process_name: str) -> bool:
-        """Check if process is interesting enough for alerts"""
-        if not process_name:
+    def _has_significant_change(self, pid: int, real_data: Dict) -> bool:
+        """Kiểm tra có thay đổi đáng kể không - cho realtime"""
+        try:
+            if pid not in self.monitored_processes:
+                return True  # Process mới
+            
+            old_data = self.monitored_processes[pid]
+            
+            # Kiểm tra thay đổi network connections
+            old_network = old_data.get('network_count', 0)
+            new_network = len(real_data.get('actual_network_connections', []))
+            if abs(new_network - old_network) > 0:
+                return True
+            
+            # Kiểm tra thay đổi file operations
+            old_files = old_data.get('file_count', 0)
+            new_files = len(real_data.get('actual_file_operations', []))
+            if abs(new_files - old_files) > 5:  # Thay đổi >5 files
+                return True
+            
+            # Kiểm tra thay đổi CPU đáng kể
+            old_cpu = old_data.get('cpu_percent', 0)
+            new_cpu = real_data.get('actual_cpu_percent', 0)
+            if abs(new_cpu - old_cpu) > 20:  # Thay đổi >20% CPU
+                return True
+            
+            # Kiểm tra thay đổi memory đáng kể
+            old_memory = old_data.get('memory_rss', 0)
+            new_memory = real_data.get('actual_memory_rss', 0)
+            memory_change = abs(new_memory - old_memory) / (old_memory + 1)  # % change
+            if memory_change > 0.5:  # Thay đổi >50% memory
+                return True
+            
+            return False
+            
+        except Exception:
+            return True  # Lỗi thì coi như có thay đổi
+    
+    async def _collect_real_process_data_optimized(self, proc_info: Dict, pid: int) -> Dict:
+        """Thu thập THÔNG TIN THỰC TẾ - OPTIMIZED cho realtime"""
+        try:
+            real_data = proc_info.copy()
+            
+            # 1. Thu thập thông tin cơ bản THỰC TẾ - NHANH
+            try:
+                actual_proc = psutil.Process(pid)
+                real_data['actual_cpu_percent'] = actual_proc.cpu_percent(interval=None)  # Non-blocking
+                memory_info = actual_proc.memory_info()
+                real_data['actual_memory_rss'] = memory_info.rss if memory_info else 0
+                real_data['actual_status'] = actual_proc.status()
+                real_data['actual_num_threads'] = actual_proc.num_threads()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                real_data['actual_cpu_percent'] = 0
+                real_data['actual_memory_rss'] = 0
+                real_data['actual_status'] = 'unknown'
+                real_data['actual_num_threads'] = 0
+            
+            # 2. Network connections - PRIORITY cho realtime
+            actual_connections = await self._get_actual_network_connections_fast(pid)
+            real_data['actual_network_connections'] = actual_connections
+            if actual_connections:
+                self.stats['processes_with_network'] += 1
+            
+            # 3. File operations - OPTIMIZED
+            actual_files = await self._get_actual_file_operations_fast(pid)
+            real_data['actual_file_operations'] = actual_files
+            if actual_files:
+                self.stats['processes_with_files'] += 1
+            
+            # 4. Executable info - CACHE để tối ưu
+            exe_path = proc_info.get('exe', '')
+            real_data['executable_path'] = exe_path
+            
+            # Cache SHA256 để không tính lại liên tục
+            if exe_path and pid not in getattr(self, '_hash_cache', {}):
+                if not hasattr(self, '_hash_cache'):
+                    self._hash_cache = {}
+                self._hash_cache[pid] = self._calculate_actual_file_hash(exe_path)
+            
+            real_data['actual_file_sha256'] = getattr(self, '_hash_cache', {}).get(pid)
+            
+            # 5. Command line - NHANH
+            real_data['actual_command_line'] = ' '.join(proc_info.get('cmdline', []))
+            real_data['actual_command_args'] = proc_info.get('cmdline', [])
+            
+            # 6. Unusual behavior - FAST CHECK
+            real_data['unusual_behavior_detected'] = self._detect_unusual_behavior_fast(real_data)
+            
+            return real_data
+            
+        except Exception as e:
+            self.logger.debug(f"❌ Failed to collect optimized data for PID {pid}: {e}")
+            return proc_info
+    
+    async def _get_actual_network_connections_fast(self, pid: int) -> List[Dict[str, Any]]:
+        """Lấy network connections NHANH cho realtime"""
+        try:
+            # Chỉ lấy connections của process này - TARGETED
+            try:
+                proc = psutil.Process(pid)
+                connections = proc.connections(kind='inet')
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                return []
+            
+            actual_connections = []
+            for conn in connections:
+                try:
+                    connection_data = {
+                        'status': conn.status,
+                        'local_address': None,
+                        'remote_address': None
+                    }
+                    
+                    # Local address
+                    if conn.laddr:
+                        connection_data['local_address'] = {
+                            'ip': conn.laddr.ip if hasattr(conn.laddr, 'ip') else conn.laddr[0],
+                            'port': conn.laddr.port if hasattr(conn.laddr, 'port') else conn.laddr[1]
+                        }
+                    
+                    # Remote address  
+                    if conn.raddr:
+                        connection_data['remote_address'] = {
+                            'ip': conn.raddr.ip if hasattr(conn.raddr, 'ip') else conn.raddr[0],
+                            'port': conn.raddr.port if hasattr(conn.raddr, 'port') else conn.raddr[1]
+                        }
+                    
+                    if connection_data['local_address'] or connection_data['remote_address']:
+                        actual_connections.append(connection_data)
+                        
+                except Exception:
+                    continue
+            
+            return actual_connections
+            
+        except Exception:
+            return []
+    
+    async def _get_actual_file_operations_fast(self, pid: int) -> List[Dict[str, Any]]:
+        """Lấy file operations NHANH - chỉ count"""
+        try:
+            proc = psutil.Process(pid)
+            open_files = proc.open_files()
+            
+            # Realtime: Chỉ lấy thông tin cần thiết
+            actual_files = []
+            for file_info in open_files[:20]:  # Limit 20 files cho performance
+                actual_files.append({
+                    'path': file_info.path,
+                    'fd': file_info.fd
+                })
+            
+            return actual_files
+            
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return []
+        except Exception:
+            return []
+    
+    def _detect_unusual_behavior_fast(self, real_data: Dict) -> List[str]:
+        """Enhanced behavioral detection - không fix cứng ports"""
+        unusual_behaviors = []
+        threat_indicators = []
+        
+        try:
+            # 1. DOWNLOADS FOLDER + NETWORK = ALWAYS SUSPICIOUS
+            exe_path = real_data.get('exe', '').lower()
+            process_name = real_data.get('name', '').lower()
+            actual_connections = real_data.get('actual_network_connections', [])
+            
+            # Critical: Any process from Downloads making network connections
+            if '\\downloads\\' in exe_path and actual_connections:
+                threat_indicators.append("CRITICAL: Downloaded executable making network connections")
+                unusual_behaviors.append("DOWNLOADED_EXECUTABLE_WITH_NETWORK_ACTIVITY")
+                
+                # Check connection patterns
+                for conn in actual_connections:
+                    if not conn or not isinstance(conn, dict):
+                        continue
+                    if conn.get('status') == 'ESTABLISHED':
+                        remote_addr = conn.get('remote_address', {}) if isinstance(conn, dict) else {}
+                        if remote_addr:
+                            port = remote_addr.get('port', 0)
+                            ip = remote_addr.get('ip', '')
+                            
+                            # Any ESTABLISHED outbound connection from Downloads = Suspicious
+                            threat_indicators.append(f"CRITICAL: Outbound connection to {ip}:{port}")
+                            unusual_behaviors.append(f"POTENTIAL_REVERSE_SHELL: Connected to {ip}:{port}")
+                            
+                            # Check if it's a high port (common for reverse shells)
+                            if port > 1024:
+                                threat_indicators.append(f"HIGH: Non-standard port connection: {port}")
+            
+            # 2. BEHAVIORAL PATTERNS for reverse shell
+            reverse_shell_indicators = 0
+            
+            # Pattern 1: Single persistent connection
+            if len(actual_connections) == 1 and actual_connections[0] and isinstance(actual_connections[0], dict) and actual_connections[0].get('status') == 'ESTABLISHED':
+                reverse_shell_indicators += 1
+                unusual_behaviors.append("SINGLE_PERSISTENT_CONNECTION")
+            
+            # Pattern 2: Connection to non-standard ports
+            for conn in actual_connections:
+                if not conn or not isinstance(conn, dict):
+                    continue
+                port = (conn.get('remote_address', {}) or {}).get('port', 0)
+                if port > 1024 and port not in [80, 443, 8080, 3389]:  # Not common service ports
+                    reverse_shell_indicators += 1
+                    unusual_behaviors.append(f"NON_STANDARD_PORT: {port}")
+            
+            # Pattern 3: Process name indicators
+            if self._is_suspicious_filename(process_name):
+                reverse_shell_indicators += 1
+                threat_indicators.append(f"SUSPICIOUS_FILENAME: {process_name}")
+            
+            # Pattern 4: No parent process info (often for malware)
+            if not real_data.get('actual_parent_info'):
+                reverse_shell_indicators += 1
+                unusual_behaviors.append("NO_PARENT_PROCESS_INFO")
+            
+            # If multiple indicators present = likely reverse shell
+            if reverse_shell_indicators >= 2:
+                threat_indicators.append("HIGH: Multiple reverse shell indicators detected")
+                unusual_behaviors.append("LIKELY_REVERSE_SHELL_BEHAVIOR")
+            
+            # 3. Command line analysis
+            cmd = real_data.get('actual_command_line', '').lower()
+            
+            # Direct execution from Downloads
+            if '\\downloads\\' in cmd and not any(safe in cmd for safe in ['chrome', 'firefox', 'edge']):
+                threat_indicators.append("HIGH: Direct execution from Downloads folder")
+                unusual_behaviors.append("DIRECT_DOWNLOADS_EXECUTION")
+            
+            # 4. Network behavior analysis
+            if actual_connections:
+                # Multiple connections to same host (C2 behavior)
+                remote_ips = {}
+                for conn in actual_connections:
+                    if not conn or not isinstance(conn, dict):
+                        continue
+                    ip = (conn.get('remote_address', {}) or {}).get('ip')
+                    if ip:
+                        remote_ips[ip] = remote_ips.get(ip, 0) + 1
+                
+                for ip, count in remote_ips.items():
+                    if count > 3:
+                        unusual_behaviors.append(f"MULTIPLE_CONNECTIONS_TO_SAME_HOST: {ip} ({count} connections)")
+                        threat_indicators.append(f"HIGH: Possible C2 communication to {ip}")
+            
+            # 5. File characteristics
+            file_size = real_data.get('actual_file_size')
+            if file_size and file_size < 100000:  # Small executable (<100KB)
+                unusual_behaviors.append(f"SMALL_EXECUTABLE: {file_size} bytes")
+            
+            # 6. Time-based analysis
+            current_hour = datetime.now().hour
+            if (current_hour < 6 or current_hour > 22) and actual_connections:
+                unusual_behaviors.append(f"OFF_HOURS_NETWORK_ACTIVITY: {current_hour}:00")
+            
+            # Merge threat indicators
+            if threat_indicators:
+                unusual_behaviors = threat_indicators + unusual_behaviors
+        
+        except Exception as e:
+            self.logger.error(f"Error in threat detection: {e}")
+        
+        return unusual_behaviors
+    
+    def _is_suspicious_filename(self, filename: str) -> bool:
+        """Check if filename is suspicious"""
+        if not filename:
             return False
         
-        process_lower = process_name.lower()
+        filename = filename.lower()
         
-        # Check all interesting process categories
-        for category, processes in self.interesting_processes.items():
-            if any(proc.lower() in process_lower for proc in processes):
-                return True
-        
-        # Check if it's in our general list
-        if process_lower in self.all_executables:
+        # Numeric-only names (123.exe, 456.exe, etc)
+        name_without_ext = filename.split('.')[0]
+        if name_without_ext.isdigit():
             return True
         
-        return False
-    
-    def _update_process_type_stats(self, process_name: str, action: str):
-        """Update statistics for specific process types"""
-        if not process_name:
-            return
+        # Random-looking names
+        if len(name_without_ext) <= 3:  # a.exe, ab.exe, 123.exe
+            return True
         
-        process_lower = process_name.lower()
+        # Common malware patterns
+        suspicious_patterns = [
+            'svchost', 'chrome_update', 'flashplayer', 'java_update',
+            'temp', 'tmp', 'payload', 'shell', 'backdoor', 'rat'
+        ]
         
-        # Update specific counters
-        if 'notepad' in process_lower:
-            self.stats['notepad_events'] += 1
-        elif 'calc' in process_lower:
-            self.stats['calc_events'] += 1
-        elif any(browser in process_lower for browser in ['chrome', 'firefox', 'edge', 'browser']):
-            self.stats['browser_events'] += 1
-        elif any(office in process_lower for office in ['word', 'excel', 'powerpoint', 'outlook']):
-            self.stats['office_events'] += 1
-        elif any(tool in process_lower for tool in ['cmd', 'powershell', 'wscript', 'cscript']):
-            self.stats['system_tool_events'] += 1
-        elif any(sus in process_lower for sus in ['rundll32', 'regsvr32', 'mshta', 'certutil']):
-            self.stats['suspicious_events'] += 1
+        return any(pattern in filename for pattern in suspicious_patterns)
     
-    async def _create_enhanced_process_creation_event(self, proc_info: Dict):
-        """ENHANCED EVENT TYPE 1: Process Creation Event for ALL processes"""
+    async def _collect_real_process_data(self, proc_info: Dict, pid: int) -> Dict:
+        """Thu thập THÔNG TIN THỰC TẾ của process - không đoán"""
         try:
-            process_name = proc_info.get('name', 'Unknown')
-            severity = self._determine_enhanced_severity(process_name, proc_info)
-            # Lấy process_hash (MD5) cho file thực thi
-            process_path = proc_info.get('exe')
-            process_hash = None
-            if process_path:
-                process_hash = get_process_hash(process_path)
-            # ✅ ENHANCED: Get network connections for this process
-            pid = proc_info.get('pid')
-            network_connections = await self._get_process_network_connections(pid) if pid else None
-            # Create enhanced description
-            description = f"🆕 PROCESS STARTED: {process_name}"
-            if process_path:
-                description += f" from {process_path}"
-            if proc_info.get('username'):
-                description += f" by {proc_info['username']}"
-            if network_connections:
-                description += f" with {len(network_connections)} network connection(s)"
-            parent_pid = proc_info.get('ppid')
-            if parent_pid is None:
-                parent_pid = 0
-            return EventData(
+            real_data = proc_info.copy()
+            
+            # 1. Thu thập thông tin cơ bản THỰC TẾ
+            try:
+                actual_proc = psutil.Process(pid)
+                real_data['actual_cpu_percent'] = actual_proc.cpu_percent()
+                memory_info = actual_proc.memory_info()
+                real_data['actual_memory_rss'] = memory_info.rss if memory_info else 0
+                real_data['actual_memory_vms'] = memory_info.vms if memory_info else 0
+                real_data['actual_status'] = actual_proc.status()
+                real_data['actual_num_threads'] = actual_proc.num_threads()
+                real_data['actual_num_fds'] = actual_proc.num_fds() if hasattr(actual_proc, 'num_fds') else 0
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                real_data['actual_cpu_percent'] = 0
+                real_data['actual_memory_rss'] = 0
+                real_data['actual_status'] = 'unknown'
+                real_data['actual_num_threads'] = 0
+                real_data['actual_num_fds'] = 0
+            
+            # 2. Thu thập NETWORK CONNECTIONS THỰC TẾ
+            actual_connections = await self._get_actual_network_connections(pid)
+            real_data['actual_network_connections'] = actual_connections
+            if actual_connections:
+                self.stats['processes_with_network'] += 1
+            
+            # 3. Thu thập FILE OPERATIONS THỰC TẾ
+            actual_files = await self._get_actual_file_operations(pid)
+            real_data['actual_file_operations'] = actual_files
+            if actual_files:
+                self.stats['processes_with_files'] += 1
+            
+            # 4. Thu thập EXECUTABLE INFO THỰC TẾ
+            real_data['executable_path'] = proc_info.get('exe', '')
+            real_data['actual_file_sha256'] = self._calculate_actual_file_hash(proc_info.get('exe'))
+            real_data['actual_file_size'] = self._get_actual_file_size(proc_info.get('exe'))
+            real_data['actual_file_created'] = self._get_actual_file_creation_time(proc_info.get('exe'))
+            
+            # 5. Thu thập COMMAND LINE THỰC TẾ 
+            real_data['actual_command_line'] = ' '.join(proc_info.get('cmdline', []))
+            real_data['actual_command_args'] = proc_info.get('cmdline', [])
+            real_data['actual_working_directory'] = self._get_actual_working_directory(pid)
+            
+            # 6. Thu thập PARENT PROCESS THỰC TẾ
+            real_data['actual_parent_info'] = self._get_actual_parent_info(proc_info.get('ppid'))
+            
+            # 7. Thu thập ENVIRONMENT VARIABLES THỰC TẾ (nếu có quyền)
+            real_data['actual_environment'] = self._get_actual_environment(pid)
+            
+            # 8. Phát hiện UNUSUAL BEHAVIOR dựa trên DATA THỰC TẾ
+            real_data['unusual_behavior_detected'] = self._detect_unusual_behavior_from_real_data(real_data)
+            
+            return real_data
+            
+        except Exception as e:
+            self.logger.error(f"❌ Failed to collect real data for PID {pid}: {e}")
+            return proc_info
+    
+    async def _get_actual_network_connections(self, pid: int) -> List[Dict[str, Any]]:
+        """Lấy NETWORK CONNECTIONS THỰC TẾ của process"""
+        try:
+            if not pid:
+                return []
+            
+            actual_connections = []
+            
+            # Lấy connections thực tế từ hệ thống
+            try:
+                all_connections = psutil.net_connections(kind='inet')
+            except Exception:
+                return []
+            
+            # Filter connections thực tế cho process này
+            for conn in all_connections:
+                if conn.pid == pid:
+                    try:
+                        # Lấy thông tin thực tế từ connection
+                        connection_data = {
+                            'family': str(conn.family),
+                            'type': str(conn.type),
+                            'status': conn.status,
+                            'local_address': None,
+                            'remote_address': None
+                        }
+                        
+                        # Local address thực tế
+                        if conn.laddr:
+                            if hasattr(conn.laddr, 'ip') and hasattr(conn.laddr, 'port'):
+                                connection_data['local_address'] = {
+                                    'ip': conn.laddr.ip,
+                                    'port': conn.laddr.port
+                                }
+                            elif isinstance(conn.laddr, tuple) and len(conn.laddr) >= 2:
+                                connection_data['local_address'] = {
+                                    'ip': conn.laddr[0],
+                                    'port': conn.laddr[1]
+                                }
+                        
+                        # Remote address thực tế  
+                        if conn.raddr:
+                            if hasattr(conn.raddr, 'ip') and hasattr(conn.raddr, 'port'):
+                                connection_data['remote_address'] = {
+                                    'ip': conn.raddr.ip,
+                                    'port': conn.raddr.port
+                                }
+                            elif isinstance(conn.raddr, tuple) and len(conn.raddr) >= 2:
+                                connection_data['remote_address'] = {
+                                    'ip': conn.raddr[0],
+                                    'port': conn.raddr[1]
+                                }
+                        
+                        # Chỉ thêm nếu có thông tin thực tế
+                        if connection_data['local_address'] or connection_data['remote_address']:
+                            actual_connections.append(connection_data)
+                            
+                    except Exception as e:
+                        self.logger.debug(f"Error getting connection data: {e}")
+                        continue
+            
+            return actual_connections
+            
+        except Exception as e:
+            self.logger.debug(f"❌ Failed to get actual network connections for PID {pid}: {e}")
+            return []
+    
+    async def _get_actual_file_operations(self, pid: int) -> List[Dict[str, Any]]:
+        """Lấy FILE OPERATIONS THỰC TẾ của process"""
+        try:
+            if not pid:
+                return []
+            
+            actual_files = []
+            
+            try:
+                proc = psutil.Process(pid)
+                
+                # Lấy open files thực tế
+                open_files = proc.open_files()
+                for file_info in open_files:
+                    actual_files.append({
+                        'path': file_info.path,
+                        'fd': file_info.fd,
+                        'position': getattr(file_info, 'position', None),
+                        'mode': getattr(file_info, 'mode', None),
+                        'flags': getattr(file_info, 'flags', None)
+                    })
+                
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+            except Exception as e:
+                self.logger.debug(f"Error getting file operations: {e}")
+            
+            return actual_files
+            
+        except Exception as e:
+            self.logger.debug(f"❌ Failed to get actual file operations for PID {pid}: {e}")
+            return []
+    
+    def _calculate_actual_file_hash(self, file_path: str) -> Optional[str]:
+        """Tính SHA256 HASH THỰC TẾ của file executable"""
+        try:
+            if not file_path or not os.path.exists(file_path):
+                return None
+            
+            hash_sha256 = hashlib.sha256()
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):  # Tăng chunk size cho SHA256
+                    hash_sha256.update(chunk)
+            return hash_sha256.hexdigest()
+        except Exception:
+            return None
+    
+    def _get_actual_file_size(self, file_path: str) -> Optional[int]:
+        """Lấy KÍCH THƯỚC THỰC TẾ của file"""
+        try:
+            if not file_path or not os.path.exists(file_path):
+                return None
+            return os.path.getsize(file_path)
+        except Exception:
+            return None
+    
+    def _get_actual_file_creation_time(self, file_path: str) -> Optional[float]:
+        """Lấy THỜI GIAN TẠO THỰC TẾ của file"""
+        try:
+            if not file_path or not os.path.exists(file_path):
+                return None
+            return os.path.getctime(file_path)
+        except Exception:
+            return None
+    
+    def _get_actual_working_directory(self, pid: int) -> Optional[str]:
+        """Lấy WORKING DIRECTORY THỰC TẾ của process"""
+        try:
+            proc = psutil.Process(pid)
+            return proc.cwd()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return None
+        except Exception:
+            return None
+    
+    def _get_actual_parent_info(self, parent_pid: int) -> Optional[Dict]:
+        """Lấy THÔNG TIN THỰC TẾ của parent process"""
+        try:
+            if not parent_pid or parent_pid <= 0:
+                return None
+            
+            parent_proc = psutil.Process(parent_pid)
+            return {
+                'pid': parent_pid,
+                'name': parent_proc.name(),
+                'exe': parent_proc.exe(),
+                'cmdline': parent_proc.cmdline(),
+                'create_time': parent_proc.create_time(),
+                'username': parent_proc.username()
+            }
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return None
+        except Exception:
+            return None
+    
+    def _get_actual_environment(self, pid: int) -> Optional[Dict]:
+        """Lấy ENVIRONMENT VARIABLES THỰC TẾ (nếu có quyền)"""
+        try:
+            proc = psutil.Process(pid)
+            return proc.environ()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return None
+        except Exception:
+            return None
+    
+    def _detect_unusual_behavior_from_real_data(self, real_data: Dict) -> List[str]:
+        """Phát hiện UNUSUAL BEHAVIOR dựa trên DATA THỰC TẾ - không đoán"""
+        unusual_behaviors = []
+        
+        try:
+            # 1. Kiểm tra NETWORK BEHAVIOR THỰC TẾ
+            actual_connections = real_data.get('actual_network_connections', [])
+            if actual_connections:
+                # Đếm số connections thực tế
+                connection_count = len(actual_connections)
+                if connection_count > 10:
+                    unusual_behaviors.append(f"High network activity: {connection_count} active connections")
+                
+                # Kiểm tra ports thực tế được sử dụng
+                used_ports = []
+                for conn in actual_connections:
+                    if conn.get('remote_address'):
+                        port = conn['remote_address'].get('port')
+                        if port:
+                            used_ports.append(port)
+                
+                if used_ports:
+                    unusual_behaviors.append(f"Active connections to ports: {sorted(set(used_ports))}")
+            
+            # 2. Kiểm tra FILE BEHAVIOR THỰC TẾ
+            actual_files = real_data.get('actual_file_operations', [])
+            if actual_files:
+                file_count = len(actual_files)
+                if file_count > 20:
+                    unusual_behaviors.append(f"High file activity: {file_count} open files")
+                
+                # Kiểm tra file paths thực tế
+                temp_files = [f for f in actual_files if 'temp' in f.get('path', '').lower()]
+                if temp_files:
+                    unusual_behaviors.append(f"Accessing temp files: {len(temp_files)} files")
+            
+            # 3. Kiểm tra RESOURCE USAGE THỰC TẾ
+            cpu_percent = real_data.get('actual_cpu_percent', 0)
+            if cpu_percent > 80:
+                unusual_behaviors.append(f"High CPU usage: {cpu_percent:.1f}%")
+            
+            memory_mb = real_data.get('actual_memory_rss', 0) / (1024 * 1024) if real_data.get('actual_memory_rss') else 0
+            if memory_mb > 500:
+                unusual_behaviors.append(f"High memory usage: {memory_mb:.1f}MB")
+            
+            # 4. Kiểm tra COMMAND LINE THỰC TẾ
+            actual_cmd = real_data.get('actual_command_line', '')
+            if actual_cmd:
+                if len(actual_cmd) > 500:
+                    unusual_behaviors.append(f"Very long command line: {len(actual_cmd)} characters")
+                
+                # Tìm patterns thực tế trong command
+                if 'powershell' in actual_cmd.lower() and '-e' in actual_cmd.lower():
+                    unusual_behaviors.append("PowerShell with encoded command detected")
+                
+                if any(keyword in actual_cmd.lower() for keyword in ['download', 'invoke-webrequest', 'curl']):
+                    unusual_behaviors.append("Download commands in command line")
+            
+            # 5. Kiểm tra FILE PROPERTIES THỰC TẾ
+            file_size = real_data.get('actual_file_size')
+            if file_size and file_size < 1024:  # Very small executable
+                unusual_behaviors.append(f"Very small executable: {file_size} bytes")
+            
+            # 6. Kiểm tra TIMING THỰC TẾ
+            current_hour = datetime.now().hour
+            if current_hour < 6 or current_hour > 22:
+                unusual_behaviors.append(f"Running during off-hours: {current_hour}:00")
+            
+        except Exception as e:
+            self.logger.debug(f"Error detecting unusual behavior: {e}")
+        
+        return unusual_behaviors
+    
+    async def _create_real_data_event(self, real_data: Dict):
+        """Tạo event với ENHANCED THREAT DETECTION"""
+        try:
+            process_name = real_data.get('name', 'Unknown')
+            exe_path = real_data.get('exe', '').lower()
+            
+            # Enhanced severity determination
+            unusual_behaviors = real_data.get('unusual_behavior_detected', [])
+            actual_connections = real_data.get('actual_network_connections', [])
+            
+            # CRITICAL severity conditions
+            severity = 'Info'  # Default
+            threat_type = None
+            
+            # Check for CRITICAL threats
+            critical_indicators = [
+                'REVERSE_SHELL_DETECTED' in str(unusual_behaviors),
+                'CRITICAL:' in str(unusual_behaviors),
+                any(
+                    conn and isinstance(conn, dict) and (conn.get('remote_address', {}) or {}).get('port') in [4444, 1337, 5555, 9001]
+                    for conn in actual_connections
+                ),
+                '\\downloads\\' in exe_path and len(actual_connections) > 0
+            ]
+            
+            if any(critical_indicators):
+                severity = 'Critical'
+                threat_type = 'reverse_shell' if 'REVERSE_SHELL' in str(unusual_behaviors) else 'malware'
+            
+            # HIGH severity conditions
+            elif any(indicator in str(unusual_behaviors) for indicator in ['HIGH:', 'SUSPICIOUS_LOCATION', 'POWERSHELL_ENCODED']):
+                severity = 'High'
+                threat_type = 'suspicious_process'
+            
+            # MEDIUM severity conditions
+            elif len(actual_connections) > 5 or 'network activity' in str(unusual_behaviors):
+                severity = 'Medium'
+                threat_type = 'unusual_network_activity'
+            
+            # LOW severity for other unusual behaviors
+            elif unusual_behaviors:
+                severity = 'Low'
+            
+            # Network info enhancement
+            source_ip = None
+            destination_ip = None
+            source_port = None
+            destination_port = None
+            protocol = None
+            
+            # Prioritize suspicious connections
+            suspicious_conn = None
+            for conn in actual_connections:
+                if not conn or not isinstance(conn, dict):
+                    continue
+                remote_port = (conn.get('remote_address', {}) or {}).get('port')
+                if remote_port in [4444, 1337, 5555, 9001, 2222, 31337]:
+                    suspicious_conn = conn
+                    break
+            
+            if suspicious_conn or actual_connections:
+                conn = suspicious_conn or actual_connections[0]
+                if conn and isinstance(conn, dict) and conn.get('local_address'):
+                    source_ip = conn['local_address'].get('ip')
+                    source_port = conn['local_address'].get('port')
+                if conn and isinstance(conn, dict) and conn.get('remote_address'):
+                    destination_ip = conn['remote_address'].get('ip')
+                    destination_port = conn['remote_address'].get('port')
+                protocol = 'TCP'  # Most reverse shells use TCP
+            
+            # Enhanced description
+            description = f"🚨 THREAT DETECTED: {process_name}"
+            
+            if threat_type == 'reverse_shell':
+                description = f"🚨 CRITICAL: REVERSE SHELL DETECTED - {process_name} connecting to {destination_ip}:{destination_port}"
+            elif threat_type == 'malware':
+                description = f"🚨 CRITICAL: POTENTIAL MALWARE - {process_name} from Downloads folder with network activity"
+            elif severity == 'High':
+                description = f"⚠️ HIGH RISK PROCESS: {process_name} - {unusual_behaviors[0] if unusual_behaviors else 'Suspicious activity'}"
+            
+            # Enhanced raw event data
+            raw_event_data = {
+                'data_collection_type': 'enhanced_threat_detection',
+                'threat_type': threat_type,
+                'threat_level': severity,
+                'reverse_shell_detected': threat_type == 'reverse_shell',
+                'suspicious_indicators': [b for b in unusual_behaviors if 'CRITICAL' in b or 'HIGH' in b],
+                'process_location': exe_path,
+                'is_from_downloads': '\\downloads\\' in exe_path,
+                'is_from_temp': any(temp in exe_path for temp in ['\\temp\\', '\\tmp\\']),
+                'actual_cpu_percent': real_data.get('actual_cpu_percent', 0),
+                'actual_memory_rss': real_data.get('actual_memory_rss', 0),
+                'actual_status': real_data.get('actual_status', 'unknown'),
+                'actual_file_sha256': real_data.get('actual_file_sha256'),
+                'actual_network_connections': actual_connections,
+                'unusual_behavior_detected': unusual_behaviors,
+                'analysis_timestamp': datetime.now().isoformat()
+            }
+            
+            # Create enhanced event
+            event = EventData(
                 event_type="Process",
                 event_action=EventAction.START,
                 event_timestamp=datetime.now(),
                 severity=severity,
-                process_id=proc_info.get('pid'),
-                process_name=proc_info.get('name'),
-                process_path=process_path,
-                command_line=' '.join(proc_info.get('cmdline') or []),
-                parent_pid=int(parent_pid),
-                process_user=proc_info.get('username'),
-                process_hash=process_hash,
-                # ✅ ENHANCED: Include network connections if available
-                network_connections=network_connections,
+                # agent_id có thể thêm nếu có
+                # description luôn hợp lệ
                 description=description,
-                raw_event_data={
-                    'event_subtype': 'process_creation',
-                    'process_category': self._get_process_category(proc_info.get('name', '')),
-                    'cpu_percent': proc_info.get('cpu_percent', 0),
-                    'memory_rss': proc_info.get('memory_rss', 0),
-                    'create_time': proc_info.get('create_time'),
-                    'is_interesting': self._is_interesting_process(proc_info.get('name', '')),
-                    'parent_process': self._get_parent_process_name(int(parent_pid)),
-                    'process_hash': process_hash,
-                    'has_network_connections': bool(network_connections),
-                    'network_connection_count': len(network_connections) if network_connections else 0
-                }
-            )
-        except Exception as e:
-            self.logger.error(f"❌ Enhanced process creation event failed: {e}")
-            return None
-    
-    async def _create_enhanced_process_termination_event(self, pid: int, proc_info: Dict):
-        """ENHANCED EVENT TYPE 2: Process Termination Event for ALL processes"""
-        try:
-            process_name = proc_info.get('name', 'Unknown')
-            
-            # Calculate process lifetime
-            lifetime = time.time() - proc_info.get('last_seen', time.time())
-            
-            description = f"❌ PROCESS ENDED: {process_name} (ran for {lifetime:.1f}s)"
-            
-            return EventData(
-                event_type="Process",
-                event_action=EventAction.STOP,
-                event_timestamp=datetime.now(),
-                severity="Info",
-                
-                process_id=pid,
+                # Process information
+                process_id=real_data.get('pid'),
                 process_name=process_name,
-                process_path=proc_info.get('exe'),
-                
-                description=description,
-                raw_event_data={
-                    'event_subtype': 'enhanced_process_termination',
-                    'process_category': self._get_process_category(process_name),
-                    'termination_time': time.time(),
-                    'process_lifetime': lifetime,
-                    'last_cpu_percent': proc_info.get('cpu_percent', 0),
-                    'last_memory_mb': proc_info.get('memory_rss', 0) / (1024 * 1024) if proc_info.get('memory_rss') else 0,
-                    'was_interesting': self._is_interesting_process(process_name),
-                    'enhanced_monitoring': True
-                }
+                process_path=real_data.get('executable_path', ''),
+                command_line=real_data.get('actual_command_line', ''),
+                parent_pid=int(real_data.get('ppid', 0)),
+                process_user=real_data.get('username'),
+                process_hash=real_data.get('actual_file_sha256'),
+                # Network information
+                source_ip=source_ip,
+                destination_ip=destination_ip,
+                source_port=source_port,
+                destination_port=destination_port,
+                protocol=protocol,
+                direction='Outbound' if destination_ip else None,
+                # Network connections array
+                network_connections=actual_connections,
+                # Enhanced description
+                # description=description,  # đã có ở trên
+                # Raw event data with threat intelligence
+                raw_event_data=raw_event_data
             )
-        except Exception as e:
-            self.logger.error(f"❌ Enhanced process termination event failed: {e}")
-            return None
-    
-    async def _create_interesting_process_activity_event(self, proc_info: Dict):
-        """ENHANCED EVENT TYPE 3: Interesting Process Activity Event"""
-        try:
-            process_name = proc_info.get('name', 'Unknown')
-            category = self._get_process_category(process_name)
             
-            return EventData(
-                event_type="Process",
-                event_action=EventAction.ACCESS,
-                event_timestamp=datetime.now(),
-                severity="Medium" if category in ['system_tools', 'security'] else "Info",
-                
-                process_id=proc_info.get('pid'),
-                process_name=process_name,
-                process_path=proc_info.get('exe'),
-                command_line=' '.join(proc_info['cmdline']) if proc_info.get('cmdline') else '',
-                
-                description=f"⭐ INTERESTING PROCESS ACTIVITY: {process_name} ({category})",
-                raw_event_data={
-                    'event_subtype': 'interesting_process_activity',
-                    'process_category': category,
-                    'activity_type': 'execution',
-                    'interest_level': 'high' if category in ['system_tools', 'security'] else 'medium',
-                    'cpu_percent': proc_info.get('cpu_percent', 0),
-                    'memory_mb': proc_info.get('memory_rss', 0) / (1024 * 1024) if proc_info.get('memory_rss') else 0,
-                    'enhanced_monitoring': True
-                }
-            )
-        except Exception as e:
-            self.logger.error(f"❌ Interesting process activity event failed: {e}")
-            return None
-    
-    async def _create_high_cpu_event(self, proc_info: Dict):
-        """ENHANCED EVENT TYPE 4: High CPU Usage Event"""
-        try:
-            cpu_percent = proc_info.get('cpu_percent', 0)
-            
-            return EventData(
-                event_type="Process",
-                event_action=EventAction.RESOURCE_USAGE,
-                event_timestamp=datetime.now(),
-                severity="High" if cpu_percent > 90 else "Medium",
-                
-                process_id=proc_info.get('pid'),
-                process_name=proc_info.get('name'),
-                cpu_usage=cpu_percent,
-                
-                description=f"🔥 HIGH CPU USAGE: {proc_info.get('name')} using {cpu_percent:.1f}% CPU",
-                raw_event_data={
-                    'event_subtype': 'high_cpu_usage',
-                    'cpu_percent': cpu_percent,
-                    'threshold': self.high_cpu_threshold,
-                    'performance_impact': 'high' if cpu_percent > 90 else 'medium',
-                    'enhanced_monitoring': True
-                }
-            )
-        except Exception as e:
-            self.logger.error(f"❌ High CPU event failed: {e}")
-            return None
-    
-    async def _create_high_memory_event(self, proc_info: Dict):
-        """ENHANCED EVENT TYPE 5: High Memory Usage Event"""
-        try:
-            memory_rss = proc_info.get('memory_rss', 0)
-            memory_mb = memory_rss / (1024 * 1024)
-            
-            return EventData(
-                event_type="Process",
-                event_action=EventAction.RESOURCE_USAGE,
-                event_timestamp=datetime.now(),
-                severity="Medium",
-                
-                process_id=proc_info.get('pid'),
-                process_name=proc_info.get('name'),
-                memory_usage=memory_mb,
-                
-                description=f"💾 HIGH MEMORY USAGE: {proc_info.get('name')} using {memory_mb:.1f}MB",
-                raw_event_data={
-                    'event_subtype': 'high_memory_usage',
-                    'memory_rss': memory_rss,
-                    'memory_mb': memory_mb,
-                    'threshold_mb': self.high_memory_threshold / (1024 * 1024),
-                    'enhanced_monitoring': True
-                }
-            )
-        except Exception as e:
-            self.logger.error(f"❌ High memory event failed: {e}")
-            return None
-    
-    def _determine_enhanced_severity(self, process_name: str, proc_info: Dict) -> str:
-        """Determine enhanced severity for ALL processes"""
-        if not process_name:
-            return "Info"
-        
-        process_lower = process_name.lower()
-        
-        # High severity for security tools and system utilities
-        if any(tool in process_lower for tool in ['powershell', 'cmd', 'rundll32', 'regsvr32', 'certutil']):
-            return "High"
-        
-        # Medium severity for interesting applications
-        if any(app in process_lower for app in ['notepad', 'calc', 'chrome', 'firefox']):
-            return "Medium"
-        
-        # High CPU or memory
-        if proc_info.get('cpu_percent', 0) > 80 or proc_info.get('memory_rss', 0) > 500 * 1024 * 1024:
-            return "High"
-        
-        return "Info"
-    
-    def _get_process_category(self, process_name: str) -> str:
-        """Get process category for classification"""
-        if not process_name:
-            return 'unknown'
-        
-        process_lower = process_name.lower()
-        
-        for category, processes in self.interesting_processes.items():
-            if any(proc.lower() in process_lower for proc in processes):
-                return category
-        
-        return 'other'
-    
-    def _get_parent_process_name(self, parent_pid: int) -> str:
-        """Get parent process name from PID"""
-        try:
-            if parent_pid and parent_pid > 0:
-                parent_process = psutil.Process(parent_pid)
-                return parent_process.name()
-            return "Unknown"
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            return "Unknown"
-        except Exception:
-            return "Unknown"
-    
-    async def _create_existing_process_activity_event(self, proc_info: Dict):
-        """EVENT TYPE 6: Existing Process Activity Event - to show monitoring is working"""
-        try:
-            process_name = proc_info.get('name', 'Unknown')
-            
-            parent_pid = proc_info.get('ppid')
-            if parent_pid is None:
-                parent_pid = 0
-            
-            return EventData(
-                event_type="Process",
-                event_action=EventAction.ACCESS,
-                event_timestamp=datetime.now(),
-                severity="Info",
-                
-                process_id=proc_info.get('pid'),
-                process_name=process_name,
-                process_path=proc_info.get('exe'),
-                command_line=' '.join(proc_info.get('cmdline') or []),
-                parent_pid=int(parent_pid),
-                process_user=proc_info.get('username'),
-                
-                description=f"📱 PROCESS MONITORING: {process_name} (PID: {proc_info.get('pid')}) - Active",
-                raw_event_data={
-                    'event_subtype': 'existing_process_activity',
-                    'process_category': self._get_process_category(process_name),
-                    'cpu_percent': proc_info.get('cpu_percent', 0),
-                    'memory_rss': proc_info.get('memory_rss', 0),
-                    'is_interesting': self._is_interesting_process(process_name),
-                    'monitoring_type': 'existing_process',
-                    'parent_process': self._get_parent_process_name(int(parent_pid))
-                }
-            )
-        except Exception as e:
-            self.logger.error(f"❌ Existing process activity event failed: {e}")
-            return None
-    
-    async def _get_process_network_connections(self, pid: int) -> Optional[List[Dict[str, Any]]]:
-        """ENHANCED: Get network connections for a specific process"""
-        try:
-            if not pid:
-                return None
-            
-            import psutil
-            import socket
-            
-            connections = []
-            
-            # Get all network connections
-            try:
-                all_connections = psutil.net_connections(kind='inet')
-            except Exception:
-                return None
-            
-            # Filter connections for this process
-            for conn in all_connections:
-                if conn.pid == pid and conn.raddr:  # Only established connections with remote address
-                    # Helper lấy ip, port an toàn
-                    def get_ip_port(addr):
-                        if hasattr(addr, 'ip') and hasattr(addr, 'port'):
-                            return addr.ip, addr.port
-                        elif isinstance(addr, tuple) and len(addr) >= 2:
-                            return addr[0], addr[1]
-                        return '0.0.0.0', 0
-                    
-                    l_ip, l_port = get_ip_port(conn.laddr)
-                    r_ip, r_port = get_ip_port(conn.raddr)
-                    
-                    # Only include external connections
-                    if r_ip and r_ip not in ['127.0.0.1,::1', '0.0.0.0']:
-                        connections.append({
-                            'raddr': {"ip": r_ip, "port": r_port},
-                            'laddr': {"ip": l_ip, "port": l_port},
-                            'status': conn.status
-                        })
-            
-            return connections if connections else None
+            return event
             
         except Exception as e:
-            self.logger.debug(f"❌ Failed to get network connections for PID {pid}: {e}")
+            self.logger.error(f"❌ Enhanced event creation failed: {e}")
             return None
     
     def get_stats(self) -> Dict:
-        """Get detailed statistics for enhanced process monitoring"""
+        """Get statistics về real data collection"""
         base_stats = super().get_stats()
         base_stats.update({
-            'collector_type': 'Process_Enhanced_AllProcesses',
-            'total_process_create_events': self.stats['total_process_create_events'],
-            'total_process_terminate_events': self.stats['total_process_terminate_events'],
-            'notepad_events': self.stats['notepad_events'],
-            'calc_events': self.stats['calc_events'],
-            'browser_events': self.stats['browser_events'],
-            'office_events': self.stats['office_events'],
-            'system_tool_events': self.stats['system_tool_events'],
-            'suspicious_events': self.stats['suspicious_events'],
-            'high_cpu_events': self.stats['high_cpu_events'],
-            'high_memory_events': self.stats['high_memory_events'],
-            'total_events_generated': self.stats['total_events_generated'],
+            'collector_type': 'Real_Process_Data_Collector',
+            'total_processes_scanned': self.stats['total_processes_scanned'],
+            'processes_with_network': self.stats['processes_with_network'],
+            'processes_with_files': self.stats['processes_with_files'],
+            'processes_analyzed': self.stats['processes_analyzed'],
+            'events_generated': self.stats['events_generated'],
             'monitored_processes_count': len(self.monitored_processes),
-            'enhanced_monitoring': True,
-            'alert_all_processes': True,
-            'process_categories_monitored': list(self.interesting_processes.keys()),
-            'interesting_processes_count': len(self.all_executables)
+            'data_collection_approach': 'facts_only',
+            'capabilities': [
+                'real_network_connections',
+                'real_file_operations', 
+                'real_resource_usage',
+                'real_command_analysis',
+                'real_parent_child_relationships',
+                'real_environment_variables',
+                'fact_based_unusual_behavior_detection'
+            ]
         })
         return base_stats
 
-def collect_all_processes():
-    """Thu thập tất cả tiến trình đang chạy trên hệ thống (không lọc)"""
-    all_processes = []
-    for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'username', 'status']):
-        try:
-            proc_info = proc.info
-            if not proc_info['pid'] or not proc_info['name']:
-                continue
-            all_processes.append(proc_info)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-    return all_processes
+# Factory function
+def create_process_collector(config_manager):
+    """Factory function to create real process data collector"""
+    return RealProcessDataCollector(config_manager)
 
-if __name__ == "__main__":
-    processes = collect_all_processes()
-    print(f"Total processes: {len(processes)}")
-    for p in processes:
-        print(p)
+# Alias
+ProcessCollector = RealProcessDataCollector
+EnhancedProcessCollector = RealProcessDataCollector

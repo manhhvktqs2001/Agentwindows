@@ -280,26 +280,36 @@ class AlertPollingService:
             return False
     
     async def _execute_kill_process(self, action: Dict[str, Any]) -> bool:
-        """Thực thi kill process bằng taskkill với bảo vệ process quan trọng (KHÔNG hiện popup khi kill)"""
+        """Thực thi kill process bằng taskkill hoặc psutil, log rõ nguồn gốc (AI/rule) nếu có."""
         try:
             pid = action.get('process_id') or action.get('target_pid')
             process_name = action.get('process_name', 'Unknown')
+            source = action.get('source', 'Unknown')  # 'AI', 'Rule', ...
             if not pid:
                 logger.error("❌ No PID provided for kill_process")
                 return False
-            
-            # Thực thi kill process
-            cmd = ["taskkill", "/PID", str(pid), "/F"]
-            logger.info(f"[AGENT] Executing: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0:
-                message = f"✅ Đã kill process {process_name} (PID: {pid}) thành công"
-                logger.info(f"✅ {message}")
+            # Log nguồn gốc action nếu có
+            logger.info(f"[AGENT] Nhận lệnh kill_process từ nguồn: {source}. PID={pid}, Name={process_name}")
+            import psutil
+            try:
+                p = psutil.Process(int(pid))
+                p.kill()
+                logger.info(f"✅ Đã kill process {process_name} (PID: {pid}) thành công (psutil)")
                 return True
-            else:
-                error_message = f"❌ Không thể kill process {process_name} (PID: {pid}): {result.stderr}"
-                logger.error(f"❌ {error_message}")
-                return False
+            except Exception as e:
+                logger.warning(f"psutil kill failed: {e}, fallback to taskkill")
+                import subprocess
+                cmd = ["taskkill", "/PID", str(pid), "/F"]
+                logger.info(f"[AGENT] Executing: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode == 0:
+                    message = f"✅ Đã kill process {process_name} (PID: {pid}) thành công (taskkill)"
+                    logger.info(f"✅ {message}")
+                    return True
+                else:
+                    error_message = f"❌ Không thể kill process {process_name} (PID: {pid}): {result.stderr}"
+                    logger.error(f"❌ {error_message}")
+                    return False
         except Exception as e:
             error_message = f"❌ Lỗi khi kill process {process_name} (PID: {pid}): {e}"
             logger.error(f"❌ {error_message}")
